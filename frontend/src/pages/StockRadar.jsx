@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../hooks/useAuth";
+import { trackEvent } from "../lib/analytics";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -190,7 +192,7 @@ function Legend() {
   );
 }
 
-function DesktopView({ data, builtAt }) {
+function DesktopView({ data, builtAt, user }) {
   const [expanded, setExpanded] = useState(new Set());
   const [sort, setSort] = useState({ key: "z1w", dir: "desc" });
 
@@ -203,16 +205,19 @@ function DesktopView({ data, builtAt }) {
   const toggleExpand = (sec) => {
     setExpanded((prev) => {
       const next = new Set(prev);
+      const opening = !prev.has(sec);
       next.has(sec) ? next.delete(sec) : next.add(sec);
+      if (opening) trackEvent(user, `expand:${sec}`, "/stocks");
       return next;
     });
   };
 
   const handleSort = (key) => {
-    setSort((prev) => ({
-      key,
-      dir: prev.key === key && prev.dir === "desc" ? "asc" : "desc",
-    }));
+    setSort((prev) => {
+      const dir = prev.key === key && prev.dir === "desc" ? "asc" : "desc";
+      trackEvent(user, `sort:${key}:${dir}`, "/stocks");
+      return { key, dir };
+    });
   };
 
   const SortArrow = ({ col }) => {
@@ -409,6 +414,7 @@ function MobileView({ data, builtAt }) {
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export default function StockRadar() {
+  const { user } = useAuth();
   const [data,    setData]    = useState(null);
   const [builtAt, setBuiltAt] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -435,7 +441,7 @@ export default function StockRadar() {
   return (
     <>
       <div className="hidden md:block">
-        <DesktopView data={data} builtAt={builtAt} />
+        <DesktopView data={data} builtAt={builtAt} user={user} />
       </div>
       <div className="md:hidden">
         <MobileView data={data} builtAt={builtAt} />

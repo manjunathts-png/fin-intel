@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../hooks/useAuth";
+import { trackEvent } from "../lib/analytics";
 
 const WINDOWS     = ["1W", "1M", "3M", "6M", "1Y"];
 const WINDOW_KEYS = ["ret1w", "ret1m", "ret3m", "ret6m", "ret1y"];
@@ -153,12 +155,18 @@ function StockPickGroup({ group }) {
 }
 
 export default function Picks() {
+  const { user } = useAuth();
   const [mfData,    setMfData]    = useState(null);
   const [stockData, setStockData] = useState(null);
   const [builtAt,   setBuiltAt]   = useState(null);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState(null);
   const [tab,       setTab]       = useState("mf");
+
+  function switchTab(key) {
+    setTab(key);
+    trackEvent(user, `tab:${key}`, "/picks");
+  }
 
   useEffect(() => {
     Promise.all([
@@ -196,7 +204,7 @@ export default function Picks() {
         ].map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => switchTab(t.key)}
             className={`flex-1 rounded-lg py-2 text-sm font-medium transition ${
               tab === t.key ? "bg-gray-700 text-white" : "text-gray-500 hover:text-gray-300"
             }`}

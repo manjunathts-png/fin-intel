@@ -23,7 +23,27 @@ function fmtDate(iso) {
 }
 
 const PAGE_LABELS = { "/mf": "MF Radar", "/stocks": "Stocks", "/picks": "Picks", "/admin": "Admin" };
-const EVENT_LABELS = { login: "🔑 Login", page_view: "👁 View", logout: "🚪 Logout" };
+
+const WINDOW_LABELS = { ret1w: "1W", ret1m: "1M", ret3m: "3M", ret6m: "6M", ret1y: "1Y", z1w: "Momentum z" };
+
+function fmtEvent(event) {
+  if (!event) return "—";
+  if (event === "login")     return "🔑 Login";
+  if (event === "logout")    return "🚪 Logout";
+  if (event === "page_view") return "👁 Page view";
+  if (event.startsWith("sort:")) {
+    const [, col, dir] = event.split(":");
+    return `↕ Sort by ${WINDOW_LABELS[col] ?? col} (${dir})`;
+  }
+  if (event.startsWith("expand:")) {
+    return `▶ Expanded: ${event.slice(7)}`;
+  }
+  if (event.startsWith("tab:")) {
+    const t = event.slice(4);
+    return `⇄ Tab: ${t === "mf" ? "MF Picks" : "Stock Picks"}`;
+  }
+  return event;
+}
 
 function StatCard({ label, value, sub }) {
   return (
@@ -72,11 +92,11 @@ export default function Admin() {
     return acc;
   }, {});
 
-  // Page popularity
-  const pageViews = events
-    .filter((e) => e.event === "page_view" && e.page)
+  // Page activity (all events with a page)
+  const pageActivity = events
+    .filter((e) => e.page)
     .reduce((acc, e) => { acc[e.page] = (acc[e.page] ?? 0) + 1; return acc; }, {});
-  const topPages = Object.entries(pageViews).sort((a, b) => b[1] - a[1]);
+  const topPages = Object.entries(pageActivity).sort((a, b) => b[1] - a[1]);
 
   return (
     <div className="space-y-6">
@@ -185,7 +205,7 @@ export default function Admin() {
                 <tr key={e.id} className="border-t border-gray-800 hover:bg-gray-800/40 transition-colors">
                   <td className="px-4 py-2.5 text-xs text-gray-400 max-w-[140px] truncate">{e.email}</td>
                   <td className="px-4 py-2.5 text-xs font-medium text-gray-200">
-                    {EVENT_LABELS[e.event] ?? e.event}
+                    {fmtEvent(e.event)}
                   </td>
                   <td className="px-4 py-2.5 text-xs text-gray-500 hidden sm:table-cell">
                     {e.page ? (PAGE_LABELS[e.page] ?? e.page) : "—"}
