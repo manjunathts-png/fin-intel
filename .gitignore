@@ -17,3 +17,6 @@ frontend/.vite/
 ## Caches
 backend/mf_history_cache.json
 backend/stock_history_cache.json
+
+# Local Netlify folder
+.netlify
