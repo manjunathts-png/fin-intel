@@ -1,5 +1,9 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { trackEvent } from "../lib/analytics";
+
+const ADMIN_EMAIL = "manjunathts@gmail.com";
 
 const tabs = [
   { to: "/mf",     label: "MF Radar", icon: "📊" },
@@ -9,6 +13,11 @@ const tabs = [
 
 export default function Layout() {
   const { user, loading, login, logout } = useAuth();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (user) trackEvent(user, "page_view", location.pathname);
+  }, [location.pathname, user]);
 
   if (loading) {
     return (
@@ -76,6 +85,18 @@ export default function Layout() {
             <span className="hidden text-sm text-gray-400 lg:block">
               {user.user_metadata?.full_name || user.email}
             </span>
+            {user.email === ADMIN_EMAIL && (
+              <NavLink
+                to="/admin"
+                className={({ isActive }) =>
+                  `rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                    isActive ? "bg-purple-700 text-white" : "bg-gray-800 text-purple-400 hover:bg-purple-900/50"
+                  }`
+                }
+              >
+                ⚙ Admin
+              </NavLink>
+            )}
             <button
               onClick={logout}
               className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-gray-700"

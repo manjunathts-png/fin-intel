@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { upsertProfile, trackEvent } from "../lib/analytics";
 
 const AuthContext = createContext(null);
 
@@ -9,10 +10,18 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
+      if (session?.user) upsertProfile(session.user);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => setUser(session?.user ?? null)
+      (event, session) => {
+        const u = session?.user ?? null;
+        setUser(u);
+        if (u) {
+          upsertProfile(u);
+          if (event === "SIGNED_IN") trackEvent(u, "login");
+        }
+      }
     );
 
     return () => subscription.unsubscribe();

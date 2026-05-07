@@ -4,6 +4,7 @@ import Layout from "./components/Layout";
 import MfRadar from "./pages/MfRadar";
 import StockRadar from "./pages/StockRadar";
 import Picks from "./pages/Picks";
+import Admin from "./pages/Admin";
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
             <Route path="/mf"     element={<MfRadar />} />
             <Route path="/stocks" element={<StockRadar />} />
             <Route path="/picks"  element={<Picks />} />
+            <Route path="/admin"  element={<Admin />} />
             <Route path="*"       element={<Navigate to="/mf" replace />} />
           </Route>
         </Routes>
