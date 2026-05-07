@@ -1,0 +1,19 @@
+## Node
+node_modules/
+npm-debug.log*
+
+## Local env files (never commit keys)
+backend/.env
+frontend/.env
+frontend/.env.local
+
+## Build output
+frontend/dist/
+frontend/.vite/
+
+## macOS
+.DS_Store
+
+## Caches
+backend/mf_history_cache.json
+backend/stock_history_cache.json

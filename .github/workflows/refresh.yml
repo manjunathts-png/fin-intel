@@ -1,0 +1,44 @@
+name: Refresh Radar Cache
+
+on:
+  schedule:
+    - cron: '30 23 * * *'    # 5:00 AM IST daily  — MF + Stocks
+    - cron: '30 10 * * 1-5'  # 4:00 PM IST weekdays — Stocks only (after NSE close)
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'What to refresh'
+        required: false
+        default: 'all'
+        type: choice
+        options: [all, mf, stocks]
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: cd backend && npm ci
+
+      - name: Determine target
+        id: target
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "target=${{ github.event.inputs.target }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "30 10 * * 1-5" ]; then
+            echo "target=stocks" >> $GITHUB_OUTPUT
+          else
+            echo "target=all" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Refresh cache
+        run: node backend/refresh-cache.js ${{ steps.target.outputs.target }}
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

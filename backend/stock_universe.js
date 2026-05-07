@@ -1,0 +1,120 @@
+"use strict";
+
+/**
+ * Curated universe of NSE stocks per sector for the Stock Momentum Radar.
+ * Each entry is { symbol, label } where symbol is the Yahoo Finance ticker (with .NS suffix).
+ *
+ * Find Yahoo Finance tickers at: https://finance.yahoo.com  (search NSE symbol → append .NS)
+ */
+module.exports.STOCK_SECTORS = {
+  "IT": [
+    { symbol: "TCS.NS",       label: "TCS" },
+    { symbol: "INFY.NS",      label: "Infosys" },
+    { symbol: "HCLTECH.NS",   label: "HCL Tech" },
+    { symbol: "WIPRO.NS",     label: "Wipro" },
+    { symbol: "TECHM.NS",     label: "Tech Mahindra" },
+    { symbol: "COFORGE.NS",   label: "Coforge" },
+    { symbol: "PERSISTENT.NS",label: "Persistent Systems" },
+    { symbol: "MPHASIS.NS",   label: "Mphasis" },
+  ],
+  "Banking - Private": [
+    { symbol: "HDFCBANK.NS",  label: "HDFC Bank" },
+    { symbol: "ICICIBANK.NS", label: "ICICI Bank" },
+    { symbol: "KOTAKBANK.NS", label: "Kotak Bank" },
+    { symbol: "AXISBANK.NS",  label: "Axis Bank" },
+    { symbol: "INDUSINDBK.NS",label: "IndusInd Bank" },
+    { symbol: "FEDERALBNK.NS",label: "Federal Bank" },
+    { symbol: "IDFCFIRSTB.NS",label: "IDFC First Bank" },
+  ],
+  "Banking - PSU": [
+    { symbol: "SBIN.NS",      label: "SBI" },
+    { symbol: "BANKBARODA.NS",label: "Bank of Baroda" },
+    { symbol: "PNB.NS",       label: "PNB" },
+    { symbol: "CANBK.NS",     label: "Canara Bank" },
+    { symbol: "UNIONBANK.NS", label: "Union Bank" },
+    { symbol: "INDIANB.NS",   label: "Indian Bank" },
+  ],
+  "Auto & EV": [
+    { symbol: "MARUTI.NS",    label: "Maruti" },
+    { symbol: "M&M.NS",       label: "M&M" },
+    { symbol: "ASHOKLEY.NS", label: "Ashok Leyland" },
+    { symbol: "BAJAJ-AUTO.NS",label: "Bajaj Auto" },
+    { symbol: "HEROMOTOCO.NS",label: "Hero MotoCorp" },
+    { symbol: "EICHERMOT.NS", label: "Eicher Motors" },
+    { symbol: "TIINDIA.NS",   label: "Tube Investments" },
+  ],
+  "Pharma": [
+    { symbol: "SUNPHARMA.NS", label: "Sun Pharma" },
+    { symbol: "DRREDDY.NS",   label: "Dr. Reddy's" },
+    { symbol: "CIPLA.NS",     label: "Cipla" },
+    { symbol: "DIVISLAB.NS",  label: "Divis Labs" },
+    { symbol: "APOLLOHOSP.NS",label: "Apollo Hospitals" },
+    { symbol: "AUROPHARMA.NS",label: "Aurobindo Pharma" },
+    { symbol: "LUPIN.NS",     label: "Lupin" },
+  ],
+  "FMCG": [
+    { symbol: "HINDUNILVR.NS",label: "HUL" },
+    { symbol: "ITC.NS",       label: "ITC" },
+    { symbol: "NESTLEIND.NS", label: "Nestle" },
+    { symbol: "BRITANNIA.NS", label: "Britannia" },
+    { symbol: "DABUR.NS",     label: "Dabur" },
+    { symbol: "MARICO.NS",    label: "Marico" },
+    { symbol: "GODREJCP.NS",  label: "Godrej Consumer" },
+  ],
+  "Metals & Mining": [
+    { symbol: "TATASTEEL.NS", label: "Tata Steel" },
+    { symbol: "JSWSTEEL.NS",  label: "JSW Steel" },
+    { symbol: "HINDALCO.NS",  label: "Hindalco" },
+    { symbol: "VEDL.NS",      label: "Vedanta" },
+    { symbol: "COALINDIA.NS", label: "Coal India" },
+    { symbol: "SAIL.NS",      label: "SAIL" },
+    { symbol: "NATIONALUM.NS",label: "NALCO" },
+  ],
+  "Energy & Oil": [
+    { symbol: "RELIANCE.NS",  label: "Reliance" },
+    { symbol: "ONGC.NS",      label: "ONGC" },
+    { symbol: "IOC.NS",       label: "IOC" },
+    { symbol: "BPCL.NS",      label: "BPCL" },
+    { symbol: "NTPC.NS",      label: "NTPC" },
+    { symbol: "POWERGRID.NS", label: "Power Grid" },
+    { symbol: "TATAPOWER.NS", label: "Tata Power" },
+  ],
+  "Capital Goods & Defence": [
+    { symbol: "LT.NS",        label: "L&T" },
+    { symbol: "ABB.NS",       label: "ABB India" },
+    { symbol: "SIEMENS.NS",   label: "Siemens" },
+    { symbol: "HAL.NS",       label: "HAL" },
+    { symbol: "BEL.NS",       label: "BEL" },
+    { symbol: "BHEL.NS",      label: "BHEL" },
+    { symbol: "COCHINSHIP.NS",label: "Cochin Shipyard" },
+  ],
+  "Finance - NBFC": [
+    { symbol: "BAJFINANCE.NS",label: "Bajaj Finance" },
+    { symbol: "BAJAJFINSV.NS",label: "Bajaj Finserv" },
+    { symbol: "CHOLAFIN.NS",  label: "Cholamandalam" },
+    { symbol: "MUTHOOTFIN.NS",label: "Muthoot Finance" },
+    { symbol: "LICHSGFIN.NS", label: "LIC Housing" },
+    { symbol: "M&MFIN.NS",    label: "M&M Finance" },
+  ],
+  "Real Estate": [
+    { symbol: "DLF.NS",          label: "DLF" },
+    { symbol: "GODREJPROP.NS",   label: "Godrej Properties" },
+    { symbol: "OBEROIRLTY.NS",   label: "Oberoi Realty" },
+    { symbol: "PRESTIGE.NS",     label: "Prestige Estates" },
+    { symbol: "PHOENIXLTD.NS",   label: "Phoenix Mills" },
+    { symbol: "SOBHA.NS",        label: "Sobha" },
+  ],
+  "Telecom": [
+    { symbol: "BHARTIARTL.NS",label: "Airtel" },
+    { symbol: "INDUSTOWER.NS",label: "Indus Towers" },
+    { symbol: "IDEA.NS",      label: "Vodafone Idea" },
+  ],
+  "Consumption & Retail": [
+    { symbol: "DMART.NS",     label: "DMart" },
+    { symbol: "TRENT.NS",     label: "Trent" },
+    { symbol: "TITAN.NS",     label: "Titan" },
+    { symbol: "PAGEIND.NS",   label: "Page Industries" },
+    { symbol: "BATAINDIA.NS", label: "Bata India" },
+    { symbol: "NYKAA.NS",     label: "Nykaa" },
+  ],
+};

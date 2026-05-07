@@ -1,0 +1,15 @@
+{
+  "name": "fin-intel-backend",
+  "version": "1.0.0",
+  "main": "refresh-cache.js",
+  "scripts": {
+    "refresh":        "node refresh-cache.js all",
+    "refresh:mf":     "node refresh-cache.js mf",
+    "refresh:stocks": "node refresh-cache.js stocks"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "dotenv": "^16.4.5",
+    "yahoo-finance2": "^3.13.2"
+  }
+}
