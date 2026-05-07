@@ -9,11 +9,15 @@ require("dotenv").config();
 const { createClient }        = require("@supabase/supabase-js");
 const { getLeaderboard }      = require("./momentum");
 const { getStockLeaderboard } = require("./stock_momentum");
+const WebSocket               = require("ws");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY,
-  { auth: { persistSession: false } }
+  {
+    auth:     { persistSession: false },
+    realtime: { transport: WebSocket },
+  }
 );
 
 const target = process.argv[2] || "all";
