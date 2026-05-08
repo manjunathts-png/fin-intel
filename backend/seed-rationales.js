@@ -1,7 +1,11 @@
 "use strict";
 /**
- * One-time seed: inserts the AI-generated rationales into Supabase.
+ * Seeds AI-generated rationales into pick_ai_rationales table.
+ * Run this after doing a manual analysis session (weekly or on demand).
  * Usage: node backend/seed-rationales.js
+ *
+ * Writes to pick_ai_rationales (separate from the daily rule-based table).
+ * Upserts on fund_code — one AI analysis per fund, updated each time you run.
  */
 require("dotenv").config();
 const { createClient } = require("@supabase/supabase-js");
@@ -12,8 +16,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY,
   { auth: { persistSession: false }, realtime: { transport: WebSocket } }
 );
-
-const TODAY = new Date().toISOString().slice(0, 10);
 
 const RATIONALES = [
   {
@@ -249,16 +251,17 @@ const RATIONALES = [
 ];
 
 async function main() {
-  console.log(`Seeding ${RATIONALES.length} rationales for ${TODAY}…`);
+  console.log(`Seeding ${RATIONALES.length} AI rationales into pick_ai_rationales…`);
   for (const r of RATIONALES) {
-    const { error } = await supabase.from("pick_rationales").upsert(
-      { ...r, generated_at: new Date().toISOString(), run_date: TODAY },
-      { onConflict: "fund_code,run_date" }
+    const { fund_code, fund_name, category, rank, analysis } = r;
+    const { error } = await supabase.from("pick_ai_rationales").upsert(
+      { fund_code, fund_name, category, rank, analysis, generated_at: new Date().toISOString() },
+      { onConflict: "fund_code" }
     );
     if (error) {
-      console.error(`  ✗ ${r.fund_name}: ${error.message}`);
+      console.error(`  ✗ ${fund_name}: ${error.message}`);
     } else {
-      console.log(`  ✓ #${r.rank} ${r.fund_name}`);
+      console.log(`  ✓ #${rank} ${fund_name} → ${analysis.verdict}`);
     }
   }
   console.log("Done.");

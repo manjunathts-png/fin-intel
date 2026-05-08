@@ -15,32 +15,26 @@ const CONFIDENCE_STYLE = {
   "Low":    "text-red-400",
 };
 
-function RationalePanel({ rationale }) {
-  if (!rationale) return null;
-  const { analysis } = rationale;
-  const verdictCls   = VERDICT_STYLE[analysis.verdict] ?? "bg-gray-700/30 text-gray-300 border-gray-600/40";
-  const confCls      = CONFIDENCE_STYLE[analysis.confidence] ?? "text-gray-400";
+function fmtDate(iso) {
+  return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
 
+function AnalysisBody({ analysis }) {
+  const verdictCls = VERDICT_STYLE[analysis.verdict] ?? "bg-gray-700/30 text-gray-300 border-gray-600/40";
+  const confCls    = CONFIDENCE_STYLE[analysis.confidence] ?? "text-gray-400";
   return (
-    <div className="mt-3 rounded-xl border border-gray-700/60 bg-gray-800/50 p-4 text-sm space-y-3">
-      {/* Verdict + confidence */}
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${verdictCls}`}>
           {analysis.verdict}
         </span>
-        <span className={`text-xs font-medium ${confCls}`}>
-          {analysis.confidence} confidence
-        </span>
+        <span className={`text-xs font-medium ${confCls}`}>{analysis.confidence} confidence</span>
         <span className="text-xs text-gray-600">— {analysis.confidence_reason}</span>
       </div>
-
-      {/* Macro theme */}
       <div>
         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Macro Theme</div>
-        <p className="text-gray-300 leading-relaxed">{analysis.macro_theme}</p>
+        <p className="text-xs text-gray-300 leading-relaxed">{analysis.macro_theme}</p>
       </div>
-
-      {/* Bull / Bear */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-green-500">Bull Case</div>
@@ -63,23 +57,75 @@ function RationalePanel({ rationale }) {
           </ul>
         </div>
       </div>
-
-      {/* vs next pick */}
       {analysis.vs_next_pick && (
         <div>
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-blue-500">vs Next Pick</div>
           <p className="text-xs text-gray-300 leading-relaxed">{analysis.vs_next_pick}</p>
         </div>
       )}
+    </div>
+  );
+}
 
-      <div className="flex items-center gap-2 text-[10px] text-gray-700">
-        {analysis.source === "ai_generated"
-          ? <span className="rounded bg-purple-900/40 px-1.5 py-0.5 text-purple-400 font-medium">✦ AI analysis</span>
-          : <span className="rounded bg-gray-800 px-1.5 py-0.5 text-gray-600 font-medium">⚙ Rule-based</span>
-        }
-        <span>{new Date(rationale.generated_at).toLocaleDateString("en-IN")}</span>
-        <span>· Not financial advice</span>
-      </div>
+function RationaleSection({ ruleBased, aiRationale }) {
+  const [openRule, setOpenRule] = useState(false);
+  const [openAi,   setOpenAi]   = useState(false);
+  if (!ruleBased && !aiRationale) return null;
+
+  return (
+    <div className="mt-3 space-y-2">
+      {/* Rule-based panel */}
+      {ruleBased && (
+        <div>
+          <button
+            onClick={() => setOpenRule((o) => !o)}
+            className="flex w-full items-center gap-2 rounded-xl border border-gray-700/60 bg-gray-800/40 px-3 py-2 text-left text-xs font-medium text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition"
+          >
+            <span className="text-gray-600">⚙</span>
+            <span className="flex-1">Daily Analysis</span>
+            <span className={`font-semibold ${CONFIDENCE_STYLE[ruleBased.analysis.confidence] ?? "text-gray-500"}`}>
+              {ruleBased.analysis.verdict}
+            </span>
+            <span>{openRule ? "▲" : "▼"}</span>
+          </button>
+          {openRule && (
+            <div className="mt-1 rounded-xl border border-gray-700/40 bg-gray-800/30 p-4">
+              <AnalysisBody analysis={ruleBased.analysis} />
+              <div className="mt-3 text-[10px] text-gray-700">⚙ Rule-based · refreshes daily · Not financial advice</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* AI panel */}
+      {aiRationale && (
+        <div>
+          <button
+            onClick={() => setOpenAi((o) => !o)}
+            className="flex w-full items-center gap-2 rounded-xl border border-purple-800/50 bg-purple-900/10 px-3 py-2 text-left text-xs font-medium text-purple-300 hover:bg-purple-900/20 transition"
+          >
+            <span>✦</span>
+            <span className="flex-1">AI Analysis</span>
+            <span className="text-purple-500 font-normal">{fmtDate(aiRationale.generated_at)}</span>
+            <span className={`font-semibold ${CONFIDENCE_STYLE[aiRationale.analysis.confidence] ?? "text-gray-500"}`}>
+              {aiRationale.analysis.verdict}
+            </span>
+            <span>{openAi ? "▲" : "▼"}</span>
+          </button>
+          {openAi && (
+            <div className="mt-1 rounded-xl border border-purple-800/40 bg-purple-900/10 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="rounded bg-purple-900/50 px-2 py-0.5 text-[10px] font-semibold text-purple-300">
+                  ✦ AI Analysis
+                </span>
+                <span className="text-[10px] text-purple-500 font-medium">Generated {fmtDate(aiRationale.generated_at)}</span>
+              </div>
+              <AnalysisBody analysis={aiRationale.analysis} />
+              <div className="mt-3 text-[10px] text-purple-900/80">Not financial advice</div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -142,9 +188,9 @@ function buildStockPicks(stockData) {
     }));
 }
 
-function MfPickCard({ fund, rank, rationale }) {
-  const zl = zLabel(fund.catZ);
-  const [open, setOpen] = useState(false);
+function MfPickCard({ fund, rank, ruleBased, aiRationale }) {
+  const zl      = zLabel(fund.catZ);
+  const verdict = ruleBased?.analysis?.verdict ?? aiRationale?.analysis?.verdict;
 
   return (
     <div className="rounded-2xl border border-gray-800 bg-gray-900 p-4">
@@ -163,9 +209,14 @@ function MfPickCard({ fund, rank, rationale }) {
                 {zl.text}
               </span>
             )}
-            {rationale && (
-              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${VERDICT_STYLE[rationale.analysis.verdict] ?? "bg-gray-700/30 text-gray-300 border-gray-600/40"}`}>
-                {rationale.analysis.verdict}
+            {verdict && (
+              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${VERDICT_STYLE[verdict] ?? "bg-gray-700/30 text-gray-300 border-gray-600/40"}`}>
+                {verdict}
+              </span>
+            )}
+            {aiRationale && (
+              <span className="rounded-full border border-purple-700/40 bg-purple-900/20 px-2 py-0.5 text-[10px] font-bold text-purple-400">
+                ✦ AI
               </span>
             )}
           </div>
@@ -187,20 +238,7 @@ function MfPickCard({ fund, rank, rationale }) {
         ))}
       </div>
 
-      {rationale && (
-        <button
-          onClick={() => setOpen((o) => !o)}
-          className="mt-3 flex w-full items-center gap-1.5 rounded-xl border border-gray-700/60 bg-gray-800/40 px-3 py-2 text-left text-xs font-medium text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition"
-        >
-          <span>{open ? "▲" : "▼"}</span>
-          <span>{open ? "Hide" : "Why this pick?"}</span>
-          <span className={`ml-auto text-[10px] font-semibold ${CONFIDENCE_STYLE[rationale.analysis.confidence] ?? "text-gray-500"}`}>
-            {rationale.analysis.confidence} confidence
-          </span>
-        </button>
-      )}
-
-      {open && rationale && <RationalePanel rationale={rationale} />}
+      <RationaleSection ruleBased={ruleBased} aiRationale={aiRationale} />
     </div>
   );
 }
@@ -260,13 +298,14 @@ function StockPickGroup({ group }) {
 
 export default function Picks() {
   const { user } = useAuth();
-  const [mfData,     setMfData]     = useState(null);
-  const [stockData,  setStockData]  = useState(null);
-  const [builtAt,    setBuiltAt]    = useState(null);
-  const [rationales, setRationales] = useState({});
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState(null);
-  const [tab,        setTab]        = useState("mf");
+  const [mfData,        setMfData]        = useState(null);
+  const [stockData,     setStockData]     = useState(null);
+  const [builtAt,       setBuiltAt]       = useState(null);
+  const [ruleRationale, setRuleRationale] = useState({});
+  const [aiRationale,   setAiRationale]   = useState({});
+  const [loading,       setLoading]       = useState(true);
+  const [error,         setError]         = useState(null);
+  const [tab,           setTab]           = useState("mf");
 
   function switchTab(key) {
     setTab(key);
@@ -278,16 +317,22 @@ export default function Picks() {
       supabase.from("radar_cache").select("data,built_at").eq("key", "mf_radar").single(),
       supabase.from("radar_cache").select("data,built_at").eq("key", "stock_radar").single(),
       supabase.from("pick_rationales").select("*").order("rank"),
-    ]).then(([mf, st, rat]) => {
+      supabase.from("pick_ai_rationales").select("*").order("rank"),
+    ]).then(([mf, st, rule, ai]) => {
       if (mf.error) { setError(mf.error.message); return; }
       if (st.error) { setError(st.error.message); return; }
       setMfData(mf.data.data);
       setStockData(st.data.data);
       setBuiltAt(mf.data.built_at);
-      if (!rat.error && rat.data) {
+      if (!rule.error && rule.data) {
         const byCode = {};
-        rat.data.forEach((r) => { byCode[r.fund_code] = r; });
-        setRationales(byCode);
+        rule.data.forEach((r) => { byCode[r.fund_code] = r; });
+        setRuleRationale(byCode);
+      }
+      if (!ai.error && ai.data) {
+        const byCode = {};
+        ai.data.forEach((r) => { byCode[r.fund_code] = r; });
+        setAiRationale(byCode);
       }
     }).finally(() => setLoading(false));
   }, []);
@@ -331,7 +376,13 @@ export default function Picks() {
             One fund per category · ranked by weighted momentum (40% 1W · 30% 1M · 20% 3M · 10% z-score)
           </p>
           {mfPicks.map((fund, i) => (
-            <MfPickCard key={fund.code} fund={fund} rank={i + 1} rationale={rationales[fund.code] ?? null} />
+            <MfPickCard
+              key={fund.code}
+              fund={fund}
+              rank={i + 1}
+              ruleBased={ruleRationale[fund.code] ?? null}
+              aiRationale={aiRationale[fund.code] ?? null}
+            />
           ))}
         </div>
       )}
