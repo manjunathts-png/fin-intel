@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "main": "refresh-cache.js",
   "scripts": {
-    "refresh":        "node refresh-cache.js all",
-    "refresh:mf":     "node refresh-cache.js mf",
+    "refresh": "node refresh-cache.js all",
+    "refresh:mf": "node refresh-cache.js mf",
     "refresh:stocks": "node refresh-cache.js stocks"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.1",
     "@supabase/supabase-js": "^2.39.0",
     "dotenv": "^16.4.5",
     "ws": "^8.18.0",
