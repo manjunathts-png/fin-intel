@@ -6,10 +6,11 @@
  */
 
 require("dotenv").config();
-const { createClient }        = require("@supabase/supabase-js");
-const { getLeaderboard }      = require("./momentum");
-const { getStockLeaderboard } = require("./stock_momentum");
-const WebSocket               = require("ws");
+const { createClient }          = require("@supabase/supabase-js");
+const { getLeaderboard }        = require("./momentum");
+const { getStockLeaderboard }   = require("./stock_momentum");
+const { generateRationales }    = require("./generate-rationales");
+const WebSocket                 = require("ws");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -40,6 +41,18 @@ async function main() {
     await upsert("mf_radar", mf);
     console.log(`  ${mf.categories.length} categories processed`);
     if (mf.warnings?.length) console.warn("  warnings:", mf.warnings);
+
+    console.log("Generating rule-based rationales…");
+    const today      = new Date().toISOString().slice(0, 10);
+    const rationales = generateRationales(mf, 10);
+    for (const r of rationales) {
+      const { error } = await supabase
+        .from("pick_rationales")
+        .upsert({ ...r, generated_at: new Date().toISOString(), run_date: today },
+                { onConflict: "fund_code,run_date" });
+      if (error) console.warn(`  ✗ rationale for ${r.fund_name}: ${error.message}`);
+      else       console.log(`  ✓ #${r.rank} ${r.fund_name} → ${r.analysis.verdict}`);
+    }
   }
 
   if (target === "all" || target === "stocks") {

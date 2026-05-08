@@ -72,8 +72,13 @@ function RationalePanel({ rationale }) {
         </div>
       )}
 
-      <div className="text-[10px] text-gray-700">
-        AI analysis · {new Date(rationale.generated_at).toLocaleDateString("en-IN")} · Not financial advice
+      <div className="flex items-center gap-2 text-[10px] text-gray-700">
+        {analysis.source === "ai_generated"
+          ? <span className="rounded bg-purple-900/40 px-1.5 py-0.5 text-purple-400 font-medium">✦ AI analysis</span>
+          : <span className="rounded bg-gray-800 px-1.5 py-0.5 text-gray-600 font-medium">⚙ Rule-based</span>
+        }
+        <span>{new Date(rationale.generated_at).toLocaleDateString("en-IN")}</span>
+        <span>· Not financial advice</span>
       </div>
     </div>
   );
