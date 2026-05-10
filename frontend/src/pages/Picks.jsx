@@ -316,7 +316,7 @@ export default function Picks() {
     Promise.all([
       supabase.from("radar_cache").select("data,built_at").eq("key", "mf_radar").single(),
       supabase.from("radar_cache").select("data,built_at").eq("key", "stock_radar").single(),
-      supabase.from("pick_rationales").select("*").order("rank"),
+      supabase.from("pick_rationales").select("*").order("run_date", { ascending: false }).order("rank").limit(10),
       supabase.from("pick_ai_rationales").select("*").order("rank"),
     ]).then(([mf, st, rule, ai]) => {
       if (mf.error) { setError(mf.error.message); return; }
@@ -324,9 +324,9 @@ export default function Picks() {
       setMfData(mf.data.data);
       setStockData(st.data.data);
       setBuiltAt(mf.data.built_at);
-      if (!rule.error && rule.data) {
+if (!rule.error && rule.data) {
         const byCode = {};
-        rule.data.forEach((r) => { byCode[r.fund_code] = r; });
+        rule.data.forEach((r) => { if (!byCode[r.fund_code]) byCode[r.fund_code] = r; });
         setRuleRationale(byCode);
       }
       if (!ai.error && ai.data) {
