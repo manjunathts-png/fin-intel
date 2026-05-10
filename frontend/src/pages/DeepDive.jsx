@@ -282,9 +282,9 @@ function DrawdownChart({ series }) {
   const polyline = pts.map((p,i) => `${xOf(i)},${yOf(p.dd)}`).join(" ");
   const area = `${PL},${PT+cH} ` + polyline + ` ${PL+cW},${PT+cH}`;
 
-  // Year labels
-  const firstYear = pts[0]?.date?.slice(0,4);
-  const lastYear  = pts[pts.length-1]?.date?.slice(0,4);
+  // Year labels (date is a Date object, use getFullYear())
+  const firstYear = pts[0]?.date?.getFullYear();
+  const lastYear  = pts[pts.length-1]?.date?.getFullYear();
 
   return (
     <svg width={W} height={H} className="text-gray-800 w-full max-w-xs">
