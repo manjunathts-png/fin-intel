@@ -79,8 +79,12 @@ async function fetchSymbolHistory(symbol) {
     .filter((d) => d.close != null && d.close > 0)
     .sort((a, b) => new Date(a.date) - new Date(b.date))
     .map((d) => ({
-      date:  new Date(d.date).toISOString().slice(0, 10),
-      close: d.close,
+      date:   new Date(d.date).toISOString().slice(0, 10),
+      open:   d.open   ?? d.close,
+      high:   d.high   ?? d.close,
+      low:    d.low    ?? d.close,
+      close:  d.close,
+      volume: d.volume ?? 0,
     }));
 
   const entry = { fetchedAt: new Date().toISOString(), prices };
@@ -229,4 +233,4 @@ async function getStockLeaderboard({ force = false } = {}) {
   return data;
 }
 
-module.exports = { getStockLeaderboard };
+module.exports = { getStockLeaderboard, fetchSymbolHistory };

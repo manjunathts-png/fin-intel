@@ -20,3 +20,4 @@ backend/stock_history_cache.json
 
 # Local Netlify folder
 .netlify
+backend/bhavcopy_cache.json

@@ -188,6 +188,124 @@ function buildStockPicks(stockData) {
     }));
 }
 
+// ─── Stock signals (new) ──────────────────────────────────────────────────────
+
+const CHIP_STYLE = {
+  volume:          "bg-orange-500/20 text-orange-300 border-orange-600/40",
+  breakout:        "bg-green-500/20 text-green-300 border-green-600/40",
+  trend:           "bg-emerald-500/20 text-emerald-200 border-emerald-600/40",
+  indicator:       "bg-cyan-500/20 text-cyan-300 border-cyan-600/40",
+  pattern:         "bg-purple-500/20 text-purple-300 border-purple-600/40",
+  gap:             "bg-yellow-500/20 text-yellow-200 border-yellow-600/40",
+  "rsi-oversold":  "bg-blue-500/20 text-blue-300 border-blue-600/40",
+  "rsi-overbought":"bg-red-500/20 text-red-300 border-red-600/40",
+  delivery:        "bg-teal-500/20 text-teal-300 border-teal-600/40",
+};
+
+function ScoreBadge({ score }) {
+  const color = score >= 60 ? "from-green-700 to-green-500"
+              : score >= 40 ? "from-yellow-700 to-yellow-500"
+              : score >= 25 ? "from-blue-700 to-blue-500"
+              :               "from-gray-700 to-gray-600";
+  return (
+    <div className="flex shrink-0 flex-col items-end">
+      <div className={`rounded-lg bg-gradient-to-br ${color} px-2.5 py-1 text-center min-w-[58px]`}>
+        <div className="text-base font-bold text-white tabular-nums leading-none">{score}</div>
+        <div className="text-[8px] text-white/70 uppercase tracking-wider">score</div>
+      </div>
+    </div>
+  );
+}
+
+function StockPickCard({ pick, rank, ruleBased, aiRationale }) {
+  const verdict   = ruleBased?.analysis?.verdict ?? aiRationale?.analysis?.verdict;
+  const chips     = ruleBased?.analysis?.signal_chips ?? [];
+  const changeCol = (pick.changePct ?? 0) >= 0 ? "text-green-400" : "text-red-400";
+
+  return (
+    <div className="rounded-2xl border border-gray-800 bg-gray-900 p-4">
+      {/* header */}
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold text-blue-400">#{rank}</span>
+            <span className="font-semibold leading-snug text-gray-100">{pick.label}</span>
+            <span className="text-[10px] text-gray-600 font-mono">{pick.symbol?.replace(".NS","")}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded border border-gray-700 px-1.5 py-0.5 text-[10px] text-gray-400">
+              {pick.sector}
+            </span>
+            {verdict && (
+              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${VERDICT_STYLE[verdict] ?? "bg-gray-700/30 text-gray-300 border-gray-600/40"}`}>
+                {verdict}
+              </span>
+            )}
+            {aiRationale && (
+              <span className="rounded-full border border-purple-700/40 bg-purple-900/20 px-2 py-0.5 text-[10px] font-bold text-purple-400">
+                ✦ AI
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-start gap-2">
+          {pick.close != null && (
+            <div className="text-right">
+              <div className="text-xs text-gray-500">Price</div>
+              <div className="text-sm font-semibold text-gray-200 tabular-nums">
+                ₹{pick.close.toLocaleString("en-IN")}
+              </div>
+              <div className={`text-[10px] tabular-nums ${changeCol}`}>
+                {pick.changePct >= 0 ? "+" : ""}{pick.changePct?.toFixed(2)}%
+              </div>
+            </div>
+          )}
+          <ScoreBadge score={pick.compositeScore} />
+        </div>
+      </div>
+
+      {/* signal chips */}
+      {chips.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {chips.map((c, i) => (
+            <span key={i} className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${CHIP_STYLE[c.type] ?? "bg-gray-700/30 text-gray-300 border-gray-600/40"}`}>
+              {c.label}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* compact technicals */}
+      <div className="grid grid-cols-3 gap-2 text-[10px] sm:grid-cols-6">
+        <Tech label="RSI(14)"   val={pick.rsi14}   fmt={(v) => v?.toFixed(0)}
+              color={pick.rsiSignal === "overbought" ? "text-red-400" : pick.rsiSignal === "oversold" ? "text-blue-400" : "text-gray-300"} />
+        <Tech label="20 DMA"    val={pick.dma20}   fmt={(v) => v ? `₹${v.toFixed(0)}` : "—"}
+              color={pick.above20DMA ? "text-green-400" : "text-red-400"} />
+        <Tech label="50 DMA"    val={pick.dma50}   fmt={(v) => v ? `₹${v.toFixed(0)}` : "—"}
+              color={pick.above50DMA ? "text-green-400" : "text-red-400"} />
+        <Tech label="200 DMA"   val={pick.dma200}  fmt={(v) => v ? `₹${v.toFixed(0)}` : "—"}
+              color={pick.above200DMA ? "text-green-400" : "text-red-400"} />
+        <Tech label="1W"        val={pick.ret1w}   fmt={(v) => v != null ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}%` : "—"}
+              color={(pick.ret1w ?? 0) >= 0 ? "text-green-400" : "text-red-400"} />
+        <Tech label="Deliv %"   val={pick.deliveryPct} fmt={(v) => v != null ? `${v}%` : "—"}
+              color={pick.highDelivery ? "text-teal-400" : "text-gray-300"} />
+      </div>
+
+      <RationaleSection ruleBased={ruleBased} aiRationale={aiRationale} />
+    </div>
+  );
+}
+
+function Tech({ label, val, fmt, color }) {
+  return (
+    <div className="rounded-lg bg-gray-800/40 px-2 py-1.5">
+      <div className="text-[9px] text-gray-600 uppercase tracking-wider">{label}</div>
+      <div className={`text-xs font-semibold tabular-nums ${color}`}>{fmt(val)}</div>
+    </div>
+  );
+}
+
 function MfPickCard({ fund, rank, ruleBased, aiRationale }) {
   const zl      = zLabel(fund.catZ);
   const verdict = ruleBased?.analysis?.verdict ?? aiRationale?.analysis?.verdict;
@@ -298,14 +416,18 @@ function StockPickGroup({ group }) {
 
 export default function Picks() {
   const { user } = useAuth();
-  const [mfData,        setMfData]        = useState(null);
-  const [stockData,     setStockData]     = useState(null);
-  const [builtAt,       setBuiltAt]       = useState(null);
-  const [ruleRationale, setRuleRationale] = useState({});
-  const [aiRationale,   setAiRationale]   = useState({});
-  const [loading,       setLoading]       = useState(true);
-  const [error,         setError]         = useState(null);
-  const [tab,           setTab]           = useState("mf");
+  const [mfData,           setMfData]           = useState(null);
+  const [stockPicksData,   setStockPicksData]   = useState(null); // new: from `stock_picks` cache key
+  const [stockData,        setStockData]        = useState(null); // legacy sector view (fallback)
+  const [builtAt,          setBuiltAt]          = useState(null);
+  const [stockBuiltAt,     setStockBuiltAt]     = useState(null);
+  const [ruleRationale,    setRuleRationale]    = useState({});
+  const [aiRationale,      setAiRationale]      = useState({});
+  const [stockRuleRat,     setStockRuleRat]     = useState({});
+  const [stockAiRat,       setStockAiRat]       = useState({});
+  const [loading,          setLoading]          = useState(true);
+  const [error,            setError]            = useState(null);
+  const [tab,              setTab]              = useState("mf");
 
   function switchTab(key) {
     setTab(key);
@@ -316,15 +438,22 @@ export default function Picks() {
     Promise.all([
       supabase.from("radar_cache").select("data,built_at").eq("key", "mf_radar").single(),
       supabase.from("radar_cache").select("data,built_at").eq("key", "stock_radar").single(),
+      supabase.from("radar_cache").select("data,built_at").eq("key", "stock_picks").maybeSingle(),
       supabase.from("pick_rationales").select("*").order("run_date", { ascending: false }).order("rank").limit(10),
       supabase.from("pick_ai_rationales").select("*").order("rank"),
-    ]).then(([mf, st, rule, ai]) => {
+      supabase.from("stock_pick_rationales").select("*").order("run_date", { ascending: false }).order("rank").limit(10),
+      supabase.from("stock_pick_ai_rationales").select("*").order("rank"),
+    ]).then(([mf, st, sp, rule, ai, sRule, sAi]) => {
       if (mf.error) { setError(mf.error.message); return; }
       if (st.error) { setError(st.error.message); return; }
       setMfData(mf.data.data);
       setStockData(st.data.data);
       setBuiltAt(mf.data.built_at);
-if (!rule.error && rule.data) {
+      if (sp?.data) {
+        setStockPicksData(sp.data.data);
+        setStockBuiltAt(sp.data.built_at);
+      }
+      if (!rule.error && rule.data) {
         const byCode = {};
         rule.data.forEach((r) => { if (!byCode[r.fund_code]) byCode[r.fund_code] = r; });
         setRuleRationale(byCode);
@@ -334,15 +463,26 @@ if (!rule.error && rule.data) {
         ai.data.forEach((r) => { byCode[r.fund_code] = r; });
         setAiRationale(byCode);
       }
+      if (!sRule.error && sRule.data) {
+        const bySymbol = {};
+        sRule.data.forEach((r) => { if (!bySymbol[r.symbol]) bySymbol[r.symbol] = r; });
+        setStockRuleRat(bySymbol);
+      }
+      if (!sAi.error && sAi.data) {
+        const bySymbol = {};
+        sAi.data.forEach((r) => { bySymbol[r.symbol] = r; });
+        setStockAiRat(bySymbol);
+      }
     }).finally(() => setLoading(false));
   }, []);
 
   if (loading) return <Spinner />;
   if (error)   return <ErrorBox msg={error} />;
-  if (!mfData || !stockData) return <ErrorBox msg="No data yet — the first GitHub Actions run hasn't completed." />;
+  if (!mfData) return <ErrorBox msg="No data yet — the first GitHub Actions run hasn't completed." />;
 
-  const mfPicks    = buildMfPicks(mfData);
-  const stockPicks = buildStockPicks(stockData);
+  const mfPicks       = buildMfPicks(mfData);
+  const signalsPicks  = stockPicksData?.picks ?? [];
+  const sectorGroups  = stockData ? buildStockPicks(stockData) : [];
 
   return (
     <div className="space-y-4">
@@ -356,7 +496,7 @@ if (!rule.error && rule.data) {
       <div className="flex gap-1 rounded-xl bg-gray-900 p-1">
         {[
           { key: "mf",     label: `📊 MF (${mfPicks.length})` },
-          { key: "stocks", label: `📈 Stocks (${stockPicks.length} sectors)` },
+          { key: "stocks", label: `📈 Stocks (${signalsPicks.length || sectorGroups.length})` },
         ].map((t) => (
           <button
             key={t.key}
@@ -389,17 +529,37 @@ if (!rule.error && rule.data) {
 
       {tab === "stocks" && (
         <div className="space-y-3">
-          <p className="text-xs text-gray-600">
-            Top 3 stocks per sector · only sectors with positive momentum shown
-          </p>
-          {stockPicks.length === 0 && (
-            <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6 text-center text-sm text-gray-500">
-              No sectors in positive momentum right now.
-            </div>
+          {signalsPicks.length > 0 ? (
+            <>
+              <p className="text-xs text-gray-600">
+                Top {signalsPicks.length} stocks ranked by composite momentum score (volume · breakouts · patterns ·
+                RSI · DMA stack · delivery %){stockBuiltAt && <> · updated {timeAgo(stockBuiltAt)}</>}
+              </p>
+              {signalsPicks.slice(0, 10).map((pick, i) => (
+                <StockPickCard
+                  key={pick.symbol}
+                  pick={pick}
+                  rank={i + 1}
+                  ruleBased={stockRuleRat[pick.symbol] ?? null}
+                  aiRationale={stockAiRat[pick.symbol] ?? null}
+                />
+              ))}
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-gray-600">
+                Signal-based picks not yet computed. Showing sector momentum view.
+              </p>
+              {sectorGroups.length === 0 && (
+                <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6 text-center text-sm text-gray-500">
+                  No sectors in positive momentum right now.
+                </div>
+              )}
+              {sectorGroups.map((g) => (
+                <StockPickGroup key={g.sector} group={g} />
+              ))}
+            </>
           )}
-          {stockPicks.map((g) => (
-            <StockPickGroup key={g.sector} group={g} />
-          ))}
         </div>
       )}
 

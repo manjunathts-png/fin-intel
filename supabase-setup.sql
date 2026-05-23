@@ -95,3 +95,49 @@ create policy "authenticated read rationales"
   to authenticated
   using (true);
 -- Service role (used by script) bypasses RLS for inserts.
+
+-- ─── Stock pick rationales ────────────────────────────────────────────────────
+-- Rule-based daily rationale for top stock picks (computed from technical signals).
+
+create table if not exists stock_pick_rationales (
+  id              bigserial   primary key,
+  symbol          text        not null,    -- e.g. "RELIANCE.NS"
+  stock_name      text        not null,
+  sector          text        not null,
+  rank            int         not null,
+  composite_score int,
+  analysis        jsonb       not null,
+  generated_at    timestamptz not null default now(),
+  run_date        date        not null default current_date
+);
+
+create unique index if not exists stock_pick_rationales_symbol_date
+  on stock_pick_rationales (symbol, run_date);
+
+alter table stock_pick_rationales enable row level security;
+
+create policy "authenticated read stock rationales"
+  on stock_pick_rationales for select
+  to authenticated
+  using (true);
+
+-- ─── Stock pick AI rationales ─────────────────────────────────────────────────
+-- AI-curated rationale for top stock picks. One row per symbol, refreshed when seeded.
+
+create table if not exists stock_pick_ai_rationales (
+  id              bigserial   primary key,
+  symbol          text        unique not null,
+  stock_name      text        not null,
+  sector          text        not null,
+  rank            int,
+  composite_score int,
+  analysis        jsonb       not null,
+  generated_at    timestamptz not null default now()
+);
+
+alter table stock_pick_ai_rationales enable row level security;
+
+create policy "authenticated read stock ai rationales"
+  on stock_pick_ai_rationales for select
+  to authenticated
+  using (true);
