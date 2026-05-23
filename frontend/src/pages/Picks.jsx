@@ -191,6 +191,10 @@ function buildStockPicks(stockData) {
 // ─── Stock signals (new) ──────────────────────────────────────────────────────
 
 const CHIP_STYLE = {
+  institutional:   "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-600/50 font-bold",
+  discovery:       "bg-pink-500/20 text-pink-200 border-pink-600/50",
+  fno:             "bg-indigo-500/20 text-indigo-300 border-indigo-600/40",
+  rs:              "bg-lime-500/20 text-lime-300 border-lime-600/40 font-semibold",
   volume:          "bg-orange-500/20 text-orange-300 border-orange-600/40",
   breakout:        "bg-green-500/20 text-green-300 border-green-600/40",
   trend:           "bg-emerald-500/20 text-emerald-200 border-emerald-600/40",
@@ -201,6 +205,12 @@ const CHIP_STYLE = {
   "rsi-overbought":"bg-red-500/20 text-red-300 border-red-600/40",
   delivery:        "bg-teal-500/20 text-teal-300 border-teal-600/40",
 };
+
+function fmtMcap(cr) {
+  if (cr == null) return null;
+  if (cr >= 1e5) return `₹${(cr / 1e5).toFixed(2)}L Cr`;
+  return `₹${cr.toLocaleString("en-IN")} Cr`;
+}
 
 function ScoreBadge({ score }) {
   const color = score >= 60 ? "from-green-700 to-green-500"
@@ -276,20 +286,37 @@ function StockPickCard({ pick, rank, ruleBased, aiRationale }) {
         </div>
       )}
 
-      {/* compact technicals */}
+      {/* Fundamentals strip (only when available) */}
+      {pick.fundamentals && (
+        <div className="mb-3 grid grid-cols-2 gap-2 text-[10px] sm:grid-cols-5">
+          <Tech label="Market Cap"  val={pick.fundamentals.marketCapCr} fmt={fmtMcap} color="text-gray-200" />
+          <Tech label="P/E"         val={pick.fundamentals.trailingPE}  fmt={(v) => v != null ? v.toFixed(0) : "—"}
+                color={pick.fundamentals.trailingPE > 50 ? "text-yellow-400" : pick.fundamentals.trailingPE < 15 ? "text-green-400" : "text-gray-200"} />
+          <Tech label="EPS Growth"  val={pick.fundamentals.earningsGrowth} fmt={(v) => v != null ? `${v >= 0 ? "+" : ""}${v}%` : "—"}
+                color={(pick.fundamentals.earningsGrowth ?? 0) >= 20 ? "text-green-400" : (pick.fundamentals.earningsGrowth ?? 0) < 0 ? "text-red-400" : "text-gray-200"} />
+          <Tech label="ROE"         val={pick.fundamentals.returnOnEquity} fmt={(v) => v != null ? `${v}%` : "—"}
+                color={(pick.fundamentals.returnOnEquity ?? 0) >= 20 ? "text-green-400" : "text-gray-200"} />
+          <Tech label="Div Yield"   val={pick.fundamentals.dividendYield} fmt={(v) => v != null ? `${v}%` : "—"}
+                color="text-gray-200" />
+        </div>
+      )}
+
+      {/* Technicals + Relative Strength */}
       <div className="grid grid-cols-3 gap-2 text-[10px] sm:grid-cols-6">
-        <Tech label="RSI(14)"   val={pick.rsi14}   fmt={(v) => v?.toFixed(0)}
+        <Tech label="RSI(14)" val={pick.rsi14} fmt={(v) => v != null ? v.toFixed(0) : "—"}
               color={pick.rsiSignal === "overbought" ? "text-red-400" : pick.rsiSignal === "oversold" ? "text-blue-400" : "text-gray-300"} />
-        <Tech label="20 DMA"    val={pick.dma20}   fmt={(v) => v ? `₹${v.toFixed(0)}` : "—"}
+        <Tech label="20 DMA"  val={pick.dma20}  fmt={(v) => v ? `₹${v.toFixed(0)}` : "—"}
               color={pick.above20DMA ? "text-green-400" : "text-red-400"} />
-        <Tech label="50 DMA"    val={pick.dma50}   fmt={(v) => v ? `₹${v.toFixed(0)}` : "—"}
+        <Tech label="50 DMA"  val={pick.dma50}  fmt={(v) => v ? `₹${v.toFixed(0)}` : "—"}
               color={pick.above50DMA ? "text-green-400" : "text-red-400"} />
-        <Tech label="200 DMA"   val={pick.dma200}  fmt={(v) => v ? `₹${v.toFixed(0)}` : "—"}
+        <Tech label="200 DMA" val={pick.dma200} fmt={(v) => v ? `₹${v.toFixed(0)}` : "—"}
               color={pick.above200DMA ? "text-green-400" : "text-red-400"} />
-        <Tech label="1W"        val={pick.ret1w}   fmt={(v) => v != null ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}%` : "—"}
-              color={(pick.ret1w ?? 0) >= 0 ? "text-green-400" : "text-red-400"} />
-        <Tech label="Deliv %"   val={pick.deliveryPct} fmt={(v) => v != null ? `${v}%` : "—"}
-              color={pick.highDelivery ? "text-teal-400" : "text-gray-300"} />
+        <Tech label="RS 1M vs Nifty" val={pick.rsVsNifty1M}
+              fmt={(v) => v != null ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}pp` : "—"}
+              color={(pick.rsVsNifty1M ?? 0) >= 5 ? "text-lime-400" : (pick.rsVsNifty1M ?? 0) >= 0 ? "text-green-400" : "text-red-400"} />
+        <Tech label="RS 3M vs Nifty" val={pick.rsVsNifty3M}
+              fmt={(v) => v != null ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}pp` : "—"}
+              color={(pick.rsVsNifty3M ?? 0) >= 10 ? "text-lime-400" : (pick.rsVsNifty3M ?? 0) >= 0 ? "text-green-400" : "text-red-400"} />
       </div>
 
       <RationaleSection ruleBased={ruleBased} aiRationale={aiRationale} />
@@ -302,6 +329,163 @@ function Tech({ label, val, fmt, color }) {
     <div className="rounded-lg bg-gray-800/40 px-2 py-1.5">
       <div className="text-[9px] text-gray-600 uppercase tracking-wider">{label}</div>
       <div className={`text-xs font-semibold tabular-nums ${color}`}>{fmt(val)}</div>
+    </div>
+  );
+}
+
+// ─── Discovery section (NSE feeds) ──────────────────────────────────────────
+
+function DiscoveryWidget({ title, icon, color, items, renderItem, emptyMsg }) {
+  const [open, setOpen] = useState(false);
+  if (!items?.length && !emptyMsg) return null;
+  const visible = open ? items.slice(0, 50) : items.slice(0, 5);
+
+  return (
+    <div className={`overflow-hidden rounded-2xl border ${color} bg-gray-900`}>
+      <div className="flex items-center justify-between px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <span>{icon}</span>
+          <span className="text-sm font-semibold text-gray-200">{title}</span>
+          <span className="rounded-full bg-gray-800 px-1.5 py-0.5 text-[10px] tabular-nums text-gray-500">{items?.length ?? 0}</span>
+        </div>
+        {items?.length > 5 && (
+          <button onClick={() => setOpen(!open)} className="text-[10px] text-blue-400 hover:text-blue-300">
+            {open ? "− show less" : `+ show all ${items.length}`}
+          </button>
+        )}
+      </div>
+      <div className="border-t border-gray-800/60">
+        {items?.length === 0 && emptyMsg && (
+          <div className="px-4 py-3 text-[11px] text-gray-600 italic">{emptyMsg}</div>
+        )}
+        {visible.map((item, i) => renderItem(item, i))}
+      </div>
+    </div>
+  );
+}
+
+function DiscoverySection({ discovery, niftyReturns, builtAt }) {
+  if (!discovery) return null;
+  const { highs52w, topGainers, oiBuildup, bulkDeals, blockDeals } = discovery;
+  // Combine block + bulk as "institutional"
+  const inst = [
+    ...(blockDeals ?? []).map((d) => ({ ...d, kind: "BLOCK" })),
+    ...(bulkDeals  ?? []).map((d) => ({ ...d, kind: "BULK" })),
+  ].slice(0, 30);
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-purple-800/40 bg-gray-950 p-3">
+      <div className="flex items-center justify-between px-1">
+        <div>
+          <div className="text-sm font-semibold text-purple-200">🔭 NSE Discovery</div>
+          <p className="mt-0.5 text-[10px] text-gray-600">
+            Live feeds from NSE — independent of our universe scan. {niftyReturns && `Nifty 1M: ${niftyReturns.ret1m >= 0 ? "+" : ""}${niftyReturns.ret1m?.toFixed(1)}% · 3M: ${niftyReturns.ret3m >= 0 ? "+" : ""}${niftyReturns.ret3m?.toFixed(1)}%`}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <DiscoveryWidget
+          title="52-Week Highs"
+          icon="🚀"
+          color="border-green-900/40"
+          items={highs52w}
+          renderItem={(d, i) => (
+            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+              <div className="min-w-0">
+                <div className="truncate text-xs text-gray-200">{d.company}</div>
+                <div className="text-[10px] text-gray-600 font-mono">{d.symbol}</div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="text-xs font-semibold text-gray-200 tabular-nums">₹{d.ltp?.toLocaleString("en-IN")}</div>
+                <div className={`text-[10px] tabular-nums ${(d.pChange ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  {d.pChange >= 0 ? "+" : ""}{d.pChange?.toFixed(2)}%
+                </div>
+              </div>
+            </div>
+          )}
+        />
+
+        <DiscoveryWidget
+          title="Top Gainers"
+          icon="⚡"
+          color="border-yellow-900/40"
+          items={topGainers}
+          renderItem={(d, i) => (
+            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+              <div className="min-w-0">
+                <div className="text-xs text-gray-200 font-mono">{d.symbol}</div>
+                <div className="text-[10px] text-gray-600">₹{d.ltp?.toLocaleString("en-IN")}</div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="text-xs font-bold text-green-400 tabular-nums">
+                  +{(d.pChange ?? 0).toFixed(2)}%
+                </div>
+                {d.turnover != null && (
+                  <div className="text-[10px] text-gray-600 tabular-nums">₹{(d.turnover / 100).toFixed(1)}Cr</div>
+                )}
+              </div>
+            </div>
+          )}
+        />
+
+        <DiscoveryWidget
+          title="Institutional Trades (Bulk + Block)"
+          icon="💼"
+          color="border-fuchsia-900/40"
+          items={inst}
+          emptyMsg="No bulk/block deals fetched (NSE rate-limited or weekend)"
+          renderItem={(d, i) => (
+            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-200 font-mono">{d.symbol}</span>
+                  <span className={`rounded px-1 py-0 text-[8px] font-bold ${d.kind === "BLOCK" ? "bg-fuchsia-900/50 text-fuchsia-300" : "bg-pink-900/40 text-pink-300"}`}>
+                    {d.kind}
+                  </span>
+                  <span className={`rounded px-1 py-0 text-[8px] font-bold ${d.bs === "BUY" ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}>
+                    {d.bs}
+                  </span>
+                </div>
+                <div className="truncate text-[10px] text-gray-600">{d.client}</div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="text-xs text-gray-300 tabular-nums">{(d.qty / 1e5).toFixed(1)}L @ ₹{d.price?.toFixed(0)}</div>
+                <div className="text-[10px] text-gray-600 tabular-nums">{d.date}</div>
+              </div>
+            </div>
+          )}
+        />
+
+        <DiscoveryWidget
+          title="F&O OI Buildup (Long + Short Cover)"
+          icon="📈"
+          color="border-indigo-900/40"
+          items={[
+            ...(oiBuildup?.longBuildup    ?? []).map((d) => ({ ...d, kind: "LONG" })),
+            ...(oiBuildup?.shortCovering  ?? []).map((d) => ({ ...d, kind: "S.COVER" })),
+          ]}
+          emptyMsg="No F&O OI data (market closed or weekend)"
+          renderItem={(d, i) => (
+            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-200 font-mono">{d.symbol}</span>
+                  <span className={`rounded px-1 py-0 text-[8px] font-bold ${d.kind === "LONG" ? "bg-emerald-900/50 text-emerald-300" : "bg-cyan-900/40 text-cyan-300"}`}>
+                    {d.kind}
+                  </span>
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className={`text-xs font-semibold tabular-nums ${(d.pChange ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  {d.pChange >= 0 ? "+" : ""}{d.pChange?.toFixed(2)}%
+                </div>
+                <div className="text-[10px] text-gray-600 tabular-nums">OI Δ {d.oiChangePct >= 0 ? "+" : ""}{d.oiChangePct?.toFixed(1)}%</div>
+              </div>
+            </div>
+          )}
+        />
+      </div>
     </div>
   );
 }
@@ -532,9 +716,17 @@ export default function Picks() {
           {signalsPicks.length > 0 ? (
             <>
               <p className="text-xs text-gray-600">
-                Top {signalsPicks.length} stocks ranked by composite momentum score (volume · breakouts · patterns ·
-                RSI · DMA stack · delivery %){stockBuiltAt && <> · updated {timeAgo(stockBuiltAt)}</>}
+                Top {Math.min(10, signalsPicks.length)} of {stockPicksData?.picks?.length ?? 0} stocks ranked by composite momentum score · scanned{" "}
+                {stockPicksData?.scanned ?? 0} of {stockPicksData?.universe ?? 0} Nifty 500 names · {Object.values(stockRuleRat).length} rationales seeded
+                {stockBuiltAt && <> · updated {timeAgo(stockBuiltAt)}</>}
               </p>
+
+              <DiscoverySection
+                discovery={stockPicksData?.discovery}
+                niftyReturns={stockPicksData?.niftyReturns}
+                builtAt={stockBuiltAt}
+              />
+
               {signalsPicks.slice(0, 10).map((pick, i) => (
                 <StockPickCard
                   key={pick.symbol}

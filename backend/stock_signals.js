@@ -12,6 +12,7 @@
 
 const { STOCK_SECTORS } = require("./stock_universe");
 const { fetchSymbolHistory } = require("./stock_momentum");
+const { getNifty500 } = require("./nifty500_universe");
 
 // ─── Basic helpers ────────────────────────────────────────────────────────────
 
@@ -228,26 +229,73 @@ function detectMacdBullish(prices) {
 
 function compositeScore(sig) {
   let s = 0;
-  // Volume + breakout = highest weight
-  if (sig.volumeShock.fired)   s += sig.volumeShock.ratio >= 3 ? 18 : 12;
-  if (sig.near52wHigh.fired)   s += 15;
-  if (sig.breakout20d.fired)   s += 10;
-  if (sig.breakout50d.fired)   s += 8;
-  if (sig.gapUp.fired)         s += 6;
-  // Pattern bonuses
-  if (sig.bullishEngulfing)    s += 5;
-  if (sig.hammer)              s += 3;
-  // Indicator bonuses
-  if (sig.goldenCross)         s += 12;
-  if (sig.macdBullish)         s += 8;
-  if (sig.rsiSignal === "overbought") s -= 3;       // contrarian penalty
-  if (sig.rsiSignal === "oversold")   s += 4;
-  // DMA stack
-  if (sig.above20DMA && sig.above50DMA && sig.above200DMA) s += 8;
-  else if (sig.above50DMA && sig.above200DMA) s += 4;
-  // Recent return momentum bonus (1W)
-  if (sig.ret1w >= 5) s += 5;
-  else if (sig.ret1w >= 2) s += 2;
+
+  // ─── Volume + breakout = highest weight ──────────────────────────────
+  if (sig.volumeShock.fired) {
+    s += sig.volumeShock.ratio >= 5 ? 28
+       : sig.volumeShock.ratio >= 3 ? 22
+       :                              16;
+  }
+  if (sig.near52wHigh.fired) {
+    // closer to high = stronger; at/above = 22, within 2% = 18
+    s += sig.near52wHigh.distancePct >= -0.5 ? 22 : 18;
+  }
+  if (sig.breakout20d.fired) s += 15;
+  if (sig.breakout50d.fired) s += 12;
+  if (sig.gapUp.fired)       s += sig.gapUp.gapPct >= 3 ? 12 : 8;
+
+  // ─── Pattern bonuses ─────────────────────────────────────────────────
+  if (sig.bullishEngulfing) s += 8;
+  if (sig.hammer)           s += 5;
+
+  // ─── Trend & indicator bonuses ───────────────────────────────────────
+  if (sig.goldenCross) s += 18;
+  if (sig.macdBullish) s += 12;
+  if (sig.rsiSignal === "overbought") s -= 4;      // contrarian penalty
+  if (sig.rsiSignal === "oversold")   s += 6;
+
+  // ─── DMA stack (long-term trend confirmation) ────────────────────────
+  if (sig.above20DMA && sig.above50DMA && sig.above200DMA) s += 12;
+  else if (sig.above50DMA && sig.above200DMA)              s += 6;
+  else if (!sig.above200DMA && !sig.above50DMA)            s -= 5;  // below trend penalty
+
+  // ─── Recent return momentum bonus (1W) ───────────────────────────────
+  if (sig.ret1w >= 8) s += 10;
+  else if (sig.ret1w >= 5) s += 7;
+  else if (sig.ret1w >= 2) s += 3;
+  else if (sig.ret1w <= -5) s -= 4;
+
+  // ─── Relative strength vs Nifty ──────────────────────────────────────
+  if (sig.rsVsNifty1M != null) {
+    if (sig.rsVsNifty1M >= 10) s += 14;
+    else if (sig.rsVsNifty1M >= 5) s += 9;
+    else if (sig.rsVsNifty1M >= 0) s += 3;
+    else if (sig.rsVsNifty1M <= -5) s -= 5;
+  }
+  if (sig.rsVsNifty3M != null) {
+    if (sig.rsVsNifty3M >= 15) s += 10;
+    else if (sig.rsVsNifty3M >= 5) s += 5;
+    else if (sig.rsVsNifty3M <= -10) s -= 4;
+  }
+
+  // ─── Discovery-feed boosts (NSE published lists) ─────────────────────
+  if (sig.disc?.in52wHi)       s += 10;        // appears in NSE 52w high list today
+  if (sig.disc?.isGainer)      s += 8;         // top % gainer today
+  if (sig.disc?.isMostActive)  s += 4;         // volume leader
+  if (sig.disc?.bulkBuy)       s += 12;        // bulk deal BUY recently
+  if (sig.disc?.blockBuy)      s += 18;        // block deal BUY (large institutional)
+  if (sig.disc?.oiLong)        s += 10;        // F&O long buildup
+  if (sig.disc?.oiShortCover)  s += 8;         // short covering
+
+  // ─── Bearish discovery flags ─────────────────────────────────────────
+  if (sig.disc?.in52wLo)       s -= 12;
+  if (sig.disc?.isLoser)       s -= 6;
+  if (sig.disc?.oiShort)       s -= 10;
+  if (sig.disc?.oiLongUnwind)  s -= 6;
+
+  // ─── High delivery % bonus (handled in leaderboard for backward compat) ─
+  if (sig.highDelivery) s += 8;
+
   return Math.max(0, Math.min(100, Math.round(s)));
 }
 
@@ -263,7 +311,13 @@ function countBullishSignals(sig) {
     (sig.hammer              ? 1 : 0) +
     (sig.goldenCross         ? 1 : 0) +
     (sig.macdBullish         ? 1 : 0) +
-    (sig.rsiSignal === "oversold" ? 1 : 0)
+    (sig.rsiSignal === "oversold" ? 1 : 0) +
+    (sig.disc?.in52wHi       ? 1 : 0) +
+    (sig.disc?.bulkBuy       ? 1 : 0) +
+    (sig.disc?.blockBuy      ? 1 : 0) +
+    (sig.disc?.oiLong        ? 1 : 0) +
+    ((sig.rsVsNifty1M ?? 0) >= 5 ? 1 : 0) +
+    ((sig.rsVsNifty3M ?? 0) >= 10 ? 1 : 0)
   );
 }
 
@@ -322,57 +376,109 @@ function computeSignals(prices, extra = {}) {
   return sig;
 }
 
+// ─── Relative strength vs Nifty ──────────────────────────────────────────────
+
+function pctReturn(prices, days) {
+  if (prices.length === 0) return null;
+  const latest = prices[prices.length - 1].close;
+  const t = new Date(); t.setDate(t.getDate() - days);
+  const tStr = t.toISOString().slice(0, 10);
+  let lo = 0, hi = prices.length - 1;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (prices[mid].date <= tStr) lo = mid;
+    else hi = mid - 1;
+  }
+  const past = prices[lo].close;
+  if (!past || past <= 0) return null;
+  return ((latest - past) / past) * 100;
+}
+
 // ─── Build leaderboard of picks ───────────────────────────────────────────────
 
-async function buildSignalsLeaderboard({ deliveryMap = {} } = {}) {
-  const all      = [];
-  const warnings = [];
+async function buildSignalsLeaderboard({
+  deliveryMap   = {},
+  discBonuses   = {},     // { SYMBOL → discovery flags } from nse_discovery.buildSymbolBonuses
+  niftyReturns  = null,   // { ret1w, ret1m, ret3m, ret6m, ret1y } from nifty_benchmark
+  universe,                // [{symbol, label, sector}] - Nifty500 list
+  concurrency   = 6,       // parallel Yahoo fetches
+} = {}) {
+  const all       = [];
+  const warnings  = [];
 
-  for (const [sector, stocks] of Object.entries(STOCK_SECTORS)) {
-    for (const { symbol, label } of stocks) {
-      try {
-        const entry = await fetchSymbolHistory(symbol);
-        if (!entry?.prices?.length) continue;
-        // Heuristic: if first price has no .high field, the cache is stale (close-only).
-        // Skip to avoid garbage signals — next refresh will repopulate.
-        if (entry.prices[0].high == null) {
-          warnings.push(`${symbol}: cache missing OHLCV, skipping until next refresh`);
-          continue;
-        }
-        const baseSymbol = symbol.replace(".NS", "");
-        const sig = computeSignals(entry.prices, {
-          symbol,
-          label,
-          sector,
-          deliveryPct: deliveryMap[baseSymbol] ?? null,
-        });
-        if (sig) all.push(sig);
-      } catch (e) {
-        warnings.push(`${symbol} (${label}): ${e.message}`);
+  // Fallback to legacy 84-stock universe if Nifty500 not supplied
+  if (!universe) {
+    universe = [];
+    for (const [sector, stocks] of Object.entries(STOCK_SECTORS)) {
+      for (const s of stocks) universe.push({ ...s, sector });
+    }
+  }
+
+  console.log(`  scanning ${universe.length} stocks (concurrency=${concurrency})…`);
+
+  // Concurrent fetch with bounded parallelism
+  async function processOne({ symbol, label, sector }) {
+    try {
+      const entry = await fetchSymbolHistory(symbol);
+      if (!entry?.prices?.length) return null;
+      if (entry.prices[0].high == null) {
+        warnings.push(`${symbol}: cache missing OHLCV`);
+        return null;
       }
+      const baseSymbol = symbol.replace(".NS", "");
+
+      // Relative strength vs Nifty
+      let rsVsNifty1M = null, rsVsNifty3M = null, rsVsNifty1Y = null;
+      if (niftyReturns) {
+        const r1m = pctReturn(entry.prices, 30);
+        const r3m = pctReturn(entry.prices, 90);
+        const r1y = pctReturn(entry.prices, 365);
+        if (r1m != null && niftyReturns.ret1m != null) rsVsNifty1M = round(r1m - niftyReturns.ret1m, 2);
+        if (r3m != null && niftyReturns.ret3m != null) rsVsNifty3M = round(r3m - niftyReturns.ret3m, 2);
+        if (r1y != null && niftyReturns.ret1y != null) rsVsNifty1Y = round(r1y - niftyReturns.ret1y, 2);
+      }
+
+      const sig = computeSignals(entry.prices, {
+        symbol, label, sector,
+        deliveryPct: deliveryMap[baseSymbol] ?? null,
+        disc:        discBonuses[baseSymbol] ?? null,
+        rsVsNifty1M, rsVsNifty3M, rsVsNifty1Y,
+      });
+      if (sig) {
+        // Apply delivery flag (used by composite via highDelivery)
+        sig.highDelivery = sig.deliveryPct != null && sig.deliveryPct >= 60;
+        // Re-run composite now that highDelivery and rs are set
+        sig.compositeScore = compositeScore(sig);
+        sig.signalCount    = countBullishSignals(sig);
+        return sig;
+      }
+    } catch (e) {
+      warnings.push(`${symbol} (${label}): ${e.message}`);
     }
+    return null;
   }
 
-  // Apply delivery % bonus to composite if available
-  for (const s of all) {
-    if (s.deliveryPct != null && s.deliveryPct >= 60) {
-      s.compositeScore = Math.min(100, s.compositeScore + 6);
-      s.highDelivery = true;
-    } else {
-      s.highDelivery = false;
+  // Bounded parallelism
+  const queue = [...universe];
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      const sig = await processOne(item);
+      if (sig) all.push(sig);
     }
-  }
+  });
+  await Promise.all(workers);
 
   // Sort by composite score, then by signal count
   all.sort((a, b) => b.compositeScore - a.compositeScore || b.signalCount - a.signalCount);
-
-  // Add rank
   all.forEach((s, i) => { s.rank = i + 1; });
 
   return {
     asOf:     new Date().toISOString(),
-    picks:    all.slice(0, 25),       // top 25 — picks page renders top 10
-    all,                                // full list for sector overlays
+    universe: universe.length,
+    scanned:  all.length,
+    picks:    all.slice(0, 50),    // top 50 — UI renders top 10
+    all,                            // full list (for filters/explore)
     warnings,
   };
 }

@@ -88,6 +88,32 @@ function confidenceReason(sig, conf) {
 function buildBullCase(sig) {
   const cases = [];
 
+  // ─── Institutional / discovery signals (highest-conviction) ───────────
+  if (sig.disc?.blockBuy) {
+    cases.push("Block deal BUY in the last 7 days — large institutional accumulation (≥₹10cr trade size) often precedes price discovery");
+  }
+  if (sig.disc?.bulkBuy) {
+    cases.push("Bulk deal BUY in the last 7 days — single party crossed ≥0.5% of equity, indicates conviction at current levels");
+  }
+  if (sig.disc?.oiLong) {
+    cases.push("F&O long buildup — futures open interest rising alongside price, smart-money positioning bullish");
+  }
+  if (sig.disc?.oiShortCover) {
+    cases.push("Short covering in F&O — bears unwinding losing positions, fuels upside acceleration");
+  }
+  if (sig.disc?.in52wHi) {
+    cases.push("Appears in NSE's official 52-week high list today — confirmed breakout, not just a near-miss");
+  }
+
+  // ─── Relative strength vs Nifty ──────────────────────────────────────
+  if ((sig.rsVsNifty1M ?? 0) >= 5) {
+    cases.push(`Outperforming Nifty by ${sig.rsVsNifty1M.toFixed(1)}pp over 1M — beating the market broadly, not just a sector rotation`);
+  }
+  if ((sig.rsVsNifty3M ?? 0) >= 10) {
+    cases.push(`Outperforming Nifty by ${sig.rsVsNifty3M.toFixed(1)}pp over 3M — sustained relative strength suggests fundamental tailwind`);
+  }
+
+  // ─── Volume + breakout ───────────────────────────────────────────────
   if (sig.volumeShock.fired) {
     cases.push(
       `Volume shocker: today's volume of ${fmtVol(sig.volumeShock.volume)} is ${sig.volumeShock.ratio}× the 20-day average — strong conviction buying or accumulation`
@@ -103,14 +129,10 @@ function buildBullCase(sig) {
     );
   }
   if (sig.breakout20d.fired) {
-    cases.push(
-      `Breaking above 20-day high (₹${sig.breakout20d.bandHigh}) — short-term trend turning up`
-    );
+    cases.push(`Breaking above 20-day high (₹${sig.breakout20d.bandHigh}) — short-term trend turning up`);
   }
   if (sig.goldenCross) {
-    cases.push(
-      "Golden Cross fired — 50-day moving average just crossed above 200-day, historically a bullish long-term signal"
-    );
+    cases.push("Golden Cross fired — 50-day moving average just crossed above 200-day, historically a bullish long-term signal");
   }
   if (sig.macdBullish) {
     cases.push("MACD line crossed above signal line in last 3 sessions — momentum turning positive on the indicator");
@@ -135,7 +157,16 @@ function buildBullCase(sig) {
   if (sig.above20DMA && sig.above50DMA && sig.above200DMA) {
     cases.push("Trading above all three key moving averages (20/50/200 DMA) — uptrend intact across all timeframes");
   }
-  return cases.slice(0, 4);
+
+  // ─── Fundamental quality ─────────────────────────────────────────────
+  if (sig.fundamentals?.earningsGrowth != null && sig.fundamentals.earningsGrowth >= 20) {
+    cases.push(`Strong earnings growth (${sig.fundamentals.earningsGrowth}% YoY) — momentum is backed by improving fundamentals`);
+  }
+  if (sig.fundamentals?.returnOnEquity != null && sig.fundamentals.returnOnEquity >= 20) {
+    cases.push(`High return on equity (${sig.fundamentals.returnOnEquity}%) — efficient capital allocation, durable competitive position`);
+  }
+
+  return cases.slice(0, 5);
 }
 
 // ─── Bear case builder ───────────────────────────────────────────────────────
@@ -168,6 +199,21 @@ function buildBearCase(sig) {
 
 function buildSignalChips(sig) {
   const chips = [];
+  // Institutional / discovery (highest priority — shown first)
+  if (sig.disc?.blockBuy)      chips.push({ label: "💼 Block Buy",  type: "institutional" });
+  if (sig.disc?.bulkBuy)       chips.push({ label: "📦 Bulk Buy",   type: "institutional" });
+  if (sig.disc?.in52wHi)       chips.push({ label: "🚀 NSE 52W Hi", type: "discovery" });
+  if (sig.disc?.oiLong)        chips.push({ label: "📈 OI Long",    type: "fno" });
+  if (sig.disc?.oiShortCover)  chips.push({ label: "🔄 Short Cover", type: "fno" });
+  if (sig.disc?.isGainer)      chips.push({ label: "⚡ Top Gainer", type: "discovery" });
+
+  // Relative strength
+  if ((sig.rsVsNifty1M ?? 0) >= 5)
+    chips.push({ label: `≥Nifty ${sig.rsVsNifty1M >= 10 ? "+" : ""}${sig.rsVsNifty1M?.toFixed(0)}pp 1M`, type: "rs" });
+  if ((sig.rsVsNifty3M ?? 0) >= 10)
+    chips.push({ label: `≥Nifty ${sig.rsVsNifty3M?.toFixed(0)}pp 3M`, type: "rs" });
+
+  // Technical signals
   if (sig.volumeShock.fired)   chips.push({ label: `🔊 ${sig.volumeShock.ratio}× Volume`, type: "volume" });
   if (sig.near52wHigh.fired)   chips.push({ label: "📈 52W High", type: "breakout" });
   if (sig.breakout20d.fired)   chips.push({ label: "↗ 20D Breakout", type: "breakout" });
