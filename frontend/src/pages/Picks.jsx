@@ -612,6 +612,7 @@ export default function Picks() {
   const [loading,          setLoading]          = useState(true);
   const [error,            setError]            = useState(null);
   const [tab,              setTab]              = useState("mf");
+  const [stockShowCount,   setStockShowCount]   = useState(10);
 
   function switchTab(key) {
     setTab(key);
@@ -625,7 +626,7 @@ export default function Picks() {
       supabase.from("radar_cache").select("data,built_at").eq("key", "stock_picks").maybeSingle(),
       supabase.from("pick_rationales").select("*").order("run_date", { ascending: false }).order("rank").limit(10),
       supabase.from("pick_ai_rationales").select("*").order("rank"),
-      supabase.from("stock_pick_rationales").select("*").order("run_date", { ascending: false }).order("rank").limit(10),
+      supabase.from("stock_pick_rationales").select("*").order("run_date", { ascending: false }).order("rank").limit(50),
       supabase.from("stock_pick_ai_rationales").select("*").order("rank"),
     ]).then(([mf, st, sp, rule, ai, sRule, sAi]) => {
       if (mf.error) { setError(mf.error.message); return; }
@@ -716,7 +717,7 @@ export default function Picks() {
           {signalsPicks.length > 0 ? (
             <>
               <p className="text-xs text-gray-600">
-                Top {Math.min(10, signalsPicks.length)} of {stockPicksData?.picks?.length ?? 0} stocks ranked by composite momentum score · scanned{" "}
+                Showing {Math.min(stockShowCount, signalsPicks.length)} of {signalsPicks.length} ranked picks · scanned{" "}
                 {stockPicksData?.scanned ?? 0} of {stockPicksData?.universe ?? 0} Nifty 500 names · {Object.values(stockRuleRat).length} rationales seeded
                 {stockBuiltAt && <> · updated {timeAgo(stockBuiltAt)}</>}
               </p>
@@ -727,7 +728,7 @@ export default function Picks() {
                 builtAt={stockBuiltAt}
               />
 
-              {signalsPicks.slice(0, 10).map((pick, i) => (
+              {signalsPicks.slice(0, stockShowCount).map((pick, i) => (
                 <StockPickCard
                   key={pick.symbol}
                   pick={pick}
@@ -736,6 +737,48 @@ export default function Picks() {
                   aiRationale={stockAiRat[pick.symbol] ?? null}
                 />
               ))}
+
+              {/* Show more / show less controls */}
+              {signalsPicks.length > 10 && (
+                <div className="flex items-center justify-center gap-2 pt-2">
+                  {stockShowCount < signalsPicks.length && (
+                    <>
+                      <button
+                        onClick={() => {
+                          const next = Math.min(stockShowCount + 10, signalsPicks.length);
+                          setStockShowCount(next);
+                          trackEvent(user, `show_more:${next}`, "/picks");
+                        }}
+                        className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
+                      >
+                        Show 10 more ({signalsPicks.length - stockShowCount} remaining)
+                      </button>
+                      <button
+                        onClick={() => {
+                          setStockShowCount(signalsPicks.length);
+                          trackEvent(user, "show_all", "/picks");
+                        }}
+                        className="rounded-xl bg-gray-800 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700"
+                      >
+                        Show all {signalsPicks.length}
+                      </button>
+                    </>
+                  )}
+                  {stockShowCount > 10 && (
+                    <button
+                      onClick={() => {
+                        setStockShowCount(10);
+                        trackEvent(user, "show_top_10", "/picks");
+                        // Scroll back to top of stocks tab
+                        document.documentElement.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      className="rounded-xl bg-gray-800 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700"
+                    >
+                      Collapse to top 10
+                    </button>
+                  )}
+                </div>
+              )}
             </>
           ) : (
             <>
