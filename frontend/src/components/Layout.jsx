@@ -6,11 +6,10 @@ import { trackEvent } from "../lib/analytics";
 const ADMIN_EMAIL = "manjunathts@gmail.com";
 
 const tabs = [
-  { to: "/mf",        label: "MF Radar",   icon: "📊" },
-  { to: "/stocks",    label: "Stocks",     icon: "📈" },
-  { to: "/picks",     label: "Picks",      icon: "⭐" },
-  { to: "/simulator", label: "Simulator",  icon: "🧮" },
-  { to: "/deep-dive", label: "Deep Dive",  icon: "🔍" },
+  { to: "/mf",        label: "Mutual Funds", icon: "📊" },
+  { to: "/stocks",    label: "Stocks",       icon: "📈" },
+  { to: "/simulator", label: "Simulator",    icon: "🧮" },
+  { to: "/deep-dive", label: "Deep Dive",    icon: "🔍" },
 ];
 
 export default function Layout() {

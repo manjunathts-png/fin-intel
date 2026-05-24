@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import { trackEvent } from "../lib/analytics";
@@ -239,9 +239,10 @@ function HotColdStrip({ categories }) {
   );
 }
 
-function CategoryRadar({ categories }) {
-  const [expanded, setExpanded] = useState(new Set());
-  const [sort, setSort] = useState({ key: "cagr5y", dir: "desc" });
+export function CategoryRadar({ categories }) {
+  const [expanded,  setExpanded]  = useState(new Set());
+  const [sort,      setSort]      = useState({ key: "cagr5y", dir: "desc" });
+  const [showAll,   setShowAll]   = useState(false);   // Phase 3 — simplified table by default
 
   const sorted = useMemo(() => {
     return [...categories].sort((a, b) => {
@@ -259,11 +260,100 @@ function CategoryRadar({ categories }) {
     return <span className="ml-0.5 text-blue-400">{sort.dir === "desc" ? "↓" : "↑"}</span>;
   }
 
+  // ── Simplified 5-column table (Phase 3 default) ───────────────────────────
+  if (!showAll) {
+    return (
+      <div className="space-y-4">
+        <HotColdStrip categories={categories} />
+
+        <div className="rounded-xl border border-gray-800 shadow-xl">
+          {/* ── Toolbar: toggle lives here so it's always in view ── */}
+          <div className="flex items-center justify-between border-b border-gray-700/50 bg-gray-800/60 px-4 py-2">
+            <span className="text-[11px] text-gray-600">5 key columns — click any header to sort</span>
+            <button
+              onClick={() => setShowAll(true)}
+              className="flex items-center gap-1 text-xs font-medium text-blue-400 hover:text-blue-300 transition"
+            >
+              Show all 12 metrics <span className="text-gray-500">▾</span>
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead className="bg-gray-800/80">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400 border-r border-gray-700/50">Category</th>
+                <th onClick={() => clickHeader("ret1y")}  className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">1Y<SortArrow col="ret1y" /></th>
+                <th onClick={() => clickHeader("cagr5y")} className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">5Y CAGR<SortArrow col="cagr5y" /></th>
+                <th onClick={() => clickHeader("sharpe")} title="Sharpe Ratio — return per unit of risk. >1 is good, >1.5 is excellent." className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">Sharpe ⓘ<SortArrow col="sharpe" /></th>
+                <th onClick={() => clickHeader("alpha5y")} title="5-Year Alpha — how much this category beat its benchmark index." className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">α 5Y ⓘ<SortArrow col="alpha5y" /></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((c) => {
+                const m = c.median;
+                const badge = zBadge(m.z1w);
+                const isExp = expanded.has(c.category);
+                return (
+                  <React.Fragment key={c.category}>
+                    <tr
+                      onClick={() => setExpanded((p) => { const n = new Set(p); n.has(c.category) ? n.delete(c.category) : n.add(c.category); return n; })}
+                      className="cursor-pointer border-t border-gray-700 bg-gray-900 hover:bg-gray-800/70"
+                    >
+                      <td className="px-4 py-3 border-r border-gray-700/30">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs transition-transform ${isExp ? "rotate-90" : ""}`}>▶</span>
+                          <span className="font-semibold text-gray-100">{c.category}</span>
+                          {badge && <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${badge.cls}`}>{badge.label}</span>}
+                          <span className="text-xs text-gray-600">({c.fundCount})</span>
+                        </div>
+                      </td>
+                      <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${heatColor(m.ret1y, 25)}`}>{fmt(m.ret1y)}</td>
+                      <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${heatColor(m.cagr5y, 25)}`}>{fmt(m.cagr5y)}</td>
+                      <td className={`px-3 py-3 text-center tabular-nums text-sm font-bold ${sharpeColor(m.sharpe)}`}>{fmtNum(m.sharpe)}</td>
+                      <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${alphaColor(m.alpha5y)}`}>{fmtPP(m.alpha5y)}</td>
+                    </tr>
+                    {isExp && c.funds.map((f) => (
+                      <tr key={f.code} className="border-t border-gray-800/60 bg-gray-900/40 hover:bg-gray-800/40">
+                        <td className="py-2.5 pl-10 pr-3 border-r border-gray-700/20">
+                          <div className="text-xs font-medium text-gray-200">{f.label}</div>
+                          <div className="text-[10px] text-gray-600">
+                            {fundAge(f.navStartDate) && `${fundAge(f.navStartDate)}Y · `}NAV ₹{f.latestNav?.toFixed(2)}
+                          </div>
+                        </td>
+                        <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${cagrColor(f.ret1y)}`}>{fmt(f.ret1y)}</td>
+                        <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${cagrColor(f.cagr5y)}`}>{fmt(f.cagr5y)}</td>
+                        <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${sharpeColor(f.sharpe)}`}>{fmtNum(f.sharpe)}</td>
+                        <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${alphaColor(f.alpha5y)}`}>{fmtPP(f.alpha5y)}</td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Full 12-column table (power-user view) ────────────────────────────────
   return (
     <div className="space-y-4">
       <HotColdStrip categories={categories} />
 
-      <div className="overflow-x-auto rounded-xl border border-gray-800 shadow-xl">
+      <div className="rounded-xl border border-gray-800 shadow-xl">
+        {/* ── Toolbar ── */}
+        <div className="flex items-center justify-between border-b border-gray-700/50 bg-gray-800/60 px-4 py-2">
+          <span className="text-[11px] text-gray-600">12 columns — click any header to sort</span>
+          <button
+            onClick={() => setShowAll(false)}
+            className="flex items-center gap-1 text-xs font-medium text-blue-400 hover:text-blue-300 transition"
+          >
+            <span className="text-gray-500">▴</span> Simplified view
+          </button>
+        </div>
+        <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm min-w-[1280px]">
           <thead className="bg-gray-800/80">
             <tr>
@@ -302,6 +392,7 @@ function CategoryRadar({ categories }) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
@@ -309,7 +400,7 @@ function CategoryRadar({ categories }) {
 
 // ─── Tab 2: Risk-Adjusted (sortable + filterable fund table) ─────────────────
 
-function RiskAdjusted({ categories }) {
+export function RiskAdjusted({ categories }) {
   const [sort,         setSort]         = useState({ key: "sharpe", dir: "desc" });
   const [catFilter,    setCatFilter]    = useState("");
   const [minSharpe,    setMinSharpe]    = useState(0);
@@ -466,7 +557,7 @@ function RiskAdjusted({ categories }) {
 
 // ─── Tab 3: Long-Term Compounders ─────────────────────────────────────────────
 
-function Compounders({ categories }) {
+export function Compounders({ categories }) {
   const [horizon,      setHorizon]      = useState("cagr10y"); // cagr5y | cagr10y
   const [minConsis,    setMinConsis]    = useState(50);
 

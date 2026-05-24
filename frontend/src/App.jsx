@@ -1,12 +1,20 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./hooks/useAuth";
 import Layout from "./components/Layout";
-import MfRadar from "./pages/MfRadar";
-import StockRadar from "./pages/StockRadar";
-import Picks from "./pages/Picks";
+import Mf from "./pages/Mf";
+import Stocks from "./pages/Stocks";
+import MfPicks from "./pages/MfPicks";
+import MfRadarPage from "./pages/MfRadarPage";
+import MfRiskPage from "./pages/MfRiskPage";
+import MfCompoundersPage from "./pages/MfCompoundersPage";
+import StockPicks from "./pages/StockPicks";
+import StockSectorPage from "./pages/StockSectorPage";
+import StockAllPage from "./pages/StockAllPage";
+import StockHotspotsPage from "./pages/StockHotspotsPage";
 import Simulator from "./pages/Simulator";
 import DeepDive from "./pages/DeepDive";
 import Admin from "./pages/Admin";
+import Glossary from "./pages/Glossary";
 
 export default function App() {
   return (
@@ -14,13 +22,35 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<Layout />}>
-            <Route path="/mf"        element={<MfRadar />} />
-            <Route path="/stocks"    element={<StockRadar />} />
-            <Route path="/picks"     element={<Picks />} />
-            <Route path="/simulator" element={<Simulator />} />
-            <Route path="/deep-dive" element={<DeepDive />} />
-            <Route path="/admin"     element={<Admin />} />
-            <Route path="*"          element={<Navigate to="/mf" replace />} />
+            {/* ── Mutual Funds section ──────────────────────────────── */}
+            <Route path="/mf" element={<Mf />}>
+              <Route index                  element={<Navigate to="picks"       replace />} />
+              <Route path="picks"           element={<MfPicks />} />
+              <Route path="radar"           element={<MfRadarPage />} />
+              <Route path="risk"            element={<MfRiskPage />} />
+              <Route path="compounders"     element={<MfCompoundersPage />} />
+            </Route>
+
+            {/* ── Stocks section ────────────────────────────────────── */}
+            <Route path="/stocks" element={<Stocks />}>
+              <Route index                  element={<Navigate to="picks"       replace />} />
+              <Route path="picks"           element={<StockPicks />} />
+              <Route path="radar"           element={<StockSectorPage />} />
+              <Route path="all"             element={<StockAllPage />} />
+              <Route path="hotspots"        element={<StockHotspotsPage />} />
+            </Route>
+
+            {/* ── Legacy redirect ───────────────────────────────────── */}
+            <Route path="/picks"            element={<Navigate to="/mf/picks"   replace />} />
+
+            {/* ── Top-level pages ───────────────────────────────────── */}
+            <Route path="/simulator"        element={<Simulator />} />
+            <Route path="/deep-dive"        element={<DeepDive />} />
+            <Route path="/admin"            element={<Admin />} />
+            <Route path="/glossary"         element={<Glossary />} />
+
+            {/* ── Catch-all ─────────────────────────────────────────── */}
+            <Route path="*"                 element={<Navigate to="/mf/picks"   replace />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -105,7 +105,7 @@ function signalChipsForPick(pick, max = 3) {
 
 // ─── Build sector aggregates from picks data (Nifty 500 view) ─────────────────
 
-function buildSectorView(allPicks) {
+export function buildSectorView(allPicks) {
   if (!allPicks?.length) return [];
   const bySector = {};
   for (const p of allPicks) {
@@ -157,7 +157,7 @@ const TABS = [
 
 // ─── Tab 1: Sector Radar (enhanced) ───────────────────────────────────────────
 
-function SectorRow({ sec, isExpanded, onToggle }) {
+function SectorRow({ sec, isExpanded, onToggle, showAll = true }) {
   const badge = zBadge(sec.median?.rs1M != null ? sec.median.rs1M / 5 : null);
   return (
     <>
@@ -183,20 +183,20 @@ function SectorRow({ sec, isExpanded, onToggle }) {
           <span className="text-green-400 font-semibold">{sec.strongCount}</span>
           <span className="text-gray-600">/{sec.stockCount}</span>
         </td>
-        <td className="px-3 py-3 text-center tabular-nums text-sm">
+        {showAll && <td className="px-3 py-3 text-center tabular-nums text-sm">
           {sec.at52wHi > 0 ? <span className="text-pink-300">{sec.at52wHi}</span> : <span className="text-gray-700">—</span>}
-        </td>
-        <td className="px-3 py-3 text-center tabular-nums text-sm">
+        </td>}
+        {showAll && <td className="px-3 py-3 text-center tabular-nums text-sm">
           {sec.outperformingNifty > 0
             ? <span className="text-lime-300">{sec.outperformingNifty}</span>
             : <span className="text-gray-700">—</span>}
-        </td>
+        </td>}
         <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${heatColor(sec.median?.rs1M, 10)}`}>
           {fmt(sec.median?.rs1M)}
         </td>
-        <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${heatColor(sec.median?.rs3M, 20)}`}>
+        {showAll && <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${heatColor(sec.median?.rs3M, 20)}`}>
           {fmt(sec.median?.rs3M)}
-        </td>
+        </td>}
       </tr>
       {isExpanded && sec.stocks.map((s) => (
         <tr key={s.symbol} className="border-t border-gray-800/60 bg-gray-900/40 hover:bg-gray-800/40">
@@ -221,26 +221,27 @@ function SectorRow({ sec, isExpanded, onToggle }) {
           <td className="px-3 py-2.5 text-center tabular-nums text-sm text-gray-500">
             {s.signalCount}
           </td>
-          <td className="px-3 py-2.5 text-center tabular-nums text-sm">
+          {showAll && <td className="px-3 py-2.5 text-center tabular-nums text-sm">
             {s.disc?.in52wHi ? <span className="text-pink-300">✓</span> : s.near52wHigh?.fired ? <span className="text-green-400">~</span> : <span className="text-gray-700">—</span>}
-          </td>
-          <td className="px-3 py-2.5 text-center tabular-nums text-sm">
+          </td>}
+          {showAll && <td className="px-3 py-2.5 text-center tabular-nums text-sm">
             {(s.rsVsNifty1M ?? 0) >= 5 ? <span className="text-lime-300">✓</span> : <span className="text-gray-700">—</span>}
-          </td>
+          </td>}
           <td className={`px-3 py-2.5 text-center tabular-nums text-sm ${(s.rsVsNifty1M ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
             {fmt(s.rsVsNifty1M)}
           </td>
-          <td className={`px-3 py-2.5 text-center tabular-nums text-sm ${(s.rsVsNifty3M ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+          {showAll && <td className={`px-3 py-2.5 text-center tabular-nums text-sm ${(s.rsVsNifty3M ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
             {fmt(s.rsVsNifty3M)}
-          </td>
+          </td>}
         </tr>
       ))}
     </>
   );
 }
 
-function SectorRadar({ sectors }) {
+export function SectorRadar({ sectors }) {
   const [expanded, setExpanded] = useState(new Set());
+  const [showAll,  setShowAll]  = useState(false);   // Phase 3 — default 4-col view
   if (!sectors.length) return <EmptyState msg="Sector view requires stock_picks data. Run the refresh job first." />;
 
   // Hot sectors strip (top 3 by avg score)
@@ -280,17 +281,32 @@ function SectorRadar({ sectors }) {
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-gray-800 shadow-xl">
-        <table className="w-full border-collapse text-sm min-w-[820px]">
+      <div className="rounded-xl border border-gray-800 shadow-xl">
+        {/* ── Toolbar: toggle always visible above the columns ── */}
+        <div className="flex items-center justify-between border-b border-gray-700/50 bg-gray-800/60 px-4 py-2">
+          <span className="text-[11px] text-gray-600">
+            {showAll ? "7 columns — click any header to sort" : "4 key columns — click any header to sort"}
+          </span>
+          <button
+            onClick={() => setShowAll((v) => !v)}
+            className="flex items-center gap-1 text-xs font-medium text-blue-400 hover:text-blue-300 transition"
+          >
+            {showAll
+              ? <><span className="text-gray-500">▴</span> Simplified view</>
+              : <>Show all 7 columns <span className="text-gray-500">▾</span></>}
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+        <table className={`w-full border-collapse text-sm ${showAll ? "min-w-[820px]" : ""}`}>
           <thead className="bg-gray-800/80">
             <tr>
               <th className="px-4 py-3 text-left text-sm font-semibold uppercase tracking-wider text-gray-400">Sector</th>
               <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400" title="Average composite score across sector">Avg Score</th>
               <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400" title="Stocks with composite ≥ 50">Strong</th>
-              <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400" title="At or near 52W high">52W Hi</th>
-              <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400" title="Outperforming Nifty by ≥5pp over 1M">{">"} Nifty</th>
-              <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400">RS 1M</th>
-              <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400">RS 3M</th>
+              {showAll && <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400" title="At or near 52W high">52W Hi</th>}
+              {showAll && <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400" title="Outperforming Nifty by ≥5pp over 1M">{">"} Nifty</th>}
+              <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400" title="Relative strength vs Nifty over 1 month (percentage points)">RS 1M ⓘ</th>
+              {showAll && <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400">RS 3M</th>}
             </tr>
           </thead>
           <tbody>
@@ -299,6 +315,7 @@ function SectorRadar({ sectors }) {
                 key={s.sector}
                 sec={s}
                 isExpanded={expanded.has(s.sector)}
+                showAll={showAll}
                 onToggle={() => setExpanded((p) => {
                   const n = new Set(p);
                   n.has(s.sector) ? n.delete(s.sector) : n.add(s.sector);
@@ -308,6 +325,7 @@ function SectorRadar({ sectors }) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
@@ -315,7 +333,7 @@ function SectorRadar({ sectors }) {
 
 // ─── Tab 2: All Stocks (sortable + filterable table) ──────────────────────────
 
-function AllStocks({ picks, sectors }) {
+export function AllStocks({ picks, sectors }) {
   const [sort,         setSort]         = useState({ key: "compositeScore", dir: "desc" });
   const [sectorFilter, setSectorFilter] = useState("");
   const [minScore,     setMinScore]     = useState(0);
@@ -562,7 +580,7 @@ function RowGroup({ p, rank, expanded, onToggle }) {
 
 // ─── Tab 3: Signal Hotspots (sectors × signals heatmap) ───────────────────────
 
-function SignalHotspots({ picks }) {
+export function SignalHotspots({ picks }) {
   const matrix = useMemo(() => {
     const sectors = [...new Set(picks.map((p) => p.sector).filter(Boolean))].sort();
     // For each (sector, signal) cell, count stocks firing
