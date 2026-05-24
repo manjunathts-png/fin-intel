@@ -89,12 +89,24 @@ async function fetch52wLows() {
 }
 
 async function fetchGainersLosers(direction = "gainers") {
-  // NSE has /api/live-analysis-variations?index=gainers / losers
-  const j = await fetchJson(`${BASE}/api/live-analysis-variations?index=${direction}`,
-                            BASE + "/market-data/top-gainers-losers");
-  // NIFTY 100 group is the most useful for our purposes
+  // NSE's /api/live-analysis-variations?index=gainers returns a rich
+  // object: { NIFTY: { data: [...] }, BANKNIFTY: {...}, NIFTYNEXT50: {...} }.
+  // Querying ?index=losers historically returned "Missing index or key."
+  // because NSE migrated losers behind a different endpoint. We work around
+  // by querying the gainers endpoint and (if losers requested) re-querying
+  // the loser-list endpoint at /api/live-analysis-most-loosers.
+  const url = direction === "losers"
+    ? `${BASE}/api/live-analysis-most-loosers`
+    : `${BASE}/api/live-analysis-variations?index=gainers`;
+  const j = await fetchJson(url, BASE + "/market-data/top-gainers-losers");
+
+  // NSE error responses: { data: "Missing index or key." }
+  if (j && typeof j.data === "string") return [];
+
+  // Prefer NIFTY data, fall back to a flat data array
   const grp = j.NIFTY ?? j.NIFTY100 ?? j["NIFTY 100"] ?? j;
-  const arr = Array.isArray(grp) ? grp : (grp?.data ?? []);
+  let arr = Array.isArray(grp) ? grp : grp?.data;
+  if (!Array.isArray(arr)) arr = Array.isArray(j.data) ? j.data : [];
   return arr.map((d) => ({
     symbol:   d.symbol,
     ltp:      d.ltp,
@@ -117,39 +129,72 @@ async function fetchMostActive() {
   })).slice(0, 25);
 }
 
-function ddmmyyyy(d) {
-  return `${String(d.getDate()).padStart(2,"0")}-${d.toLocaleString("en-US",{month:"short"})}-${d.getFullYear()}`;
+// Parse a CSV line handling quoted fields with commas
+function parseCsvLine(line) {
+  const out = [];
+  let cur = "", inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { inQ = !inQ; continue; }
+    if (ch === "," && !inQ) { out.push(cur.trim()); cur = ""; continue; }
+    cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
 }
 
-async function fetchBulkDeals() {
-  // Last 5 trading days
-  const to    = new Date();
-  const from  = new Date(); from.setDate(to.getDate() - 7);
-  const url   = `${BASE}/api/historical/cm/bulk?from=${encodeURIComponent(ddmmyyyy(from))}&to=${encodeURIComponent(ddmmyyyy(to))}`;
-  const j     = await fetchJson(url, BASE + "/market-data/bulk-deals");
-  return (j.data ?? []).map((d) => ({
-    date:     d.BD_DT_DATE ?? d.date,
-    symbol:   d.BD_SYMBOL ?? d.symbol,
-    client:   d.BD_CLIENT_NAME ?? d.clientName,
-    bs:       (d.BD_BUY_SELL ?? d.buyOrSell ?? "").toUpperCase(),
-    qty:      parseInt(d.BD_QTY_TRD ?? d.quantity ?? 0, 10),
-    price:    parseFloat(d.BD_TP_WATP ?? d.tradePrice ?? 0),
-  })).filter((d) => d.symbol && d.bs);
+// NSE Archives publishes the last 4-5 trading days of bulk/block deals as a
+// publicly accessible CSV at nsearchives.nseindia.com. This is much more
+// reliable than the cookie-protected JSON API which 503s frequently.
+async function fetchBulkDealsCsv() {
+  const res = await fetch("https://nsearchives.nseindia.com/content/equities/bulk.csv", {
+    headers: { "User-Agent": UA, "Accept": "text/csv,text/plain,*/*" },
+  });
+  if (!res.ok) throw new Error(`bulk.csv → ${res.status}`);
+  const text = await res.text();
+  return parseDealsCsv(text);
 }
 
-async function fetchBlockDeals() {
-  const to   = new Date();
-  const from = new Date(); from.setDate(to.getDate() - 7);
-  const url  = `${BASE}/api/historical/cm/block?from=${encodeURIComponent(ddmmyyyy(from))}&to=${encodeURIComponent(ddmmyyyy(to))}`;
-  const j    = await fetchJson(url, BASE + "/market-data/block-deals");
-  return (j.data ?? []).map((d) => ({
-    date:     d.BD_DT_DATE ?? d.date,
-    symbol:   d.BD_SYMBOL ?? d.symbol,
-    client:   d.BD_CLIENT_NAME ?? d.clientName,
-    bs:       (d.BD_BUY_SELL ?? d.buyOrSell ?? "").toUpperCase(),
-    qty:      parseInt(d.BD_QTY_TRD ?? d.quantity ?? 0, 10),
-    price:    parseFloat(d.BD_TP_WATP ?? d.tradePrice ?? 0),
-  })).filter((d) => d.symbol && d.bs);
+async function fetchBlockDealsCsv() {
+  const res = await fetch("https://nsearchives.nseindia.com/content/equities/block.csv", {
+    headers: { "User-Agent": UA, "Accept": "text/csv,text/plain,*/*" },
+  });
+  if (!res.ok) throw new Error(`block.csv → ${res.status}`);
+  const text = await res.text();
+  return parseDealsCsv(text);
+}
+
+function parseDealsCsv(csv) {
+  // Header: Date,Symbol,Security Name,Client Name,Buy/Sell,Quantity Traded,
+  //         Trade Price / Wght. Avg. Price[,Remarks]
+  const lines = csv.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const header = parseCsvLine(lines[0]);
+  const iDate = header.findIndex((h) => /^date/i.test(h));
+  const iSym  = header.findIndex((h) => /symbol/i.test(h));
+  const iCli  = header.findIndex((h) => /client/i.test(h));
+  const iBs   = header.findIndex((h) => /buy.?sell/i.test(h));
+  const iQty  = header.findIndex((h) => /quantity/i.test(h));
+  const iPx   = header.findIndex((h) => /price/i.test(h));
+  if (iSym < 0 || iBs < 0) return [];
+
+  const out = [];
+  for (let i = 1; i < lines.length; i++) {
+    const row = parseCsvLine(lines[i]);
+    if (row.length < 5) continue;
+    const symbol = row[iSym];
+    const bs = (row[iBs] || "").toUpperCase();
+    if (!symbol || !bs) continue;
+    out.push({
+      date:   row[iDate],
+      symbol,
+      client: row[iCli] || "",
+      bs,
+      qty:    parseInt(row[iQty].replace(/,/g, ""), 10) || 0,
+      price:  parseFloat(row[iPx].replace(/,/g, "")) || 0,
+    });
+  }
+  return out;
 }
 
 async function fetchOiBuildup() {
@@ -225,37 +270,59 @@ function saveCache(data) {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 async function getDiscovery({ force = false } = {}) {
-  if (!force) {
-    const c = loadCache();
-    if (c && Date.now() - new Date(c.fetchedAt).getTime() < CACHE_TTL) return c;
-  }
+  const prev = loadCache();
+  if (!force && prev && Date.now() - new Date(prev.fetchedAt).getTime() < CACHE_TTL) return prev;
 
   // Run each fetch independently — any failure becomes an empty list rather
   // than failing the whole pipeline.
-  const safe = async (fn, fallback = []) => {
-    try { return await fn(); } catch (e) { console.warn(`  ⚠ ${fn.name}: ${e.message}`); return fallback; }
+  const safe = async (fn, fallback, label) => {
+    try { return await fn(); } catch (e) { console.warn(`  ⚠ ${label || fn.name}: ${e.message}`); return fallback; }
   };
 
-  // Run lightweight feeds in parallel, then sequentially hit bulk/block which
-  // NSE rate-limits more aggressively.
-  const [highs52w, lows52w, topGainers, topLosers, mostActiveVol, oiBuildup] = await Promise.all([
-    safe(fetch52wHighs),
-    safe(fetch52wLows),
-    safe(() => fetchGainersLosers("gainers")),
-    safe(() => fetchGainersLosers("losers")),
-    safe(fetchMostActive),
-    safe(fetchOiBuildup, { longBuildup: [], shortBuildup: [], shortCovering: [], longUnwinding: [] }),
+  const [highs52w, lows52w, topGainers, topLosers, mostActiveVol, oiBuildup, bulkDeals, blockDeals] = await Promise.all([
+    safe(fetch52wHighs, [], "fetch52wHighs"),
+    safe(fetch52wLows,  [], "fetch52wLows"),
+    safe(() => fetchGainersLosers("gainers"), [], "gainers"),
+    safe(() => fetchGainersLosers("losers"),  [], "losers"),
+    safe(fetchMostActive, [], "mostActive"),
+    safe(fetchOiBuildup, { longBuildup: [], shortBuildup: [], shortCovering: [], longUnwinding: [] }, "oiBuildup"),
+    safe(fetchBulkDealsCsv,  [], "bulkDealsCsv"),
+    safe(fetchBlockDealsCsv, [], "blockDealsCsv"),
   ]);
-  // Sequential for bulk/block with a small spacer
-  const bulkDeals  = await safe(fetchBulkDeals);
-  await new Promise((r) => setTimeout(r, 1500));
-  const blockDeals = await safe(fetchBlockDeals);
 
-  const out = {
-    fetchedAt: new Date().toISOString(),
-    highs52w, lows52w, topGainers, topLosers,
-    mostActiveVol, bulkDeals, blockDeals, oiBuildup,
+  // Carry-forward strategy: if a particular feed came back empty AND the
+  // previous cache had non-empty data for it, retain the previous data and
+  // record it as "stale" with a fromDate. Saturday/Sunday/holidays then keep
+  // showing Friday's bulk deals, OI buildup, etc.
+  const carryForward = (now, before, key) => {
+    const cur = now[key];
+    const cnt = Array.isArray(cur) ? cur.length
+              : cur && typeof cur === "object" ? Object.values(cur).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0)
+              : 0;
+    if (cnt > 0) return { value: cur, stale: false };
+    if (before && before[key]) {
+      const beforeCnt = Array.isArray(before[key]) ? before[key].length
+                      : before[key] && typeof before[key] === "object" ? Object.values(before[key]).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0)
+                      : 0;
+      if (beforeCnt > 0) {
+        return { value: before[key], stale: true };
+      }
+    }
+    return { value: cur, stale: false };
   };
+
+  const fresh = { highs52w, lows52w, topGainers, topLosers, mostActiveVol, oiBuildup, bulkDeals, blockDeals };
+  const out = { fetchedAt: new Date().toISOString() };
+  const staleFeeds = [];
+  for (const key of Object.keys(fresh)) {
+    const { value, stale } = carryForward(fresh, prev, key);
+    out[key] = value;
+    if (stale) staleFeeds.push(key);
+  }
+  if (staleFeeds.length > 0) {
+    out.staleFeeds = staleFeeds;
+    out.staleFrom  = prev?.fetchedAt ?? null;
+  }
   saveCache(out);
   return out;
 }

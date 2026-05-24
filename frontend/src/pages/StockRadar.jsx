@@ -80,23 +80,23 @@ const WINDOWS = [
 // ─── Signal definitions (used by Hotspots + All Stocks filter) ────────────────
 
 const SIGNAL_DEFS = [
-  { key: "volumeShock",      label: "🔊 Volume Shock",  test: (p) => p.volumeShock?.fired,        chipColor: "bg-orange-500/20 text-orange-300 border-orange-600/40" },
-  { key: "near52wHigh",      label: "📈 At/near 52W Hi", test: (p) => p.near52wHigh?.fired,        chipColor: "bg-green-500/20 text-green-300 border-green-600/40" },
-  { key: "breakout20d",      label: "↗ 20D Breakout",   test: (p) => p.breakout20d?.fired,        chipColor: "bg-green-500/20 text-green-300 border-green-600/40" },
-  { key: "breakout50d",      label: "⇗ 50D Breakout",   test: (p) => p.breakout50d?.fired,        chipColor: "bg-emerald-500/20 text-emerald-200 border-emerald-600/40" },
-  { key: "goldenCross",      label: "✨ Golden Cross",   test: (p) => p.goldenCross,               chipColor: "bg-emerald-500/20 text-emerald-200 border-emerald-600/40" },
-  { key: "macdBullish",      label: "📊 MACD Bull",     test: (p) => p.macdBullish,               chipColor: "bg-cyan-500/20 text-cyan-300 border-cyan-600/40" },
-  { key: "bullishEngulfing", label: "🟢 Bull Engulf",   test: (p) => p.bullishEngulfing,          chipColor: "bg-purple-500/20 text-purple-300 border-purple-600/40" },
-  { key: "hammer",           label: "🔨 Hammer",        test: (p) => p.hammer,                    chipColor: "bg-purple-500/20 text-purple-300 border-purple-600/40" },
-  { key: "gapUp",            label: "↑ Gap Up",        test: (p) => p.gapUp?.fired,              chipColor: "bg-yellow-500/20 text-yellow-200 border-yellow-600/40" },
-  { key: "rsiOversold",      label: "RSI Oversold",    test: (p) => p.rsiSignal === "oversold",  chipColor: "bg-blue-500/20 text-blue-300 border-blue-600/40" },
-  { key: "highDelivery",     label: "📦 Hi Delivery",   test: (p) => p.highDelivery,              chipColor: "bg-teal-500/20 text-teal-300 border-teal-600/40" },
-  { key: "in52wHi",          label: "🚀 NSE 52W Hi",    test: (p) => p.disc?.in52wHi,             chipColor: "bg-pink-500/20 text-pink-200 border-pink-600/50" },
-  { key: "blockBuy",         label: "💼 Block Buy",    test: (p) => p.disc?.blockBuy,            chipColor: "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-600/50" },
-  { key: "bulkBuy",          label: "📦 Bulk Buy",     test: (p) => p.disc?.bulkBuy,             chipColor: "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-600/50" },
-  { key: "oiLong",           label: "📈 OI Long",      test: (p) => p.disc?.oiLong,              chipColor: "bg-indigo-500/20 text-indigo-300 border-indigo-600/40" },
-  { key: "rsVsNifty1M",      label: "≥Nifty 1M",      test: (p) => (p.rsVsNifty1M ?? 0) >= 5,   chipColor: "bg-lime-500/20 text-lime-300 border-lime-600/40" },
-  { key: "rsVsNifty3M",      label: "≥Nifty 3M",      test: (p) => (p.rsVsNifty3M ?? 0) >= 10,  chipColor: "bg-lime-500/20 text-lime-300 border-lime-600/40" },
+  { key: "volumeShock",      label: "🔊 Volume Shock",  desc: "Today's traded volume is ≥ 2× the trailing 20-day average. Strong buying pressure or institutional accumulation.", test: (p) => p.volumeShock?.fired,        chipColor: "bg-orange-500/20 text-orange-300 border-orange-600/40" },
+  { key: "near52wHigh",      label: "📈 At/near 52W Hi", desc: "Stock is at or within 2% of its 52-week high. Indicates strong long-term momentum — buyers are paying record prices.", test: (p) => p.near52wHigh?.fired,        chipColor: "bg-green-500/20 text-green-300 border-green-600/40" },
+  { key: "breakout20d",      label: "↗ 20D Breakout",   desc: "Close has broken above the highest high of the last 20 trading days. Short-term trend reversal upward.", test: (p) => p.breakout20d?.fired,        chipColor: "bg-green-500/20 text-green-300 border-green-600/40" },
+  { key: "breakout50d",      label: "⇗ 50D Breakout",   desc: "Close has broken above the highest high of the last 50 trading days. Stronger trend signal than 20D — confirms medium-term reversal.", test: (p) => p.breakout50d?.fired,        chipColor: "bg-emerald-500/20 text-emerald-200 border-emerald-600/40" },
+  { key: "goldenCross",      label: "✨ Golden Cross",   desc: "50-day moving average just crossed above the 200-day in the last 5 sessions. Classic long-term bullish trend-change signal.", test: (p) => p.goldenCross,               chipColor: "bg-emerald-500/20 text-emerald-200 border-emerald-600/40" },
+  { key: "macdBullish",      label: "📊 MACD Bull",     desc: "MACD line crossed above its signal line in the last 3 sessions. Indicator-based momentum turning positive.", test: (p) => p.macdBullish,               chipColor: "bg-cyan-500/20 text-cyan-300 border-cyan-600/40" },
+  { key: "bullishEngulfing", label: "🟢 Bull Engulf",   desc: "Today's green candle body fully engulfs yesterday's red candle body. Classic 2-bar reversal pattern.", test: (p) => p.bullishEngulfing,          chipColor: "bg-purple-500/20 text-purple-300 border-purple-600/40" },
+  { key: "hammer",           label: "🔨 Hammer",        desc: "Today's candle has a small body near the top with a long lower wick. Sellers pushed down intraday but buyers stepped in.", test: (p) => p.hammer,                    chipColor: "bg-purple-500/20 text-purple-300 border-purple-600/40" },
+  { key: "gapUp",            label: "↑ Gap Up",        desc: "Today's open is ≥ 1.5% above yesterday's close. Indicates overnight news or pre-open institutional interest.", test: (p) => p.gapUp?.fired,              chipColor: "bg-yellow-500/20 text-yellow-200 border-yellow-600/40" },
+  { key: "rsiOversold",      label: "RSI Oversold",    desc: "RSI(14) ≤ 30. Stock is technically oversold — potential mean-reversion bounce setup.", test: (p) => p.rsiSignal === "oversold",  chipColor: "bg-blue-500/20 text-blue-300 border-blue-600/40" },
+  { key: "highDelivery",     label: "📦 Hi Delivery",   desc: "Delivery percentage ≥ 60% (from NSE bhavcopy). Most of today's volume was actual settlement, not intraday — signals conviction buying.", test: (p) => p.highDelivery,              chipColor: "bg-teal-500/20 text-teal-300 border-teal-600/40" },
+  { key: "in52wHi",          label: "🚀 NSE 52W Hi",    desc: "Stock appears in NSE's official live 52-week high list today. Independent confirmation of the breakout.", test: (p) => p.disc?.in52wHi,             chipColor: "bg-pink-500/20 text-pink-200 border-pink-600/50" },
+  { key: "blockBuy",         label: "💼 Block Buy",    desc: "Block deal BUY (≥ ₹10 cr trade size) in the last 7 trading days. Direct institutional accumulation signal — usually mutual funds or FII.", test: (p) => p.disc?.blockBuy,            chipColor: "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-600/50" },
+  { key: "bulkBuy",          label: "📦 Bulk Buy",     desc: "Bulk deal BUY (≥ 0.5% of equity in a single trade) in the last 7 days. Single party building a stake at current prices.", test: (p) => p.disc?.bulkBuy,             chipColor: "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-600/50" },
+  { key: "oiLong",           label: "📈 OI Long",      desc: "F&O long buildup — futures open interest rising while price is rising. Smart-money positioning bullish.", test: (p) => p.disc?.oiLong,              chipColor: "bg-indigo-500/20 text-indigo-300 border-indigo-600/40" },
+  { key: "rsVsNifty1M",      label: "≥Nifty 1M",      desc: "Stock has outperformed Nifty by at least 5 percentage points over the last 1 month. Filters out 'rising tide lifts all boats'.", test: (p) => (p.rsVsNifty1M ?? 0) >= 5,   chipColor: "bg-lime-500/20 text-lime-300 border-lime-600/40" },
+  { key: "rsVsNifty3M",      label: "≥Nifty 3M",      desc: "Stock has outperformed Nifty by at least 10 percentage points over the last 3 months. Sustained outperformance — usually fundamental tailwind.", test: (p) => (p.rsVsNifty3M ?? 0) >= 10,  chipColor: "bg-lime-500/20 text-lime-300 border-lime-600/40" },
 ];
 
 function signalChipsForPick(pick, max = 3) {
@@ -164,13 +164,13 @@ function SectorRow({ sec, isExpanded, onToggle }) {
       <tr onClick={onToggle} className="cursor-pointer border-t border-gray-700 bg-gray-900 hover:bg-gray-800/70">
         <td className="px-4 py-3">
           <div className="flex items-center gap-2">
-            <span className={`text-xs transition-transform ${isExpanded ? "rotate-90" : ""}`}>▶</span>
+            <span className={`text-sm transition-transform ${isExpanded ? "rotate-90" : ""}`}>▶</span>
             <span className="font-semibold text-gray-100">{sec.sector}</span>
-            {badge && <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${badge.cls}`}>{badge.label}</span>}
-            <span className="text-xs text-gray-600">({sec.stockCount})</span>
+            {badge && <span className={`rounded px-1.5 py-0.5 text-xs font-bold ${badge.cls}`}>{badge.label}</span>}
+            <span className="text-sm text-gray-600">({sec.stockCount})</span>
           </div>
           {sec.topStock && (
-            <div className="mt-0.5 text-[10px] text-gray-600">
+            <div className="mt-0.5 text-xs text-gray-600">
               Top: <span className="text-gray-400">{sec.topStock.label}</span>
               <span className={`ml-2 ${scoreColor(sec.topStock.compositeScore)} font-semibold`}>{sec.topStock.compositeScore}</span>
             </div>
@@ -179,14 +179,14 @@ function SectorRow({ sec, isExpanded, onToggle }) {
         <td className={`px-3 py-3 text-center tabular-nums text-sm font-bold ${scoreColor(sec.avgScore)}`}>
           {sec.avgScore}
         </td>
-        <td className="px-3 py-3 text-center tabular-nums text-xs">
+        <td className="px-3 py-3 text-center tabular-nums text-sm">
           <span className="text-green-400 font-semibold">{sec.strongCount}</span>
           <span className="text-gray-600">/{sec.stockCount}</span>
         </td>
-        <td className="px-3 py-3 text-center tabular-nums text-xs">
+        <td className="px-3 py-3 text-center tabular-nums text-sm">
           {sec.at52wHi > 0 ? <span className="text-pink-300">{sec.at52wHi}</span> : <span className="text-gray-700">—</span>}
         </td>
-        <td className="px-3 py-3 text-center tabular-nums text-xs">
+        <td className="px-3 py-3 text-center tabular-nums text-sm">
           {sec.outperformingNifty > 0
             ? <span className="text-lime-300">{sec.outperformingNifty}</span>
             : <span className="text-gray-700">—</span>}
@@ -203,12 +203,12 @@ function SectorRow({ sec, isExpanded, onToggle }) {
           <td className="py-2.5 pl-10 pr-3">
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-gray-200">{s.label}</span>
-                <span className="text-[9px] font-mono text-gray-600">{s.symbol?.replace(".NS","")}</span>
+                <span className="text-sm font-medium text-gray-200">{s.label}</span>
+                <span className="text-[10px] font-mono text-gray-600">{s.symbol?.replace(".NS","")}</span>
               </div>
               <div className="mt-1 flex flex-wrap gap-1">
                 {signalChipsForPick(s, 4).map((sig) => (
-                  <span key={sig.key} className={`rounded-full border px-1.5 py-0 text-[9px] font-medium ${sig.chipColor}`}>
+                  <span key={sig.key} className={`rounded-full border px-1.5 py-0 text-[10px] font-medium ${sig.chipColor}`}>
                     {sig.label}
                   </span>
                 ))}
@@ -218,19 +218,19 @@ function SectorRow({ sec, isExpanded, onToggle }) {
           <td className={`px-3 py-2.5 text-center tabular-nums text-sm font-bold ${scoreColor(s.compositeScore)}`}>
             {s.compositeScore}
           </td>
-          <td className="px-3 py-2.5 text-center tabular-nums text-xs text-gray-500">
+          <td className="px-3 py-2.5 text-center tabular-nums text-sm text-gray-500">
             {s.signalCount}
           </td>
-          <td className="px-3 py-2.5 text-center tabular-nums text-xs">
+          <td className="px-3 py-2.5 text-center tabular-nums text-sm">
             {s.disc?.in52wHi ? <span className="text-pink-300">✓</span> : s.near52wHigh?.fired ? <span className="text-green-400">~</span> : <span className="text-gray-700">—</span>}
           </td>
-          <td className="px-3 py-2.5 text-center tabular-nums text-xs">
+          <td className="px-3 py-2.5 text-center tabular-nums text-sm">
             {(s.rsVsNifty1M ?? 0) >= 5 ? <span className="text-lime-300">✓</span> : <span className="text-gray-700">—</span>}
           </td>
-          <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${(s.rsVsNifty1M ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+          <td className={`px-3 py-2.5 text-center tabular-nums text-sm ${(s.rsVsNifty1M ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
             {fmt(s.rsVsNifty1M)}
           </td>
-          <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${(s.rsVsNifty3M ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+          <td className={`px-3 py-2.5 text-center tabular-nums text-sm ${(s.rsVsNifty3M ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
             {fmt(s.rsVsNifty3M)}
           </td>
         </tr>
@@ -251,13 +251,13 @@ function SectorRadar({ sectors }) {
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="rounded-2xl border border-green-800/50 bg-green-900/15 p-4">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-green-400">
+          <div className="mb-2 text-sm font-semibold uppercase tracking-wider text-green-400">
             🔥 Top sectors by signal density
           </div>
           {hot.map((s) => (
             <div key={s.sector} className="flex items-center justify-between border-t border-green-900/30 py-1.5 first:border-0">
               <span className="text-sm text-gray-200">{s.sector}</span>
-              <div className="flex items-center gap-3 text-xs">
+              <div className="flex items-center gap-3 text-sm">
                 <span className="text-gray-500">{s.strongCount} strong</span>
                 <span className={`font-bold tabular-nums ${scoreColor(s.avgScore)}`}>{s.avgScore}</span>
               </div>
@@ -265,13 +265,13 @@ function SectorRadar({ sectors }) {
           ))}
         </div>
         <div className="rounded-2xl border border-red-900/50 bg-red-900/15 p-4">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-red-400">
+          <div className="mb-2 text-sm font-semibold uppercase tracking-wider text-red-400">
             ❄ Weakest sectors by signal density
           </div>
           {cold.map((s) => (
             <div key={s.sector} className="flex items-center justify-between border-t border-red-900/30 py-1.5 first:border-0">
               <span className="text-sm text-gray-200">{s.sector}</span>
-              <div className="flex items-center gap-3 text-xs">
+              <div className="flex items-center gap-3 text-sm">
                 <span className="text-gray-500">{s.strongCount} strong</span>
                 <span className={`font-bold tabular-nums ${scoreColor(s.avgScore)}`}>{s.avgScore}</span>
               </div>
@@ -284,13 +284,13 @@ function SectorRadar({ sectors }) {
         <table className="w-full border-collapse text-sm min-w-[820px]">
           <thead className="bg-gray-800/80">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">Sector</th>
-              <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400" title="Average composite score across sector">Avg Score</th>
-              <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400" title="Stocks with composite ≥ 50">Strong</th>
-              <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400" title="At or near 52W high">52W Hi</th>
-              <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400" title="Outperforming Nifty by ≥5pp over 1M">{">"} Nifty</th>
-              <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400">RS 1M</th>
-              <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400">RS 3M</th>
+              <th className="px-4 py-3 text-left text-sm font-semibold uppercase tracking-wider text-gray-400">Sector</th>
+              <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400" title="Average composite score across sector">Avg Score</th>
+              <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400" title="Stocks with composite ≥ 50">Strong</th>
+              <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400" title="At or near 52W high">52W Hi</th>
+              <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400" title="Outperforming Nifty by ≥5pp over 1M">{">"} Nifty</th>
+              <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400">RS 1M</th>
+              <th className="px-3 py-3 text-center text-sm font-semibold uppercase tracking-wider text-gray-400">RS 3M</th>
             </tr>
           </thead>
           <tbody>
@@ -400,36 +400,39 @@ function AllStocks({ picks, sectors }) {
           <select
             value={sectorFilter}
             onChange={(e) => setSectorFilter(e.target.value)}
-            className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="">All sectors</option>
             {sectorOptions.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
 
           <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-500">Min score</label>
+            <label className="text-sm text-gray-500">Min score</label>
             <input
               type="range" min="0" max="100" step="5" value={minScore}
               onChange={(e) => setMinScore(Number(e.target.value))}
               className="w-32 accent-blue-500"
             />
-            <span className="w-6 text-xs tabular-nums text-blue-400">{minScore}</span>
+            <span className="w-6 text-sm tabular-nums text-blue-400">{minScore}</span>
           </div>
 
-          <div className="ml-auto text-xs text-gray-500">
+          <div className="ml-auto text-sm text-gray-500">
             {filtered.length} stock{filtered.length === 1 ? "" : "s"} match · showing {Math.min(visible.length, filtered.length)}
           </div>
         </div>
 
         {/* Signal filter chips */}
         <div>
-          <div className="mb-1.5 text-[10px] text-gray-500 uppercase tracking-wider">Filter by signals (all selected must fire)</div>
+          <div className="mb-1.5 text-sm text-gray-500 uppercase tracking-wider">
+            Filter by signals (all selected must fire) <span className="ml-1 text-gray-700 normal-case">· hover any chip to see what it means</span>
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {SIGNAL_DEFS.map((s) => (
               <button
                 key={s.key}
                 onClick={() => toggleSignal(s.key)}
-                className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition ${
+                title={s.desc}
+                className={`rounded-full border px-2.5 py-1 text-sm font-medium transition ${
                   signalFilter.has(s.key)
                     ? s.chipColor
                     : "border-gray-700 bg-gray-800/40 text-gray-500 hover:bg-gray-800"
@@ -441,7 +444,7 @@ function AllStocks({ picks, sectors }) {
             {signalFilter.size > 0 && (
               <button
                 onClick={() => setSignalFilter(new Set())}
-                className="rounded-full border border-red-800/40 bg-red-900/20 px-2 py-0.5 text-[10px] text-red-400 hover:text-red-300"
+                className="rounded-full border border-red-800/40 bg-red-900/20 px-2.5 py-1 text-sm text-red-400 hover:text-red-300"
               >
                 ✕ clear ({signalFilter.size})
               </button>
@@ -452,21 +455,21 @@ function AllStocks({ picks, sectors }) {
 
       {/* Table */}
       <div className="overflow-x-auto rounded-2xl border border-gray-800">
-        <table className="w-full border-collapse text-xs min-w-[920px]">
+        <table className="w-full border-collapse text-sm min-w-[920px]">
           <thead className="bg-gray-800/80">
             <tr>
-              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-[10px] text-gray-400">#</th>
-              <th onClick={() => clickHeader("label")} className="cursor-pointer px-3 py-2 text-left font-semibold uppercase tracking-wider text-[10px] text-gray-400 hover:text-white">Stock<SortArrow col="label" /></th>
-              <th onClick={() => clickHeader("sector")} className="cursor-pointer px-3 py-2 text-left font-semibold uppercase tracking-wider text-[10px] text-gray-400 hover:text-white">Sector<SortArrow col="sector" /></th>
-              <th onClick={() => clickHeader("compositeScore")} className="cursor-pointer px-3 py-2 text-center font-semibold uppercase tracking-wider text-[10px] text-gray-400 hover:text-white">Score<SortArrow col="compositeScore" /></th>
-              <th onClick={() => clickHeader("signalCount")} className="cursor-pointer px-3 py-2 text-center font-semibold uppercase tracking-wider text-[10px] text-gray-400 hover:text-white">Sigs<SortArrow col="signalCount" /></th>
-              <th onClick={() => clickHeader("close")} className="cursor-pointer px-3 py-2 text-right font-semibold uppercase tracking-wider text-[10px] text-gray-400 hover:text-white">Price<SortArrow col="close" /></th>
-              <th onClick={() => clickHeader("changePct")} className="cursor-pointer px-3 py-2 text-right font-semibold uppercase tracking-wider text-[10px] text-gray-400 hover:text-white">Day<SortArrow col="changePct" /></th>
-              <th onClick={() => clickHeader("ret1w")} className="cursor-pointer px-3 py-2 text-right font-semibold uppercase tracking-wider text-[10px] text-gray-400 hover:text-white">1W<SortArrow col="ret1w" /></th>
-              <th onClick={() => clickHeader("rsVsNifty1M")} className="cursor-pointer px-3 py-2 text-right font-semibold uppercase tracking-wider text-[10px] text-gray-400 hover:text-white">RS 1M<SortArrow col="rsVsNifty1M" /></th>
-              <th onClick={() => clickHeader("rsVsNifty3M")} className="cursor-pointer px-3 py-2 text-right font-semibold uppercase tracking-wider text-[10px] text-gray-400 hover:text-white">RS 3M<SortArrow col="rsVsNifty3M" /></th>
-              <th onClick={() => clickHeader("marketCap")} className="cursor-pointer px-3 py-2 text-right font-semibold uppercase tracking-wider text-[10px] text-gray-400 hover:text-white">M.Cap<SortArrow col="marketCap" /></th>
-              <th onClick={() => clickHeader("pe")} className="cursor-pointer px-3 py-2 text-right font-semibold uppercase tracking-wider text-[10px] text-gray-400 hover:text-white">P/E<SortArrow col="pe" /></th>
+              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-xs text-gray-400">#</th>
+              <th onClick={() => clickHeader("label")} className="cursor-pointer px-3 py-2 text-left font-semibold uppercase tracking-wider text-xs text-gray-400 hover:text-white">Stock<SortArrow col="label" /></th>
+              <th onClick={() => clickHeader("sector")} className="cursor-pointer px-3 py-2 text-left font-semibold uppercase tracking-wider text-xs text-gray-400 hover:text-white">Sector<SortArrow col="sector" /></th>
+              <th onClick={() => clickHeader("compositeScore")} className="cursor-pointer px-3 py-2 text-center font-semibold uppercase tracking-wider text-xs text-gray-400 hover:text-white">Score<SortArrow col="compositeScore" /></th>
+              <th onClick={() => clickHeader("signalCount")} className="cursor-pointer px-3 py-2 text-center font-semibold uppercase tracking-wider text-xs text-gray-400 hover:text-white">Sigs<SortArrow col="signalCount" /></th>
+              <th onClick={() => clickHeader("close")} className="cursor-pointer px-3 py-2 text-right font-semibold uppercase tracking-wider text-xs text-gray-400 hover:text-white">Price<SortArrow col="close" /></th>
+              <th onClick={() => clickHeader("changePct")} className="cursor-pointer px-3 py-2 text-right font-semibold uppercase tracking-wider text-xs text-gray-400 hover:text-white">Day<SortArrow col="changePct" /></th>
+              <th onClick={() => clickHeader("ret1w")} className="cursor-pointer px-3 py-2 text-right font-semibold uppercase tracking-wider text-xs text-gray-400 hover:text-white">1W<SortArrow col="ret1w" /></th>
+              <th onClick={() => clickHeader("rsVsNifty1M")} className="cursor-pointer px-3 py-2 text-right font-semibold uppercase tracking-wider text-xs text-gray-400 hover:text-white">RS 1M<SortArrow col="rsVsNifty1M" /></th>
+              <th onClick={() => clickHeader("rsVsNifty3M")} className="cursor-pointer px-3 py-2 text-right font-semibold uppercase tracking-wider text-xs text-gray-400 hover:text-white">RS 3M<SortArrow col="rsVsNifty3M" /></th>
+              <th onClick={() => clickHeader("marketCap")} className="cursor-pointer px-3 py-2 text-right font-semibold uppercase tracking-wider text-xs text-gray-400 hover:text-white">M.Cap<SortArrow col="marketCap" /></th>
+              <th onClick={() => clickHeader("pe")} className="cursor-pointer px-3 py-2 text-right font-semibold uppercase tracking-wider text-xs text-gray-400 hover:text-white">P/E<SortArrow col="pe" /></th>
             </tr>
           </thead>
           <tbody>
@@ -508,10 +511,10 @@ function RowGroup({ p, rank, expanded, onToggle }) {
         <td className="px-3 py-2">
           <div className="flex flex-col">
             <span className="font-medium text-gray-200">{p.label}</span>
-            <span className="text-[9px] text-gray-600 font-mono">{p.symbol?.replace(".NS","")}</span>
+            <span className="text-[10px] text-gray-600 font-mono">{p.symbol?.replace(".NS","")}</span>
           </div>
         </td>
-        <td className="px-3 py-2 text-gray-500 text-[11px]">{p.sector}</td>
+        <td className="px-3 py-2 text-gray-500 text-xs">{p.sector}</td>
         <td className={`px-3 py-2 text-center tabular-nums font-bold ${scoreColor(p.compositeScore)}`}>{p.compositeScore}</td>
         <td className="px-3 py-2 text-center tabular-nums text-gray-400">{p.signalCount}</td>
         <td className="px-3 py-2 text-right tabular-nums text-gray-300">{fmtPrice(p.close)}</td>
@@ -532,15 +535,15 @@ function RowGroup({ p, rank, expanded, onToggle }) {
             <div className="flex flex-wrap items-start gap-3">
               <div className="flex flex-wrap gap-1.5">
                 {signalChipsForPick(p, 99).map((sig) => (
-                  <span key={sig.key} className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${sig.chipColor}`}>
+                  <span key={sig.key} className={`rounded-full border px-2 py-0.5 text-xs font-medium ${sig.chipColor}`}>
                     {sig.label}
                   </span>
                 ))}
                 {signalChipsForPick(p, 99).length === 0 && (
-                  <span className="text-[10px] text-gray-600 italic">No bullish signals firing.</span>
+                  <span className="text-xs text-gray-600 italic">No bullish signals firing.</span>
                 )}
               </div>
-              <div className="ml-auto text-[10px] text-gray-500 flex flex-wrap gap-3">
+              <div className="ml-auto text-xs text-gray-500 flex flex-wrap gap-3">
                 {p.fundamentals?.earningsGrowth != null && <span>EPS Growth <span className="text-gray-300 tabular-nums">{p.fundamentals.earningsGrowth}%</span></span>}
                 {p.fundamentals?.returnOnEquity != null && <span>ROE <span className="text-gray-300 tabular-nums">{p.fundamentals.returnOnEquity}%</span></span>}
                 {p.deliveryPct != null && <span>Delivery <span className="text-gray-300 tabular-nums">{p.deliveryPct}%</span></span>}
@@ -595,17 +598,17 @@ function SignalHotspots({ picks }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-gray-500">
+      <p className="text-sm text-gray-500">
         Each cell shows how many stocks in that sector are firing that signal. Click any cell to drill down.
       </p>
 
       <div className="overflow-x-auto rounded-2xl border border-gray-800">
-        <table className="border-collapse text-xs">
+        <table className="border-collapse text-sm">
           <thead className="bg-gray-800/80">
             <tr>
-              <th className="sticky left-0 z-10 bg-gray-800 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400">Signal</th>
+              <th className="sticky left-0 z-10 bg-gray-800 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">Signal</th>
               {matrix.sectors.map((s) => (
-                <th key={s} className="px-2 py-2 text-center text-[9px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">
+                <th key={s} className="px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">
                   {s.length > 14 ? s.slice(0, 13) + "…" : s}
                 </th>
               ))}
@@ -614,7 +617,7 @@ function SignalHotspots({ picks }) {
           <tbody>
             {SIGNAL_DEFS.map((sig) => (
               <tr key={sig.key} className="border-t border-gray-800/40">
-                <td className="sticky left-0 z-10 bg-gray-900 px-3 py-1.5 text-[11px] text-gray-300 whitespace-nowrap">{sig.label}</td>
+                <td className="sticky left-0 z-10 bg-gray-900 px-3 py-1.5 text-xs text-gray-300 whitespace-nowrap">{sig.label}</td>
                 {matrix.sectors.map((sec) => {
                   const cnt = matrix.cells[sig.key][sec];
                   const isSelected = selected?.sig === sig.key && selected?.sector === sec;
@@ -622,7 +625,7 @@ function SignalHotspots({ picks }) {
                     <td
                       key={sec}
                       onClick={() => cnt > 0 && setSelected(isSelected ? null : { sig: sig.key, sector: sec })}
-                      className={`px-2 py-1.5 text-center tabular-nums text-xs font-semibold ${cnt > 0 ? "cursor-pointer hover:ring-2 hover:ring-blue-400 hover:ring-inset" : ""} ${cellColor(cnt)} ${isSelected ? "ring-2 ring-blue-400 ring-inset" : ""}`}
+                      className={`px-2 py-1.5 text-center tabular-nums text-sm font-semibold ${cnt > 0 ? "cursor-pointer hover:ring-2 hover:ring-blue-400 hover:ring-inset" : ""} ${cellColor(cnt)} ${isSelected ? "ring-2 ring-blue-400 ring-inset" : ""}`}
                     >
                       {cnt || ""}
                     </td>
@@ -640,16 +643,16 @@ function SignalHotspots({ picks }) {
           <div className="mb-2 flex items-center justify-between">
             <div className="text-sm font-semibold text-blue-300">
               {SIGNAL_DEFS.find((s) => s.key === selected.sig)?.label} in {selected.sector}
-              <span className="ml-2 text-xs text-gray-500">({drilldown.length} stocks)</span>
+              <span className="ml-2 text-sm text-gray-500">({drilldown.length} stocks)</span>
             </div>
-            <button onClick={() => setSelected(null)} className="text-xs text-gray-500 hover:text-gray-300">✕ close</button>
+            <button onClick={() => setSelected(null)} className="text-sm text-gray-500 hover:text-gray-300">✕ close</button>
           </div>
           <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 md:grid-cols-3">
             {drilldown.slice(0, 20).map((s) => (
               <div key={s.symbol} className="flex items-center justify-between rounded-lg bg-gray-900/60 px-3 py-1.5">
                 <div className="min-w-0">
-                  <div className="truncate text-xs text-gray-200">{s.label}</div>
-                  <div className="text-[9px] font-mono text-gray-600">{s.symbol?.replace(".NS","")}</div>
+                  <div className="truncate text-sm text-gray-200">{s.label}</div>
+                  <div className="text-[10px] font-mono text-gray-600">{s.symbol?.replace(".NS","")}</div>
                 </div>
                 <div className={`shrink-0 text-sm font-bold tabular-nums ${scoreColor(s.compositeScore)}`}>
                   {s.compositeScore}
@@ -717,7 +720,7 @@ export default function StockRadar() {
       <div className="flex items-baseline justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold">Stock Momentum Radar</h1>
-          <p className="mt-0.5 text-xs text-gray-500">
+          <p className="mt-0.5 text-sm text-gray-500">
             {picks.length} stocks scanned · {sectors.length} sectors · {Object.keys(picksData?.discovery?.highs52w?.reduce((a, x) => ({...a, [x.symbol]: 1}), {}) ?? {}).length} at 52W high
             {builtAt && <> · updated {timeAgo(builtAt)}</>}
           </p>

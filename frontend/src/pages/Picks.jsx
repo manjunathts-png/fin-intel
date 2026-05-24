@@ -335,21 +335,27 @@ function Tech({ label, val, fmt, color }) {
 
 // ─── Discovery section (NSE feeds) ──────────────────────────────────────────
 
-function DiscoveryWidget({ title, icon, color, items, renderItem, emptyMsg }) {
+function DiscoveryWidget({ title, icon, color, items, renderItem, emptyMsg, staleNote }) {
   const [open, setOpen] = useState(false);
   if (!items?.length && !emptyMsg) return null;
   const visible = open ? items.slice(0, 50) : items.slice(0, 5);
+  const _staleNote = staleNote;
 
   return (
     <div className={`overflow-hidden rounded-2xl border ${color} bg-gray-900`}>
       <div className="flex items-center justify-between px-4 py-2.5">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <span>{icon}</span>
-          <span className="text-sm font-semibold text-gray-200">{title}</span>
-          <span className="rounded-full bg-gray-800 px-1.5 py-0.5 text-[10px] tabular-nums text-gray-500">{items?.length ?? 0}</span>
+          <span className="text-sm font-semibold text-gray-200 truncate">{title}</span>
+          <span className="rounded-full bg-gray-800 px-1.5 py-0.5 text-[10px] tabular-nums text-gray-500 shrink-0">{items?.length ?? 0}</span>
+          {_staleNote && (
+            <span title={_staleNote} className="shrink-0 rounded bg-yellow-900/30 px-1.5 py-0.5 text-[9px] font-bold text-yellow-400 border border-yellow-800/40">
+              ⏳ {_staleNote}
+            </span>
+          )}
         </div>
         {items?.length > 5 && (
-          <button onClick={() => setOpen(!open)} className="text-[10px] text-blue-400 hover:text-blue-300">
+          <button onClick={() => setOpen(!open)} className="text-[10px] text-blue-400 hover:text-blue-300 shrink-0 ml-2">
             {open ? "− show less" : `+ show all ${items.length}`}
           </button>
         )}
@@ -434,7 +440,10 @@ function DiscoverySection({ discovery, niftyReturns, builtAt }) {
           icon="💼"
           color="border-fuchsia-900/40"
           items={inst}
-          emptyMsg="No bulk/block deals fetched (NSE rate-limited or weekend)"
+          staleNote={discovery.staleFeeds?.includes("bulkDeals") || discovery.staleFeeds?.includes("blockDeals")
+            ? (inst[0]?.date ? `as of ${inst[0].date}` : "stale")
+            : null}
+          emptyMsg="No bulk/block deals available yet. The next weekday refresh will populate this widget — NSE only publishes these EOD on trading days (Mon-Fri)."
           renderItem={(d, i) => (
             <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
               <div className="min-w-0">
@@ -465,7 +474,8 @@ function DiscoverySection({ discovery, niftyReturns, builtAt }) {
             ...(oiBuildup?.longBuildup    ?? []).map((d) => ({ ...d, kind: "LONG" })),
             ...(oiBuildup?.shortCovering  ?? []).map((d) => ({ ...d, kind: "S.COVER" })),
           ]}
-          emptyMsg="No F&O OI data (market closed or weekend)"
+          staleNote={discovery.staleFeeds?.includes("oiBuildup") ? "intraday-only · last trading day" : null}
+          emptyMsg="F&O OI buildup is intraday-only — NSE publishes this during market hours (Mon-Fri, 9:15 AM - 3:30 PM IST). It will populate on the next trading day."
           renderItem={(d, i) => (
             <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
               <div className="min-w-0">
