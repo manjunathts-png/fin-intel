@@ -6,8 +6,7 @@
   "scripts": {
     "dev":     "vite",
     "build":   "vite build",
-    "preview": "vite preview",
-    "deploy":  "vite build && npx -y netlify-cli deploy --prod --dir=dist --site=5649eb7f-101f-470f-ab40-bcbeef26d3af"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
