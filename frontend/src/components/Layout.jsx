@@ -56,7 +56,7 @@ export default function Layout() {
     <div className="min-h-screen bg-gray-950 text-white">
       {/* Desktop top nav */}
       <nav className="hidden md:block sticky top-0 z-40 border-b border-gray-800 bg-gray-900/80 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
+        <div className="mx-auto flex max-w-screen-2xl items-center justify-between px-6 py-3">
           <div className="flex items-center gap-6">
             <span className="font-bold tracking-tight">💹 Fin Intel</span>
             <div className="flex gap-1">
@@ -121,7 +121,7 @@ export default function Layout() {
       </div>
 
       {/* Page content */}
-      <main className="mx-auto max-w-5xl px-4 pb-28 pt-5 md:pb-12">
+      <main className="mx-auto max-w-screen-2xl px-4 pb-28 pt-5 md:pb-12 md:px-6">
         <Outlet />
       </main>
 

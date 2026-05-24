@@ -121,14 +121,21 @@ function CategoryRow({ cat, isExpanded, onToggle }) {
             </div>
           )}
         </td>
-        <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${heatColor(m.ret1y, 25)}`}>{fmt(m.ret1y)}</td>
-        <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${heatColor(m.cagr3y, 25)}`}>{fmt(m.cagr3y)}</td>
-        <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${heatColor(m.cagr5y, 25)}`}>{fmt(m.cagr5y)}</td>
-        <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${heatColor(m.cagr10y, 25)}`}>{fmt(m.cagr10y)}</td>
-        <td className={`px-3 py-3 text-center tabular-nums text-sm font-bold ${sharpeColor(m.sharpe)}`}>{fmtNum(m.sharpe)}</td>
-        <td className={`px-3 py-3 text-center tabular-nums text-sm ${ddColor(m.maxDd)}`}>{fmt(m.maxDd)}</td>
-        <td className={`px-3 py-3 text-center tabular-nums text-sm ${consColor(m.consistency)}`}>{fmtNum(m.consistency, 0)}%</td>
-        <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${alphaColor(m.alpha5y)}`}>{fmtPP(m.alpha5y)}</td>
+        {/* Short-term momentum (recent trend) */}
+        <td className={`px-2 py-3 text-center tabular-nums text-xs font-medium ${heatColor(m.ret1w, 5)}`}>{fmt(m.ret1w)}</td>
+        <td className={`px-2 py-3 text-center tabular-nums text-xs font-medium ${heatColor(m.ret1m, 10)}`}>{fmt(m.ret1m)}</td>
+        <td className={`px-2 py-3 text-center tabular-nums text-xs font-medium ${heatColor(m.ret3m, 18)}`}>{fmt(m.ret3m)}</td>
+        <td className={`px-2 py-3 text-center tabular-nums text-xs font-medium ${heatColor(m.ret6m, 25)}`}>{fmt(m.ret6m)}</td>
+        {/* Long-term CAGR */}
+        <td className={`px-2 py-3 text-center tabular-nums text-sm font-medium ${heatColor(m.ret1y, 25)}`}>{fmt(m.ret1y)}</td>
+        <td className={`px-2 py-3 text-center tabular-nums text-sm font-medium ${heatColor(m.cagr3y, 25)}`}>{fmt(m.cagr3y)}</td>
+        <td className={`px-2 py-3 text-center tabular-nums text-sm font-medium ${heatColor(m.cagr5y, 25)}`}>{fmt(m.cagr5y)}</td>
+        <td className={`px-2 py-3 text-center tabular-nums text-sm font-medium ${heatColor(m.cagr10y, 25)}`}>{fmt(m.cagr10y)}</td>
+        {/* Risk / quality */}
+        <td className={`px-2 py-3 text-center tabular-nums text-sm font-bold ${sharpeColor(m.sharpe)}`}>{fmtNum(m.sharpe)}</td>
+        <td className={`px-2 py-3 text-center tabular-nums text-sm ${ddColor(m.maxDd)}`}>{fmt(m.maxDd)}</td>
+        <td className={`px-2 py-3 text-center tabular-nums text-sm ${consColor(m.consistency)}`}>{fmtNum(m.consistency, 0)}%</td>
+        <td className={`px-2 py-3 text-center tabular-nums text-sm font-medium ${alphaColor(m.alpha5y)}`}>{fmtPP(m.alpha5y)}</td>
       </tr>
       {isExpanded && cat.funds.map((f) => (
         <FundExpandedRow key={f.code} fund={f} />
@@ -151,29 +158,44 @@ function FundExpandedRow({ fund }) {
           </div>
         </div>
       </td>
-      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${cagrColor(fund.ret1y)}`}>{fmt(fund.ret1y)}</td>
-      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${cagrColor(fund.cagr3y)}`}>{fmt(fund.cagr3y)}</td>
-      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${cagrColor(fund.cagr5y)}`}>{fmt(fund.cagr5y)}</td>
-      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${cagrColor(fund.cagr10y)}`}>{fmt(fund.cagr10y)}</td>
-      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${sharpeColor(fund.sharpe)}`}>{fmtNum(fund.sharpe)}</td>
-      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${ddColor(fund.maxDd)}`}>{fmt(fund.maxDd)}</td>
-      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${consColor(fund.consistency)}`}>{fmtNum(fund.consistency, 0)}%</td>
-      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${alphaColor(fund.alpha5y)}`}>{fmtPP(fund.alpha5y)}</td>
+      <td className={`px-2 py-2.5 text-center tabular-nums text-[11px] ${cagrColor(fund.ret1w)}`}>{fmt(fund.ret1w)}</td>
+      <td className={`px-2 py-2.5 text-center tabular-nums text-[11px] ${cagrColor(fund.ret1m)}`}>{fmt(fund.ret1m)}</td>
+      <td className={`px-2 py-2.5 text-center tabular-nums text-[11px] ${cagrColor(fund.ret3m)}`}>{fmt(fund.ret3m)}</td>
+      <td className={`px-2 py-2.5 text-center tabular-nums text-[11px] ${cagrColor(fund.ret6m)}`}>{fmt(fund.ret6m)}</td>
+      <td className={`px-2 py-2.5 text-center tabular-nums text-xs ${cagrColor(fund.ret1y)}`}>{fmt(fund.ret1y)}</td>
+      <td className={`px-2 py-2.5 text-center tabular-nums text-xs ${cagrColor(fund.cagr3y)}`}>{fmt(fund.cagr3y)}</td>
+      <td className={`px-2 py-2.5 text-center tabular-nums text-xs ${cagrColor(fund.cagr5y)}`}>{fmt(fund.cagr5y)}</td>
+      <td className={`px-2 py-2.5 text-center tabular-nums text-xs ${cagrColor(fund.cagr10y)}`}>{fmt(fund.cagr10y)}</td>
+      <td className={`px-2 py-2.5 text-center tabular-nums text-xs ${sharpeColor(fund.sharpe)}`}>{fmtNum(fund.sharpe)}</td>
+      <td className={`px-2 py-2.5 text-center tabular-nums text-xs ${ddColor(fund.maxDd)}`}>{fmt(fund.maxDd)}</td>
+      <td className={`px-2 py-2.5 text-center tabular-nums text-xs ${consColor(fund.consistency)}`}>{fmtNum(fund.consistency, 0)}%</td>
+      <td className={`px-2 py-2.5 text-center tabular-nums text-xs ${alphaColor(fund.alpha5y)}`}>{fmtPP(fund.alpha5y)}</td>
     </tr>
   );
 }
 
 function HotColdStrip({ categories }) {
-  const sorted = [...categories].sort((a, b) => (b.median.cagr5y ?? -99) - (a.median.cagr5y ?? -99));
-  const hot  = sorted.slice(0, 3);
-  const cold = [...sorted].reverse().slice(0, 3);
+  // Top performers by 5Y (durable winners)
+  const top5y = [...categories].sort((a, b) => (b.median.cagr5y ?? -99) - (a.median.cagr5y ?? -99)).slice(0, 3);
+  // Top performers by 1M / 3M (recent momentum)
+  const topRecent = [...categories]
+    .filter((c) => c.median.ret3m != null)
+    .sort((a, b) => (b.median.ret3m ?? -99) - (a.median.ret3m ?? -99))
+    .slice(0, 3);
+  // Categories where recent has diverged from long-term: 5Y > 12% but 3M < 0
+  // (these are the "MFs may not be preferred anymore" candidates)
+  const reversing = [...categories]
+    .filter((c) => (c.median.cagr5y ?? 0) >= 12 && (c.median.ret3m ?? 0) <= -1)
+    .sort((a, b) => (a.median.ret3m ?? 0) - (b.median.ret3m ?? 0))
+    .slice(0, 4);
+
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
       <div className="rounded-xl border border-green-800/50 bg-green-900/15 p-4">
         <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-green-400">
           🏆 Top categories by 5Y CAGR
         </div>
-        {hot.map((c) => (
+        {top5y.map((c) => (
           <div key={c.category} className="flex items-center justify-between border-t border-green-900/30 py-1.5 first:border-0">
             <span className="text-sm text-gray-200">{c.category}</span>
             <div className="flex items-center gap-3 text-xs">
@@ -183,16 +205,32 @@ function HotColdStrip({ categories }) {
           </div>
         ))}
       </div>
-      <div className="rounded-xl border border-red-900/50 bg-red-900/15 p-4">
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-red-400">
-          🐌 Weakest categories by 5Y CAGR
+      <div className="rounded-xl border border-blue-800/50 bg-blue-900/15 p-4">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-blue-400">
+          ⚡ Hottest recent (3M)
         </div>
-        {cold.map((c) => (
-          <div key={c.category} className="flex items-center justify-between border-t border-red-900/30 py-1.5 first:border-0">
+        {topRecent.map((c) => (
+          <div key={c.category} className="flex items-center justify-between border-t border-blue-900/30 py-1.5 first:border-0">
             <span className="text-sm text-gray-200">{c.category}</span>
             <div className="flex items-center gap-3 text-xs">
-              <span className={alphaColor(c.median.alpha5y)}>{fmtPP(c.median.alpha5y)}α</span>
-              <span className={`font-semibold tabular-nums ${cagrColor(c.median.cagr5y)}`}>{fmt(c.median.cagr5y)}</span>
+              <span className={`tabular-nums ${cagrColor(c.median.ret1m)}`}>{fmt(c.median.ret1m)} 1M</span>
+              <span className={`font-semibold tabular-nums ${cagrColor(c.median.ret3m)}`}>{fmt(c.median.ret3m)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-xl border border-amber-800/50 bg-amber-900/15 p-4">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-amber-400">
+          ⚠ Long-term winners losing steam (5Y ≥ 12%, 3M ≤ −1%)
+        </div>
+        {reversing.length === 0 ? (
+          <div className="py-1.5 text-xs text-gray-600 italic">No category is clearly reversing right now.</div>
+        ) : reversing.map((c) => (
+          <div key={c.category} className="flex items-center justify-between border-t border-amber-900/30 py-1.5 first:border-0">
+            <span className="text-sm text-gray-200">{c.category}</span>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="tabular-nums text-gray-500">{fmt(c.median.cagr5y)} 5Y</span>
+              <span className={`font-semibold tabular-nums ${cagrColor(c.median.ret3m)}`}>{fmt(c.median.ret3m)} 3M</span>
             </div>
           </div>
         ))}
@@ -226,18 +264,27 @@ function CategoryRadar({ categories }) {
       <HotColdStrip categories={categories} />
 
       <div className="overflow-x-auto rounded-xl border border-gray-800 shadow-xl">
-        <table className="w-full border-collapse text-sm min-w-[920px]">
+        <table className="w-full border-collapse text-sm min-w-[1280px]">
           <thead className="bg-gray-800/80">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">Category</th>
-              <th onClick={() => clickHeader("ret1y")}     className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">1Y<SortArrow col="ret1y" /></th>
-              <th onClick={() => clickHeader("cagr3y")}    className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">3Y CAGR<SortArrow col="cagr3y" /></th>
-              <th onClick={() => clickHeader("cagr5y")}    className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">5Y CAGR<SortArrow col="cagr5y" /></th>
-              <th onClick={() => clickHeader("cagr10y")}   className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">10Y CAGR<SortArrow col="cagr10y" /></th>
-              <th onClick={() => clickHeader("sharpe")}    className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Sharpe Ratio (>1 = good, vs 7% risk-free)">Sharpe<SortArrow col="sharpe" /></th>
-              <th onClick={() => clickHeader("maxDd")}     className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Max Drawdown over last 5Y">Max DD<SortArrow col="maxDd" /></th>
-              <th onClick={() => clickHeader("consistency")} className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="% of rolling 12M periods with CAGR ≥ 12%">Consis.<SortArrow col="consistency" /></th>
-              <th onClick={() => clickHeader("alpha5y")}   className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="5Y CAGR minus benchmark CAGR (alpha)">α 5Y<SortArrow col="alpha5y" /></th>
+              <th rowSpan="2" className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-400 border-r border-gray-700/50">Category</th>
+              <th colSpan="4" className="px-2 py-1.5 text-center text-[10px] font-semibold uppercase tracking-wider text-blue-400/80 border-b border-gray-700/40">Recent trend</th>
+              <th colSpan="4" className="px-2 py-1.5 text-center text-[10px] font-semibold uppercase tracking-wider text-purple-400/80 border-b border-gray-700/40">Long-term CAGR</th>
+              <th colSpan="4" className="px-2 py-1.5 text-center text-[10px] font-semibold uppercase tracking-wider text-emerald-400/80 border-b border-gray-700/40">Risk & alpha</th>
+            </tr>
+            <tr>
+              <th onClick={() => clickHeader("ret1w")}     className="cursor-pointer px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">1W<SortArrow col="ret1w" /></th>
+              <th onClick={() => clickHeader("ret1m")}     className="cursor-pointer px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">1M<SortArrow col="ret1m" /></th>
+              <th onClick={() => clickHeader("ret3m")}     className="cursor-pointer px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">3M<SortArrow col="ret3m" /></th>
+              <th onClick={() => clickHeader("ret6m")}     className="cursor-pointer px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">6M<SortArrow col="ret6m" /></th>
+              <th onClick={() => clickHeader("ret1y")}     className="cursor-pointer px-2 py-2 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">1Y<SortArrow col="ret1y" /></th>
+              <th onClick={() => clickHeader("cagr3y")}    className="cursor-pointer px-2 py-2 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">3Y CAGR<SortArrow col="cagr3y" /></th>
+              <th onClick={() => clickHeader("cagr5y")}    className="cursor-pointer px-2 py-2 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">5Y CAGR<SortArrow col="cagr5y" /></th>
+              <th onClick={() => clickHeader("cagr10y")}   className="cursor-pointer px-2 py-2 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">10Y CAGR<SortArrow col="cagr10y" /></th>
+              <th onClick={() => clickHeader("sharpe")}    className="cursor-pointer px-2 py-2 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Sharpe Ratio (>1 = good, vs 7% risk-free)">Sharpe<SortArrow col="sharpe" /></th>
+              <th onClick={() => clickHeader("maxDd")}     className="cursor-pointer px-2 py-2 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Max Drawdown over last 5Y">Max DD<SortArrow col="maxDd" /></th>
+              <th onClick={() => clickHeader("consistency")} className="cursor-pointer px-2 py-2 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="% of rolling 12M periods with CAGR ≥ 12%">Consis.<SortArrow col="consistency" /></th>
+              <th onClick={() => clickHeader("alpha5y")}   className="cursor-pointer px-2 py-2 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="5Y CAGR minus benchmark CAGR (alpha)">α 5Y<SortArrow col="alpha5y" /></th>
             </tr>
           </thead>
           <tbody>
@@ -345,51 +392,59 @@ function RiskAdjusted({ categories }) {
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-gray-800">
-        <table className="w-full border-collapse text-xs min-w-[1080px]">
+        <table className="w-full border-collapse text-xs min-w-[1400px]">
           <thead className="bg-gray-800/80">
             <tr>
-              <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400">#</th>
-              <th onClick={() => clickHeader("label")}      className="cursor-pointer px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">Fund<SortArrow col="label" /></th>
-              <th onClick={() => clickHeader("category")}   className="cursor-pointer px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">Category<SortArrow col="category" /></th>
-              <th onClick={() => clickHeader("ret1y")}      className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">1Y<SortArrow col="ret1y" /></th>
-              <th onClick={() => clickHeader("cagr3y")}     className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">3Y<SortArrow col="cagr3y" /></th>
-              <th onClick={() => clickHeader("cagr5y")}     className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">5Y<SortArrow col="cagr5y" /></th>
-              <th onClick={() => clickHeader("cagr10y")}    className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">10Y<SortArrow col="cagr10y" /></th>
-              <th onClick={() => clickHeader("sharpe")}     className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Sharpe Ratio (>1 = good)">Sharpe<SortArrow col="sharpe" /></th>
-              <th onClick={() => clickHeader("sortino")}    className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Sortino (downside-only)">Sortino<SortArrow col="sortino" /></th>
-              <th onClick={() => clickHeader("calmar")}     className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Calmar = return ÷ max DD">Calmar<SortArrow col="calmar" /></th>
-              <th onClick={() => clickHeader("maxDd")}      className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Max Drawdown (5Y)">MaxDD<SortArrow col="maxDd" /></th>
-              <th onClick={() => clickHeader("volatility")} className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Annualized volatility">σ<SortArrow col="volatility" /></th>
-              <th onClick={() => clickHeader("consistency")} className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="% rolling 12M >= 12%">Consis.<SortArrow col="consistency" /></th>
-              <th onClick={() => clickHeader("alpha5y")}    className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">α 5Y<SortArrow col="alpha5y" /></th>
+              <th className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400">#</th>
+              <th onClick={() => clickHeader("label")}      className="cursor-pointer px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">Fund<SortArrow col="label" /></th>
+              <th onClick={() => clickHeader("category")}   className="cursor-pointer px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">Category<SortArrow col="category" /></th>
+              <th onClick={() => clickHeader("ret1w")}      className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-blue-400/80 hover:text-white">1W<SortArrow col="ret1w" /></th>
+              <th onClick={() => clickHeader("ret1m")}      className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-blue-400/80 hover:text-white">1M<SortArrow col="ret1m" /></th>
+              <th onClick={() => clickHeader("ret3m")}      className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-blue-400/80 hover:text-white">3M<SortArrow col="ret3m" /></th>
+              <th onClick={() => clickHeader("ret6m")}      className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-blue-400/80 hover:text-white">6M<SortArrow col="ret6m" /></th>
+              <th onClick={() => clickHeader("ret1y")}      className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">1Y<SortArrow col="ret1y" /></th>
+              <th onClick={() => clickHeader("cagr3y")}     className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">3Y<SortArrow col="cagr3y" /></th>
+              <th onClick={() => clickHeader("cagr5y")}     className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">5Y<SortArrow col="cagr5y" /></th>
+              <th onClick={() => clickHeader("cagr10y")}    className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">10Y<SortArrow col="cagr10y" /></th>
+              <th onClick={() => clickHeader("sharpe")}     className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Sharpe Ratio (>1 = good)">Sharpe<SortArrow col="sharpe" /></th>
+              <th onClick={() => clickHeader("sortino")}    className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Sortino (downside-only)">Sortino<SortArrow col="sortino" /></th>
+              <th onClick={() => clickHeader("calmar")}     className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Calmar = return ÷ max DD">Calmar<SortArrow col="calmar" /></th>
+              <th onClick={() => clickHeader("maxDd")}      className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Max Drawdown (5Y)">MaxDD<SortArrow col="maxDd" /></th>
+              <th onClick={() => clickHeader("volatility")} className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Annualized volatility">σ<SortArrow col="volatility" /></th>
+              <th onClick={() => clickHeader("consistency")} className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="% rolling 12M >= 12%">Consis.<SortArrow col="consistency" /></th>
+              <th onClick={() => clickHeader("alpha5y")}    className="cursor-pointer px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">α 5Y<SortArrow col="alpha5y" /></th>
             </tr>
           </thead>
           <tbody>
             {visible.map((f, i) => (
               <tr key={f.code} className="border-t border-gray-800/60 hover:bg-gray-800/40">
-                <td className="px-3 py-2 tabular-nums text-gray-600">{i + 1}</td>
-                <td className="px-3 py-2">
+                <td className="px-2 py-2 tabular-nums text-gray-600">{i + 1}</td>
+                <td className="px-2 py-2">
                   <div className="text-gray-200 text-[11px]">{f.label}</div>
                   {f.navStartDate && (
                     <div className="text-[9px] text-gray-600">{fundAge(f.navStartDate)}Y history</div>
                   )}
                 </td>
-                <td className="px-3 py-2 text-gray-500 text-[10px]">{f.category}</td>
-                <td className={`px-3 py-2 text-right tabular-nums ${cagrColor(f.ret1y)}`}>{fmt(f.ret1y)}</td>
-                <td className={`px-3 py-2 text-right tabular-nums ${cagrColor(f.cagr3y)}`}>{fmt(f.cagr3y)}</td>
-                <td className={`px-3 py-2 text-right tabular-nums ${cagrColor(f.cagr5y)}`}>{fmt(f.cagr5y)}</td>
-                <td className={`px-3 py-2 text-right tabular-nums ${cagrColor(f.cagr10y)}`}>{fmt(f.cagr10y)}</td>
-                <td className={`px-3 py-2 text-right tabular-nums font-bold ${sharpeColor(f.sharpe)}`}>{fmtNum(f.sharpe)}</td>
-                <td className={`px-3 py-2 text-right tabular-nums ${sharpeColor(f.sortino)}`}>{fmtNum(f.sortino)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-300">{fmtNum(f.calmar)}</td>
-                <td className={`px-3 py-2 text-right tabular-nums ${ddColor(f.maxDd)}`}>{fmt(f.maxDd)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-400">{fmtNum(f.volatility, 1)}%</td>
-                <td className={`px-3 py-2 text-right tabular-nums ${consColor(f.consistency)}`}>{fmtNum(f.consistency, 0)}%</td>
-                <td className={`px-3 py-2 text-right tabular-nums ${alphaColor(f.alpha5y)}`}>{fmtPP(f.alpha5y)}</td>
+                <td className="px-2 py-2 text-gray-500 text-[10px]">{f.category}</td>
+                <td className={`px-2 py-2 text-right tabular-nums ${cagrColor(f.ret1w)}`}>{fmt(f.ret1w)}</td>
+                <td className={`px-2 py-2 text-right tabular-nums ${cagrColor(f.ret1m)}`}>{fmt(f.ret1m)}</td>
+                <td className={`px-2 py-2 text-right tabular-nums ${cagrColor(f.ret3m)}`}>{fmt(f.ret3m)}</td>
+                <td className={`px-2 py-2 text-right tabular-nums ${cagrColor(f.ret6m)}`}>{fmt(f.ret6m)}</td>
+                <td className={`px-2 py-2 text-right tabular-nums ${cagrColor(f.ret1y)}`}>{fmt(f.ret1y)}</td>
+                <td className={`px-2 py-2 text-right tabular-nums ${cagrColor(f.cagr3y)}`}>{fmt(f.cagr3y)}</td>
+                <td className={`px-2 py-2 text-right tabular-nums ${cagrColor(f.cagr5y)}`}>{fmt(f.cagr5y)}</td>
+                <td className={`px-2 py-2 text-right tabular-nums ${cagrColor(f.cagr10y)}`}>{fmt(f.cagr10y)}</td>
+                <td className={`px-2 py-2 text-right tabular-nums font-bold ${sharpeColor(f.sharpe)}`}>{fmtNum(f.sharpe)}</td>
+                <td className={`px-2 py-2 text-right tabular-nums ${sharpeColor(f.sortino)}`}>{fmtNum(f.sortino)}</td>
+                <td className="px-2 py-2 text-right tabular-nums text-gray-300">{fmtNum(f.calmar)}</td>
+                <td className={`px-2 py-2 text-right tabular-nums ${ddColor(f.maxDd)}`}>{fmt(f.maxDd)}</td>
+                <td className="px-2 py-2 text-right tabular-nums text-gray-400">{fmtNum(f.volatility, 1)}%</td>
+                <td className={`px-2 py-2 text-right tabular-nums ${consColor(f.consistency)}`}>{fmtNum(f.consistency, 0)}%</td>
+                <td className={`px-2 py-2 text-right tabular-nums ${alphaColor(f.alpha5y)}`}>{fmtPP(f.alpha5y)}</td>
               </tr>
             ))}
             {visible.length === 0 && (
-              <tr><td colSpan="14" className="px-3 py-12 text-center text-gray-600 text-sm">No funds match the filters.</td></tr>
+              <tr><td colSpan="18" className="px-3 py-12 text-center text-gray-600 text-sm">No funds match the filters.</td></tr>
             )}
           </tbody>
         </table>
