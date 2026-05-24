@@ -90,11 +90,23 @@ async function fetch52wLows() {
 
 async function fetchGainersLosers(direction = "gainers") {
   // NSE's /api/live-analysis-variations?index=gainers returns a rich
-  // object: { NIFTY: { data: [...] }, BANKNIFTY: {...}, NIFTYNEXT50: {...} }.
-  // Querying ?index=losers historically returned "Missing index or key."
-  // because NSE migrated losers behind a different endpoint. We work around
-  // by querying the gainers endpoint and (if losers requested) re-querying
-  // the loser-list endpoint at /api/live-analysis-most-loosers.
+  // object grouped by index:
+  //   NIFTY        — top 20 in Nifty 50 (large caps only)
+  //   BANKNIFTY    — top 20 in Bank Nifty
+  //   NIFTYNEXT50  — top 20 in Nifty Next 50
+  //   SecGtr20     — broader market: top 20 securities priced ≥ ₹20
+  //                  (includes mid/small caps, excludes penny-stock noise)
+  //   SecLwr20     — securities < ₹20 (skipped — penny-stock junk)
+  //   FOSec        — F&O-listed securities only
+  //   allSec       — top 20 across everything
+  //
+  // We use SecGtr20 because it's the right balance — broad enough to include
+  // small/mid caps that fire big moves (Honasa, Varun Beverages, Premier
+  // Energies, etc.) but filters out the penny-stock chop.
+  //
+  // For losers, the dedicated endpoint was migrated separately to
+  // /api/live-analysis-most-loosers (NSE's typo). Falls back to [] if NSE
+  // returns the string error "Missing index or key."
   const url = direction === "losers"
     ? `${BASE}/api/live-analysis-most-loosers`
     : `${BASE}/api/live-analysis-variations?index=gainers`;
@@ -103,8 +115,8 @@ async function fetchGainersLosers(direction = "gainers") {
   // NSE error responses: { data: "Missing index or key." }
   if (j && typeof j.data === "string") return [];
 
-  // Prefer NIFTY data, fall back to a flat data array
-  const grp = j.NIFTY ?? j.NIFTY100 ?? j["NIFTY 100"] ?? j;
+  // Priority: SecGtr20 (broadest sensible) → NIFTY → flat data array
+  const grp = j.SecGtr20 ?? j.NIFTY ?? j.NIFTY100 ?? j["NIFTY 100"] ?? j;
   let arr = Array.isArray(grp) ? grp : grp?.data;
   if (!Array.isArray(arr)) arr = Array.isArray(j.data) ? j.data : [];
   return arr.map((d) => ({

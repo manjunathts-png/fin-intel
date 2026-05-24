@@ -370,7 +370,7 @@ function DiscoveryWidget({ title, icon, color, items, renderItem, emptyMsg, stal
   );
 }
 
-function DiscoverySection({ discovery, niftyReturns, builtAt }) {
+function DiscoverySection({ discovery, niftyReturns, builtAt, scannedPicks }) {
   if (!discovery) return null;
   const { highs52w, topGainers, oiBuildup, bulkDeals, blockDeals } = discovery;
   // Combine block + bulk as "institutional"
@@ -378,6 +378,11 @@ function DiscoverySection({ discovery, niftyReturns, builtAt }) {
     ...(blockDeals ?? []).map((d) => ({ ...d, kind: "BLOCK" })),
     ...(bulkDeals  ?? []).map((d) => ({ ...d, kind: "BULK" })),
   ].slice(0, 30);
+  // Day movers from within OUR scanned universe (mid/small caps included)
+  const pickMovers = (scannedPicks ?? [])
+    .filter((p) => p.changePct != null)
+    .sort((a, b) => (b.changePct ?? 0) - (a.changePct ?? 0))
+    .slice(0, 20);
 
   return (
     <div className="space-y-3 rounded-2xl border border-purple-800/40 bg-gray-950 p-3">
@@ -413,10 +418,34 @@ function DiscoverySection({ discovery, niftyReturns, builtAt }) {
         />
 
         <DiscoveryWidget
-          title="Top Gainers"
+          title="Today's Movers (from scanned universe)"
+          icon="📊"
+          color="border-blue-900/40"
+          items={pickMovers}
+          emptyMsg="Day-change data unavailable for the scanned universe."
+          renderItem={(d, i) => (
+            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+              <div className="min-w-0">
+                <div className="truncate text-xs text-gray-200">{d.label}</div>
+                <div className="text-[10px] text-gray-600">{d.symbol?.replace(".NS","")} · {d.sector}</div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className={`text-xs font-bold tabular-nums ${(d.changePct ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  {d.changePct >= 0 ? "+" : ""}{d.changePct?.toFixed(2)}%
+                </div>
+                <div className="text-[10px] text-gray-600 tabular-nums">₹{d.close?.toLocaleString("en-IN")}</div>
+              </div>
+            </div>
+          )}
+        />
+
+        <DiscoveryWidget
+          title="Today's Top Gainers (NSE, ≥₹20)"
           icon="⚡"
           color="border-yellow-900/40"
           items={topGainers}
+          staleNote={discovery.staleFeeds?.includes("topGainers") ? "as of last trading day" : null}
+          emptyMsg="Top gainers list will populate during market hours (NSE updates intraday)."
           renderItem={(d, i) => (
             <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
               <div className="min-w-0">
@@ -736,6 +765,7 @@ export default function Picks() {
                 discovery={stockPicksData?.discovery}
                 niftyReturns={stockPicksData?.niftyReturns}
                 builtAt={stockBuiltAt}
+                scannedPicks={stockPicksData?.all ?? signalsPicks}
               />
 
               {signalsPicks.slice(0, stockShowCount).map((pick, i) => (
