@@ -25,3 +25,4 @@ backend/nse_discovery_cache.json
 backend/nifty500_cache.json
 backend/nifty_benchmark_cache.json
 backend/yahoo_fundamentals_cache.json
+backend/mf_benchmark_cache.json

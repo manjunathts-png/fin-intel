@@ -30,10 +30,14 @@ const { CATEGORIES } = require("./mf_universe");
 const CACHE_FILE = path.join(__dirname, "mf_history_cache.json");
 const AMFI_URL = "https://www.amfiindia.com/spages/NAVAll.txt";
 const MFAPI_URL = (code) => `https://api.mfapi.in/mf/${code}`;
-const NAV_HISTORY_DAYS = 400;
+// Keep up to ~15 years of NAV history. mfapi.in returns full lifetime (often
+// 20+ years for older schemes) — we cap at 15Y * 365 = 5475 days to keep the
+// cache file size sane while still supporting 10Y CAGR with margin.
+const NAV_HISTORY_DAYS = 5475;
 const SCHEME_TTL = 24 * 60 * 60 * 1000;
 const AMFI_TTL = 24 * 60 * 60 * 1000;
 const LEADERBOARD_TTL = 60 * 60 * 1000;
+const RISK_FREE_RATE = 7; // India 10Y G-Sec proxy (% annual)
 
 // ─── Cache I/O ────────────────────────────────────────────────────────────────
 
@@ -222,6 +226,94 @@ const median = (a) => {
 };
 const round2 = (v) => (v == null || isNaN(v) ? null : parseFloat(v.toFixed(2)));
 
+// CAGR over `years` years from latest NAV
+function cagr(navs, years) {
+  if (navs.length === 0) return null;
+  const latest = navs[navs.length - 1].nav;
+  const past = navAtOrBefore(navs, daysAgo(years * 365));
+  if (past == null || past <= 0) return null;
+  return (Math.pow(latest / past, 1 / years) - 1) * 100;
+}
+
+// Monthly returns from daily NAVs (group by YYYY-MM, take last NAV of each month)
+function monthlyReturns(navs) {
+  if (navs.length === 0) return [];
+  const byMonth = new Map();
+  for (const { date, nav } of navs) {
+    const key = date.slice(0, 7); // YYYY-MM
+    byMonth.set(key, nav); // overwrites — keeps last (latest in chronological order)
+  }
+  const sorted = [...byMonth.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const rets = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1][1], cur = sorted[i][1];
+    if (prev > 0) rets.push((cur - prev) / prev);
+  }
+  return rets;
+}
+
+// Drawdown analysis — returns { maxDd, currentDd }
+function drawdown(navs) {
+  if (navs.length === 0) return { maxDd: null, currentDd: null };
+  let peak = navs[0].nav, maxDd = 0;
+  for (const { nav } of navs) {
+    if (nav > peak) peak = nav;
+    const dd = peak > 0 ? (nav / peak - 1) * 100 : 0;
+    if (dd < maxDd) maxDd = dd;
+  }
+  const lastPeak = navs.reduce((p, n) => n.nav > p ? n.nav : p, 0);
+  const last = navs[navs.length - 1].nav;
+  const currentDd = lastPeak > 0 ? (last / lastPeak - 1) * 100 : null;
+  return { maxDd, currentDd };
+}
+
+// Sharpe & Sortino & Calmar from monthly returns
+function riskMetrics(mRets, annualReturn, maxDdPct) {
+  if (!mRets.length || annualReturn == null) return { sharpe: null, sortino: null, calmar: null, volatility: null };
+  const m = mean(mRets);
+  const v = mean(mRets.map((r) => (r - m) ** 2));
+  const monthlyStd = Math.sqrt(v);
+  const annStd = monthlyStd * Math.sqrt(12) * 100;
+  const rfMonthly = RISK_FREE_RATE / 100 / 12;
+  const sharpe = annStd > 0 ? (annualReturn - RISK_FREE_RATE) / annStd : null;
+  // Sortino: only downside variance
+  const downside = mRets.filter((r) => r < rfMonthly);
+  let sortino = null;
+  if (downside.length) {
+    const downVar = mean(downside.map((r) => (r - rfMonthly) ** 2));
+    const annDown = Math.sqrt(downVar) * Math.sqrt(12) * 100;
+    sortino = annDown > 0 ? (annualReturn - RISK_FREE_RATE) / annDown : null;
+  }
+  const calmar = maxDdPct != null && maxDdPct < 0 ? annualReturn / Math.abs(maxDdPct) : null;
+  return { sharpe, sortino, calmar, volatility: annStd };
+}
+
+// Consistency: % of rolling 12M periods (monthly windows) where CAGR > 12%
+function consistency(navs, thresholdPct = 12) {
+  if (navs.length === 0) return null;
+  // Build monthly NAV series
+  const byMonth = new Map();
+  for (const { date, nav } of navs) byMonth.set(date.slice(0, 7), nav);
+  const months = [...byMonth.entries()].sort(([a], [b]) => a.localeCompare(b));
+  if (months.length < 13) return null;
+  let total = 0, hits = 0;
+  for (let i = 12; i < months.length; i++) {
+    const start = months[i - 12][1], end = months[i][1];
+    if (start > 0) {
+      const ret = ((end / start) - 1) * 100;
+      total += 1;
+      if (ret >= thresholdPct) hits += 1;
+    }
+  }
+  return total > 0 ? (hits / total) * 100 : null;
+}
+
+// Best / worst single month return (%)
+function bestWorstMonth(mRets) {
+  if (!mRets.length) return { best: null, worst: null };
+  return { best: Math.max(...mRets) * 100, worst: Math.min(...mRets) * 100 };
+}
+
 function computeFundStats(navs) {
   const ret1w = pctReturn(navs, 7);
   const ret1m = pctReturn(navs, 30);
@@ -229,36 +321,78 @@ function computeFundStats(navs) {
   const ret6m = pctReturn(navs, 180);
   const ret1y = pctReturn(navs, 365);
 
+  const cagr3y  = cagr(navs, 3);
+  const cagr5y  = cagr(navs, 5);
+  const cagr10y = cagr(navs, 10);
+
   const weekly = rollingWeeklyReturns(navs, 90);
   const wStd = stddev(weekly);
   const wMean = mean(weekly);
   const z1w = ret1w != null && wStd > 0 ? (ret1w - wMean) / wStd : null;
 
+  // Long-horizon monthly returns over up to 5 years for stable risk metrics
+  const navs5y = navs.filter((n) => n.date >= daysAgo(365 * 5));
+  const mRets5y = monthlyReturns(navs5y);
+  const dd5y = drawdown(navs5y);
+  const annRetForRisk = cagr5y ?? cagr3y ?? ret1y; // fallback ladder
+  const risk = riskMetrics(mRets5y, annRetForRisk, dd5y.maxDd);
+  const bw = bestWorstMonth(mRets5y);
+
+  // Drawdown over full available history (typically 10Y+)
+  const ddFull = drawdown(navs);
+
+  // Consistency uses full available history
+  const consist = consistency(navs, 12);
+
   return {
-    ret1w: round2(ret1w),
-    ret1m: round2(ret1m),
-    ret3m: round2(ret3m),
-    ret6m: round2(ret6m),
-    ret1y: round2(ret1y),
-    z1w:   round2(z1w),
+    ret1w:        round2(ret1w),
+    ret1m:        round2(ret1m),
+    ret3m:        round2(ret3m),
+    ret6m:        round2(ret6m),
+    ret1y:        round2(ret1y),
+    z1w:          round2(z1w),
+    cagr3y:       round2(cagr3y),
+    cagr5y:       round2(cagr5y),
+    cagr10y:      round2(cagr10y),
+    sharpe:       round2(risk.sharpe),
+    sortino:      round2(risk.sortino),
+    calmar:       round2(risk.calmar),
+    volatility:   round2(risk.volatility),
+    maxDd:        round2(dd5y.maxDd),
+    maxDdFull:    round2(ddFull.maxDd),
+    currentDd:    round2(dd5y.currentDd),
+    consistency:  round2(consist),
+    bestMonth:    round2(bw.best),
+    worstMonth:   round2(bw.worst),
+    navStartDate: navs[0]?.date ?? null,
+    navCount:     navs.length,
   };
 }
 
 function categoryAggregate(funds) {
   const pick = (k) => funds.map((f) => f[k]).filter((v) => v != null);
   return {
-    ret1w: round2(median(pick("ret1w"))),
-    ret1m: round2(median(pick("ret1m"))),
-    ret3m: round2(median(pick("ret3m"))),
-    ret6m: round2(median(pick("ret6m"))),
-    ret1y: round2(median(pick("ret1y"))),
-    z1w:   round2(median(pick("z1w"))),
+    ret1w:       round2(median(pick("ret1w"))),
+    ret1m:       round2(median(pick("ret1m"))),
+    ret3m:       round2(median(pick("ret3m"))),
+    ret6m:       round2(median(pick("ret6m"))),
+    ret1y:       round2(median(pick("ret1y"))),
+    z1w:         round2(median(pick("z1w"))),
+    cagr3y:      round2(median(pick("cagr3y"))),
+    cagr5y:      round2(median(pick("cagr5y"))),
+    cagr10y:     round2(median(pick("cagr10y"))),
+    sharpe:      round2(median(pick("sharpe"))),
+    sortino:     round2(median(pick("sortino"))),
+    calmar:      round2(median(pick("calmar"))),
+    volatility:  round2(median(pick("volatility"))),
+    maxDd:       round2(median(pick("maxDd"))),
+    consistency: round2(median(pick("consistency"))),
   };
 }
 
 // ─── Build leaderboard ────────────────────────────────────────────────────────
 
-async function buildLeaderboard() {
+async function buildLeaderboard({ benchmarks = null } = {}) {
   // AMFI list is still fetched for latest NAV lookups; fund codes come from universe config
   let amfiList = {};
   try { amfiList = await getAmfiList(); } catch (e) {
@@ -270,30 +404,50 @@ async function buildLeaderboard() {
 
   for (const [categoryName, fundEntries] of Object.entries(CATEGORIES)) {
     const funds = [];
+    const bench = benchmarks?.byCategory?.[categoryName] ?? null;
 
     for (const fund of fundEntries) {
       const { code, label } = fund;
       try {
         const entry = await fetchSchemeHistory(code);
         const stats = computeFundStats(entry.navs);
+
+        // Alpha vs benchmark (CAGR over same period)
+        const alpha1y  = stats.ret1y   != null && bench?.ret1y   != null ? round2(stats.ret1y   - bench.ret1y)   : null;
+        const alpha3y  = stats.cagr3y  != null && bench?.cagr3y  != null ? round2(stats.cagr3y  - bench.cagr3y)  : null;
+        const alpha5y  = stats.cagr5y  != null && bench?.cagr5y  != null ? round2(stats.cagr5y  - bench.cagr5y)  : null;
+        const alpha10y = stats.cagr10y != null && bench?.cagr10y != null ? round2(stats.cagr10y - bench.cagr10y) : null;
+
         funds.push({
           code,
           label,
           name: entry.name || amfiList[code]?.name || label,
           latestNav: amfiList[code]?.nav ?? null,
           ...stats,
+          alpha1y, alpha3y, alpha5y, alpha10y,
+          benchmarkSymbol: bench?.symbol ?? null,
+          benchmarkLabel:  bench?.label  ?? null,
         });
       } catch (e) {
         warnings.push(`History fetch failed for ${code} (${label}): ${e.message}`);
       }
     }
 
-    funds.sort((a, b) => (b.ret1w ?? -Infinity) - (a.ret1w ?? -Infinity));
+    // Default sort by 5Y CAGR for long-term framing (fallback to 1Y return)
+    funds.sort((a, b) => (b.cagr5y ?? b.ret1y ?? -Infinity) - (a.cagr5y ?? a.ret1y ?? -Infinity));
+
+    // Category-level alpha medians
+    const aggregate = categoryAggregate(funds);
+    aggregate.alpha1y  = round2(median(funds.map((f) => f.alpha1y).filter((v) => v != null)));
+    aggregate.alpha3y  = round2(median(funds.map((f) => f.alpha3y).filter((v) => v != null)));
+    aggregate.alpha5y  = round2(median(funds.map((f) => f.alpha5y).filter((v) => v != null)));
+    aggregate.alpha10y = round2(median(funds.map((f) => f.alpha10y).filter((v) => v != null)));
 
     categories.push({
-      category: categoryName,
+      category:  categoryName,
+      benchmark: bench,
       fundCount: funds.length,
-      median: categoryAggregate(funds),
+      median:    aggregate,
       funds,
     });
   }
@@ -303,6 +457,7 @@ async function buildLeaderboard() {
 
   return {
     asOf: new Date().toISOString(),
+    benchmarks: benchmarks?.byCategory ?? null,
     categories,
     warnings,
   };
@@ -312,11 +467,11 @@ async function buildLeaderboard() {
 
 let leaderboardCache = { built: 0, data: null };
 
-async function getLeaderboard({ force = false } = {}) {
+async function getLeaderboard({ force = false, benchmarks = null } = {}) {
   if (!force && leaderboardCache.data && Date.now() - leaderboardCache.built < LEADERBOARD_TTL) {
     return leaderboardCache.data;
   }
-  const data = await buildLeaderboard();
+  const data = await buildLeaderboard({ benchmarks });
   leaderboardCache = { built: Date.now(), data };
   return data;
 }

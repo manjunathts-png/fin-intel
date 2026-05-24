@@ -1,11 +1,36 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import { trackEvent } from "../lib/analytics";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Shared utilities ─────────────────────────────────────────────────────────
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function fmt(v, d = 1) {
+  if (v == null) return "—";
+  return `${v >= 0 ? "+" : ""}${v.toFixed(d)}%`;
+}
+function fmtNum(v, d = 2) {
+  if (v == null) return "—";
+  return v.toFixed(d);
+}
+function fmtPP(v, d = 1) {
+  if (v == null) return "—";
+  return `${v >= 0 ? "+" : ""}${v.toFixed(d)}pp`;
+}
+function timeAgo(iso) {
+  const mins = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (mins < 60)  return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24)   return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
+function fundAge(navStartDate) {
+  if (!navStartDate) return null;
+  const start = new Date(navStartDate);
+  const years = (Date.now() - start.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+  return years.toFixed(1);
+}
 
 function heatColor(value, range) {
   if (value == null) return "bg-gray-800 text-gray-500";
@@ -28,361 +53,466 @@ function zBadge(z) {
   return null;
 }
 
-function zLabel(z) {
-  if (z == null) return null;
-  if (z >= 1.5)  return { text: "🔥 Hot",    bg: "bg-orange-500/20 text-orange-300 border-orange-600/40" };
-  if (z >= 0.5)  return { text: "↑ Warm",    bg: "bg-yellow-500/20 text-yellow-300 border-yellow-600/40" };
-  if (z >= -0.5) return { text: "→ Neutral", bg: "bg-gray-600/30  text-gray-400   border-gray-600/40"   };
-  if (z >= -1.5) return { text: "↓ Cool",    bg: "bg-blue-500/20  text-blue-300   border-blue-600/40"   };
-  return                 { text: "❄ Cold",    bg: "bg-indigo-500/20 text-indigo-300 border-indigo-600/40" };
+function sharpeColor(s) {
+  if (s == null) return "text-gray-500";
+  if (s >= 1.5) return "text-green-400";
+  if (s >= 1)   return "text-green-500";
+  if (s >= 0.5) return "text-yellow-400";
+  if (s >= 0)   return "text-orange-400";
+  return "text-red-400";
+}
+function ddColor(dd) {
+  if (dd == null) return "text-gray-500";
+  if (dd >= -10) return "text-green-400";
+  if (dd >= -20) return "text-yellow-400";
+  if (dd >= -30) return "text-orange-400";
+  return "text-red-400";
+}
+function consColor(c) {
+  if (c == null) return "text-gray-500";
+  if (c >= 80) return "text-green-400";
+  if (c >= 60) return "text-yellow-400";
+  if (c >= 40) return "text-orange-400";
+  return "text-red-400";
+}
+function alphaColor(a) {
+  if (a == null) return "text-gray-500";
+  if (a >= 5)  return "text-lime-400 font-semibold";
+  if (a >= 0)  return "text-green-400";
+  if (a >= -5) return "text-orange-400";
+  return "text-red-400";
+}
+function cagrColor(v) {
+  if (v == null) return "text-gray-500";
+  if (v >= 18) return "text-green-400 font-semibold";
+  if (v >= 12) return "text-green-400";
+  if (v >= 8)  return "text-yellow-400";
+  if (v >= 0)  return "text-orange-400";
+  return "text-red-400";
 }
 
-function fmt(v) {
-  if (v == null) return "—";
-  return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
-}
+// ─── Tab navigation ───────────────────────────────────────────────────────────
 
-function timeAgo(iso) {
-  const mins = Math.round((Date.now() - new Date(iso)) / 60000);
-  if (mins < 60)  return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24)   return `${hrs}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
-}
-
-const WINDOWS = [
-  { key: "ret1w", label: "1W",  range: 5  },
-  { key: "ret1m", label: "1M",  range: 15 },
-  { key: "ret3m", label: "3M",  range: 25 },
-  { key: "ret6m", label: "6M",  range: 40 },
-  { key: "ret1y", label: "1Y",  range: 60 },
+const TABS = [
+  { key: "category",   label: "📊 Category Radar",     desc: "Categories ranked by long-term return & risk" },
+  { key: "riskAdj",    label: "🎯 Risk-Adjusted",      desc: "All funds sorted by Sharpe / Calmar / Consistency" },
+  { key: "compounders",label: "🏆 Long-Term Compounders", desc: "Funds with the highest 5Y/10Y CAGR" },
 ];
 
-// ─── Desktop components ───────────────────────────────────────────────────────
+// ─── Tab 1: Category Radar (enhanced) ─────────────────────────────────────────
 
-function RetCell({ value, range }) {
-  return (
-    <td className={`px-3 py-2.5 text-center tabular-nums text-sm font-medium ${heatColor(value, range)}`}>
-      {fmt(value)}
-    </td>
-  );
-}
-
-function DesktopFundRow({ fund }) {
-  return (
-    <tr className="border-t border-gray-800/60 bg-gray-900/30 hover:bg-gray-800/40">
-      <td className="py-2 pl-10 pr-3 text-xs text-gray-300">{fund.label}</td>
-      {WINDOWS.map(({ key, range }) => (
-        <RetCell key={key} value={fund[key]} range={range} />
-      ))}
-      <td className="px-3 py-2 text-center text-xs text-gray-500">—</td>
-    </tr>
-  );
-}
-
-function DesktopCategoryRow({ cat, isExpanded, onToggle }) {
-  const { category, median: m, funds, fundCount } = cat;
+function CategoryRow({ cat, isExpanded, onToggle }) {
+  const m = cat.median;
+  const b = cat.benchmark;
   const badge = zBadge(m.z1w);
-
   return (
     <>
-      <tr
-        onClick={onToggle}
-        className="cursor-pointer border-t border-gray-700 bg-gray-900 hover:bg-gray-800/70 transition-colors"
-      >
+      <tr onClick={onToggle} className="cursor-pointer border-t border-gray-700 bg-gray-900 hover:bg-gray-800/70">
         <td className="px-4 py-3">
           <div className="flex items-center gap-2">
             <span className={`text-xs transition-transform ${isExpanded ? "rotate-90" : ""}`}>▶</span>
-            <span className="font-semibold text-gray-100">{category}</span>
-            {badge && (
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${badge.cls}`}>
-                {badge.label}
-              </span>
-            )}
-            <span className="text-xs text-gray-600">({fundCount ?? funds?.length} funds)</span>
+            <span className="font-semibold text-gray-100">{cat.category}</span>
+            {badge && <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${badge.cls}`}>{badge.label}</span>}
+            <span className="text-xs text-gray-600">({cat.fundCount})</span>
           </div>
+          {b && (
+            <div className="mt-0.5 text-[10px] text-gray-600">
+              vs <span className="text-gray-500">{b.label}</span>
+            </div>
+          )}
         </td>
-        {WINDOWS.map(({ key, range }) => (
-          <RetCell key={key} value={m[key]} range={range} />
-        ))}
-        <td className="px-3 py-3 text-center tabular-nums text-xs text-gray-400">
-          {m.z1w != null ? m.z1w.toFixed(2) : "—"}
-        </td>
+        <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${heatColor(m.ret1y, 25)}`}>{fmt(m.ret1y)}</td>
+        <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${heatColor(m.cagr3y, 25)}`}>{fmt(m.cagr3y)}</td>
+        <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${heatColor(m.cagr5y, 25)}`}>{fmt(m.cagr5y)}</td>
+        <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${heatColor(m.cagr10y, 25)}`}>{fmt(m.cagr10y)}</td>
+        <td className={`px-3 py-3 text-center tabular-nums text-sm font-bold ${sharpeColor(m.sharpe)}`}>{fmtNum(m.sharpe)}</td>
+        <td className={`px-3 py-3 text-center tabular-nums text-sm ${ddColor(m.maxDd)}`}>{fmt(m.maxDd)}</td>
+        <td className={`px-3 py-3 text-center tabular-nums text-sm ${consColor(m.consistency)}`}>{fmtNum(m.consistency, 0)}%</td>
+        <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${alphaColor(m.alpha5y)}`}>{fmtPP(m.alpha5y)}</td>
       </tr>
-      {isExpanded && funds.map((f) => (
-        <DesktopFundRow key={f.code} fund={f} />
+      {isExpanded && cat.funds.map((f) => (
+        <FundExpandedRow key={f.code} fund={f} />
       ))}
     </>
   );
 }
 
+function FundExpandedRow({ fund }) {
+  const age = fundAge(fund.navStartDate);
+  return (
+    <tr className="border-t border-gray-800/60 bg-gray-900/40 hover:bg-gray-800/40">
+      <td className="py-2.5 pl-10 pr-3">
+        <div className="flex flex-col">
+          <span className="text-xs font-medium text-gray-200">{fund.label}</span>
+          <div className="flex gap-2 text-[10px] text-gray-600">
+            {age && <span>{age}Y history</span>}
+            {fund.latestNav && <span>NAV ₹{fund.latestNav.toFixed(2)}</span>}
+            {fund.benchmarkLabel && <span className="text-gray-700">vs {fund.benchmarkLabel}</span>}
+          </div>
+        </div>
+      </td>
+      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${cagrColor(fund.ret1y)}`}>{fmt(fund.ret1y)}</td>
+      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${cagrColor(fund.cagr3y)}`}>{fmt(fund.cagr3y)}</td>
+      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${cagrColor(fund.cagr5y)}`}>{fmt(fund.cagr5y)}</td>
+      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${cagrColor(fund.cagr10y)}`}>{fmt(fund.cagr10y)}</td>
+      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${sharpeColor(fund.sharpe)}`}>{fmtNum(fund.sharpe)}</td>
+      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${ddColor(fund.maxDd)}`}>{fmt(fund.maxDd)}</td>
+      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${consColor(fund.consistency)}`}>{fmtNum(fund.consistency, 0)}%</td>
+      <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${alphaColor(fund.alpha5y)}`}>{fmtPP(fund.alpha5y)}</td>
+    </tr>
+  );
+}
+
 function HotColdStrip({ categories }) {
-  const sorted = [...categories].sort((a, b) => (b.median.z1w ?? -Infinity) - (a.median.z1w ?? -Infinity));
-  const hot  = sorted.slice(0, 3).filter((c) => (c.median.z1w ?? 0) > 0);
-  const cold = sorted.slice(-3).filter((c) => (c.median.z1w ?? 0) < 0).reverse();
-  if (hot.length === 0 && cold.length === 0) return null;
-
+  const sorted = [...categories].sort((a, b) => (b.median.cagr5y ?? -99) - (a.median.cagr5y ?? -99));
+  const hot  = sorted.slice(0, 3);
+  const cold = [...sorted].reverse().slice(0, 3);
   return (
-    <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-      {hot.length > 0 && (
-        <div className="rounded-xl border border-green-800/50 bg-green-900/20 p-4">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-green-400">
-            🔥 Strongest momentum this week
-          </div>
-          {hot.map((c) => (
-            <div key={c.category} className="flex items-center justify-between py-1">
-              <span className="text-sm text-gray-200">{c.category}</span>
-              <div className="flex items-center gap-3">
-                <span className="tabular-nums text-sm font-semibold text-green-400">{fmt(c.median.ret1w)} 1W</span>
-                <span className="text-xs text-gray-500">z={c.median.z1w?.toFixed(1)}</span>
-              </div>
-            </div>
-          ))}
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="rounded-xl border border-green-800/50 bg-green-900/15 p-4">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-green-400">
+          🏆 Top categories by 5Y CAGR
         </div>
-      )}
-      {cold.length > 0 && (
-        <div className="rounded-xl border border-red-900/50 bg-red-900/20 p-4">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-red-400">
-            ❄ Weakest momentum this week
-          </div>
-          {cold.map((c) => (
-            <div key={c.category} className="flex items-center justify-between py-1">
-              <span className="text-sm text-gray-200">{c.category}</span>
-              <div className="flex items-center gap-3">
-                <span className="tabular-nums text-sm font-semibold text-red-400">{fmt(c.median.ret1w)} 1W</span>
-                <span className="text-xs text-gray-500">z={c.median.z1w?.toFixed(1)}</span>
-              </div>
+        {hot.map((c) => (
+          <div key={c.category} className="flex items-center justify-between border-t border-green-900/30 py-1.5 first:border-0">
+            <span className="text-sm text-gray-200">{c.category}</span>
+            <div className="flex items-center gap-3 text-xs">
+              <span className={alphaColor(c.median.alpha5y)}>{fmtPP(c.median.alpha5y)}α</span>
+              <span className={`font-semibold tabular-nums ${cagrColor(c.median.cagr5y)}`}>{fmt(c.median.cagr5y)}</span>
             </div>
-          ))}
+          </div>
+        ))}
+      </div>
+      <div className="rounded-xl border border-red-900/50 bg-red-900/15 p-4">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-red-400">
+          🐌 Weakest categories by 5Y CAGR
         </div>
-      )}
+        {cold.map((c) => (
+          <div key={c.category} className="flex items-center justify-between border-t border-red-900/30 py-1.5 first:border-0">
+            <span className="text-sm text-gray-200">{c.category}</span>
+            <div className="flex items-center gap-3 text-xs">
+              <span className={alphaColor(c.median.alpha5y)}>{fmtPP(c.median.alpha5y)}α</span>
+              <span className={`font-semibold tabular-nums ${cagrColor(c.median.cagr5y)}`}>{fmt(c.median.cagr5y)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-function Legend() {
-  return (
-    <div className="mb-4 flex flex-wrap items-center gap-4 text-xs text-gray-500">
-      <span className="font-semibold text-gray-400">Legend:</span>
-      <span className="flex items-center gap-1">
-        <span className="inline-block h-3 w-6 rounded bg-green-700" /> Strong +ve
-      </span>
-      <span className="flex items-center gap-1">
-        <span className="inline-block h-3 w-6 rounded bg-red-700" /> Strong -ve
-      </span>
-      <span>z-score = how unusual is this week vs trailing 90d (≥2 = hot, ≤-2 = cold)</span>
-      <span>Click a row to see individual fund breakdown</span>
-    </div>
-  );
-}
-
-function DesktopView({ data, builtAt, user }) {
+function CategoryRadar({ categories }) {
   const [expanded, setExpanded] = useState(new Set());
-  const [sort, setSort] = useState({ key: "z1w", dir: "desc" });
+  const [sort, setSort] = useState({ key: "cagr5y", dir: "desc" });
 
-  const sorted = [...data.categories].sort((a, b) => {
-    const av = a.median[sort.key] ?? -Infinity;
-    const bv = b.median[sort.key] ?? -Infinity;
-    return sort.dir === "desc" ? bv - av : av - bv;
-  });
-
-  const toggleExpand = (cat) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      const opening = !prev.has(cat);
-      next.has(cat) ? next.delete(cat) : next.add(cat);
-      if (opening) trackEvent(user, `expand:${cat}`, "/mf");
-      return next;
+  const sorted = useMemo(() => {
+    return [...categories].sort((a, b) => {
+      const av = a.median?.[sort.key] ?? -Infinity;
+      const bv = b.median?.[sort.key] ?? -Infinity;
+      return sort.dir === "desc" ? bv - av : av - bv;
     });
-  };
+  }, [categories, sort]);
 
-  const handleSort = (key) => {
-    setSort((prev) => {
-      const dir = prev.key === key && prev.dir === "desc" ? "asc" : "desc";
-      trackEvent(user, `sort:${key}:${dir}`, "/mf");
-      return { key, dir };
-    });
-  };
-
-  const SortArrow = ({ col }) => {
+  function clickHeader(key) {
+    setSort((prev) => prev.key === key ? { key, dir: prev.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
+  }
+  function SortArrow({ col }) {
     if (sort.key !== col) return <span className="ml-0.5 text-gray-600">⇅</span>;
     return <span className="ml-0.5 text-blue-400">{sort.dir === "desc" ? "↓" : "↑"}</span>;
-  };
+  }
 
   return (
-    <>
-      <div className="mb-6">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div>
-            <h1 className="text-2xl font-bold">MF Momentum Radar</h1>
-            <p className="mt-1 text-sm text-gray-400">
-              Median returns across {data.categories.length} categories · updated {builtAt ? timeAgo(builtAt) : "—"}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <HotColdStrip categories={data.categories} />
-      <Legend />
+    <div className="space-y-4">
+      <HotColdStrip categories={categories} />
 
       <div className="overflow-x-auto rounded-xl border border-gray-800 shadow-xl">
-        <table className="w-full border-collapse text-sm">
+        <table className="w-full border-collapse text-sm min-w-[920px]">
           <thead className="bg-gray-800/80">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
-                Category
-              </th>
-              {WINDOWS.map(({ key, label }) => (
-                <th
-                  key={key}
-                  onClick={() => handleSort(key)}
-                  className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white"
-                >
-                  {label}<SortArrow col={key} />
-                </th>
-              ))}
-              <th
-                onClick={() => handleSort("z1w")}
-                className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white"
-                title="1-week z-score vs trailing 90-day weekly returns"
-              >
-                Momentum z<SortArrow col="z1w" />
-              </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">Category</th>
+              <th onClick={() => clickHeader("ret1y")}     className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">1Y<SortArrow col="ret1y" /></th>
+              <th onClick={() => clickHeader("cagr3y")}    className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">3Y CAGR<SortArrow col="cagr3y" /></th>
+              <th onClick={() => clickHeader("cagr5y")}    className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">5Y CAGR<SortArrow col="cagr5y" /></th>
+              <th onClick={() => clickHeader("cagr10y")}   className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white">10Y CAGR<SortArrow col="cagr10y" /></th>
+              <th onClick={() => clickHeader("sharpe")}    className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Sharpe Ratio (>1 = good, vs 7% risk-free)">Sharpe<SortArrow col="sharpe" /></th>
+              <th onClick={() => clickHeader("maxDd")}     className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Max Drawdown over last 5Y">Max DD<SortArrow col="maxDd" /></th>
+              <th onClick={() => clickHeader("consistency")} className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="% of rolling 12M periods with CAGR ≥ 12%">Consis.<SortArrow col="consistency" /></th>
+              <th onClick={() => clickHeader("alpha5y")}   className="cursor-pointer px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="5Y CAGR minus benchmark CAGR (alpha)">α 5Y<SortArrow col="alpha5y" /></th>
             </tr>
           </thead>
           <tbody>
-            {sorted.map((cat) => (
-              <DesktopCategoryRow
-                key={cat.category}
-                cat={cat}
-                isExpanded={expanded.has(cat.category)}
-                onToggle={() => toggleExpand(cat.category)}
+            {sorted.map((c) => (
+              <CategoryRow
+                key={c.category}
+                cat={c}
+                isExpanded={expanded.has(c.category)}
+                onToggle={() => setExpanded((p) => {
+                  const n = new Set(p);
+                  n.has(c.category) ? n.delete(c.category) : n.add(c.category);
+                  return n;
+                })}
               />
             ))}
           </tbody>
         </table>
       </div>
-
-      {data.warnings?.length > 0 && (
-        <details className="mt-6 text-xs text-gray-600">
-          <summary className="cursor-pointer hover:text-gray-400">
-            {data.warnings.length} fund(s) skipped
-          </summary>
-          <ul className="mt-2 list-disc pl-5">
-            {data.warnings.map((w, i) => <li key={i}>{w}</li>)}
-          </ul>
-        </details>
-      )}
-    </>
-  );
-}
-
-// ─── Mobile components ────────────────────────────────────────────────────────
-
-function RetVal({ val }) {
-  const color = (val ?? 0) >= 0 ? "text-green-400" : "text-red-400";
-  return <span className={`tabular-nums font-medium ${color}`}>{fmt(val)}</span>;
-}
-
-const MOBILE_WINDOWS     = ["1W", "1M", "3M", "6M", "1Y"];
-const MOBILE_WINDOW_KEYS = ["ret1w", "ret1m", "ret3m", "ret6m", "ret1y"];
-
-function MobileFundRow({ fund }) {
-  return (
-    <div className="border-b border-gray-800/50 py-2.5 last:border-0">
-      <div className="mb-1.5 flex items-start justify-between gap-2">
-        <span className="text-sm leading-snug text-gray-200">{fund.label}</span>
-        {fund.latestNav && (
-          <span className="shrink-0 text-xs text-gray-500">₹{fund.latestNav.toFixed(2)}</span>
-        )}
-      </div>
-      <div className="flex gap-3 overflow-x-auto">
-        {MOBILE_WINDOWS.map((w, i) => (
-          <div key={w} className="shrink-0 text-center">
-            <div className="text-[10px] text-gray-600">{w}</div>
-            <RetVal val={fund[MOBILE_WINDOW_KEYS[i]]} />
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
 
-function MobileCategoryCard({ cat }) {
-  const [open, setOpen] = useState(false);
-  const zl = zLabel(cat.median.z1w);
+// ─── Tab 2: Risk-Adjusted (sortable + filterable fund table) ─────────────────
 
-  return (
-    <div className="overflow-hidden rounded-2xl border border-gray-800 bg-gray-900">
-      <button
-        className="w-full px-4 py-3.5 text-left active:bg-gray-800/50"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              {zl && (
-                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${zl.bg}`}>
-                  {zl.text}
-                </span>
-              )}
-              <span className="font-semibold text-gray-100">{cat.category}</span>
-            </div>
-            {cat.funds[0] && (
-              <span className="block truncate text-xs text-gray-500">
-                Top: {cat.funds[0].label}
-              </span>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <div className="text-right">
-              <div className="text-xs text-gray-600">1W</div>
-              <RetVal val={cat.median.ret1w} />
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-gray-600">1M</div>
-              <RetVal val={cat.median.ret1m} />
-            </div>
-            <span className="text-sm text-gray-600">{open ? "▲" : "▼"}</span>
-          </div>
-        </div>
-      </button>
+function RiskAdjusted({ categories }) {
+  const [sort,         setSort]         = useState({ key: "sharpe", dir: "desc" });
+  const [catFilter,    setCatFilter]    = useState("");
+  const [minSharpe,    setMinSharpe]    = useState(0);
+  const [minConsis,    setMinConsis]    = useState(0);
+  const [pageSize,     setPageSize]     = useState(50);
 
-      {open && (
-        <div className="border-t border-gray-800">
-          <div className="flex gap-3 overflow-x-auto bg-gray-800/40 px-4 py-2">
-            <span className="shrink-0 self-center text-[10px] text-gray-500">Median</span>
-            {MOBILE_WINDOWS.map((w, i) => (
-              <div key={w} className="shrink-0 text-center">
-                <div className="text-[10px] text-gray-600">{w}</div>
-                <RetVal val={cat.median[MOBILE_WINDOW_KEYS[i]]} />
-              </div>
-            ))}
-          </div>
-          <div className="px-4">
-            {cat.funds.map((f) => <MobileFundRow key={f.code} fund={f} />)}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+  // Flatten all funds with category attached
+  const funds = useMemo(() => {
+    const out = [];
+    for (const c of categories) {
+      for (const f of c.funds) out.push({ ...f, category: c.category });
+    }
+    return out;
+  }, [categories]);
 
-function MobileView({ data, builtAt }) {
+  const filtered = useMemo(() => {
+    let r = funds;
+    if (catFilter)    r = r.filter((f) => f.category === catFilter);
+    if (minSharpe > 0) r = r.filter((f) => (f.sharpe ?? -99) >= minSharpe);
+    if (minConsis > 0) r = r.filter((f) => (f.consistency ?? 0) >= minConsis);
+    const dir = sort.dir === "desc" ? -1 : 1;
+    return [...r].sort((a, b) => {
+      const av = a[sort.key];
+      const bv = b[sort.key];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === "string") return av.localeCompare(bv) * dir;
+      return (bv - av) * (dir === 1 ? -1 : 1);
+    });
+  }, [funds, catFilter, minSharpe, minConsis, sort]);
+
+  const visible = filtered.slice(0, pageSize);
+
+  function clickHeader(key) {
+    setSort((prev) => prev.key === key ? { key, dir: prev.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
+  }
+  function SortArrow({ col }) {
+    if (sort.key !== col) return <span className="ml-0.5 text-gray-600">⇅</span>;
+    return <span className="ml-0.5 text-blue-400">{sort.dir === "desc" ? "↓" : "↑"}</span>;
+  }
+
+  const categoryOpts = useMemo(() => [...new Set(funds.map((f) => f.category))].sort(), [funds]);
+
   return (
     <div className="space-y-3">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-bold">MF Momentum Radar</h1>
-          <p className="mt-0.5 text-xs text-gray-500">
-            {data.categories.length} categories · updated {builtAt ? timeAgo(builtAt) : "—"}
-          </p>
+      <div className="rounded-2xl border border-gray-800 bg-gray-900 p-3 flex flex-wrap items-center gap-3">
+        <select
+          value={catFilter}
+          onChange={(e) => setCatFilter(e.target.value)}
+          className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="">All categories</option>
+          {categoryOpts.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-500">Min Sharpe</label>
+          <input
+            type="range" min="0" max="2" step="0.1" value={minSharpe}
+            onChange={(e) => setMinSharpe(Number(e.target.value))}
+            className="w-28 accent-blue-500"
+          />
+          <span className="w-8 text-xs tabular-nums text-blue-400">{minSharpe.toFixed(1)}</span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-500">Min Consistency</label>
+          <input
+            type="range" min="0" max="100" step="5" value={minConsis}
+            onChange={(e) => setMinConsis(Number(e.target.value))}
+            className="w-28 accent-blue-500"
+          />
+          <span className="w-10 text-xs tabular-nums text-blue-400">{minConsis}%</span>
+        </div>
+
+        <div className="ml-auto text-xs text-gray-500">
+          {filtered.length} fund{filtered.length === 1 ? "" : "s"} match · showing {visible.length}
         </div>
       </div>
-      {data.categories.map((cat) => (
-        <MobileCategoryCard key={cat.category} cat={cat} />
-      ))}
+
+      <div className="overflow-x-auto rounded-2xl border border-gray-800">
+        <table className="w-full border-collapse text-xs min-w-[1080px]">
+          <thead className="bg-gray-800/80">
+            <tr>
+              <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400">#</th>
+              <th onClick={() => clickHeader("label")}      className="cursor-pointer px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">Fund<SortArrow col="label" /></th>
+              <th onClick={() => clickHeader("category")}   className="cursor-pointer px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">Category<SortArrow col="category" /></th>
+              <th onClick={() => clickHeader("ret1y")}      className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">1Y<SortArrow col="ret1y" /></th>
+              <th onClick={() => clickHeader("cagr3y")}     className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">3Y<SortArrow col="cagr3y" /></th>
+              <th onClick={() => clickHeader("cagr5y")}     className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">5Y<SortArrow col="cagr5y" /></th>
+              <th onClick={() => clickHeader("cagr10y")}    className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">10Y<SortArrow col="cagr10y" /></th>
+              <th onClick={() => clickHeader("sharpe")}     className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Sharpe Ratio (>1 = good)">Sharpe<SortArrow col="sharpe" /></th>
+              <th onClick={() => clickHeader("sortino")}    className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Sortino (downside-only)">Sortino<SortArrow col="sortino" /></th>
+              <th onClick={() => clickHeader("calmar")}     className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Calmar = return ÷ max DD">Calmar<SortArrow col="calmar" /></th>
+              <th onClick={() => clickHeader("maxDd")}      className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Max Drawdown (5Y)">MaxDD<SortArrow col="maxDd" /></th>
+              <th onClick={() => clickHeader("volatility")} className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="Annualized volatility">σ<SortArrow col="volatility" /></th>
+              <th onClick={() => clickHeader("consistency")} className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white" title="% rolling 12M >= 12%">Consis.<SortArrow col="consistency" /></th>
+              <th onClick={() => clickHeader("alpha5y")}    className="cursor-pointer px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-white">α 5Y<SortArrow col="alpha5y" /></th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((f, i) => (
+              <tr key={f.code} className="border-t border-gray-800/60 hover:bg-gray-800/40">
+                <td className="px-3 py-2 tabular-nums text-gray-600">{i + 1}</td>
+                <td className="px-3 py-2">
+                  <div className="text-gray-200 text-[11px]">{f.label}</div>
+                  {f.navStartDate && (
+                    <div className="text-[9px] text-gray-600">{fundAge(f.navStartDate)}Y history</div>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-gray-500 text-[10px]">{f.category}</td>
+                <td className={`px-3 py-2 text-right tabular-nums ${cagrColor(f.ret1y)}`}>{fmt(f.ret1y)}</td>
+                <td className={`px-3 py-2 text-right tabular-nums ${cagrColor(f.cagr3y)}`}>{fmt(f.cagr3y)}</td>
+                <td className={`px-3 py-2 text-right tabular-nums ${cagrColor(f.cagr5y)}`}>{fmt(f.cagr5y)}</td>
+                <td className={`px-3 py-2 text-right tabular-nums ${cagrColor(f.cagr10y)}`}>{fmt(f.cagr10y)}</td>
+                <td className={`px-3 py-2 text-right tabular-nums font-bold ${sharpeColor(f.sharpe)}`}>{fmtNum(f.sharpe)}</td>
+                <td className={`px-3 py-2 text-right tabular-nums ${sharpeColor(f.sortino)}`}>{fmtNum(f.sortino)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-gray-300">{fmtNum(f.calmar)}</td>
+                <td className={`px-3 py-2 text-right tabular-nums ${ddColor(f.maxDd)}`}>{fmt(f.maxDd)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-gray-400">{fmtNum(f.volatility, 1)}%</td>
+                <td className={`px-3 py-2 text-right tabular-nums ${consColor(f.consistency)}`}>{fmtNum(f.consistency, 0)}%</td>
+                <td className={`px-3 py-2 text-right tabular-nums ${alphaColor(f.alpha5y)}`}>{fmtPP(f.alpha5y)}</td>
+              </tr>
+            ))}
+            {visible.length === 0 && (
+              <tr><td colSpan="14" className="px-3 py-12 text-center text-gray-600 text-sm">No funds match the filters.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {pageSize < filtered.length && (
+        <div className="flex justify-center pt-2">
+          <button
+            onClick={() => setPageSize((p) => Math.min(p + 50, filtered.length))}
+            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
+          >
+            Show 50 more ({filtered.length - pageSize} remaining)
+          </button>
+        </div>
+      )}
     </div>
+  );
+}
+
+// ─── Tab 3: Long-Term Compounders ─────────────────────────────────────────────
+
+function Compounders({ categories }) {
+  const [horizon,      setHorizon]      = useState("cagr10y"); // cagr5y | cagr10y
+  const [minConsis,    setMinConsis]    = useState(50);
+
+  const funds = useMemo(() => {
+    const out = [];
+    for (const c of categories) for (const f of c.funds) out.push({ ...f, category: c.category });
+    return out;
+  }, [categories]);
+
+  const ranked = useMemo(() => {
+    return funds
+      .filter((f) => f[horizon] != null && f[horizon] > 0)
+      .filter((f) => (f.consistency ?? 0) >= minConsis)
+      .sort((a, b) => (b[horizon] ?? 0) - (a[horizon] ?? 0));
+  }, [funds, horizon, minConsis]);
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl border border-purple-900/40 bg-purple-900/10 p-4 space-y-2">
+        <div className="text-sm font-semibold text-purple-200">🏆 Long-Term Compounders</div>
+        <p className="text-xs text-gray-500">
+          Funds with the highest long-term CAGR <strong>and</strong> high rolling-period consistency.
+          A high CAGR with weak consistency means lucky timing — both together signal durable compounding.
+        </p>
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <div className="flex overflow-hidden rounded-xl border border-purple-700/40">
+            {[["cagr10y","10Y CAGR"], ["cagr5y","5Y CAGR"]].map(([k, label]) => (
+              <button key={k} onClick={() => setHorizon(k)}
+                className={`px-3 py-1.5 text-xs font-medium transition ${horizon === k ? "bg-purple-600 text-white" : "bg-gray-800 text-gray-400 hover:text-white"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500">Min Consistency</label>
+            <input type="range" min="0" max="100" step="5" value={minConsis}
+              onChange={(e) => setMinConsis(Number(e.target.value))}
+              className="w-32 accent-purple-500" />
+            <span className="w-10 text-xs tabular-nums text-purple-300">{minConsis}%</span>
+          </div>
+          <div className="ml-auto text-xs text-gray-500">{ranked.length} funds match</div>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {ranked.slice(0, 25).map((f, i) => (
+          <div key={f.code} className="rounded-2xl border border-gray-800 bg-gray-900 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-bold text-purple-400">#{i + 1}</span>
+                  <span className="font-semibold text-gray-100">{f.label}</span>
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className="rounded border border-gray-700 px-1.5 py-0.5 text-[10px] text-gray-400">{f.category}</span>
+                  {f.navStartDate && (
+                    <span className="text-[10px] text-gray-600">{fundAge(f.navStartDate)}Y track record</span>
+                  )}
+                  {f.benchmarkLabel && (
+                    <span className="text-[10px] text-gray-700">vs {f.benchmarkLabel}</span>
+                  )}
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className={`text-2xl font-bold tabular-nums ${cagrColor(f[horizon])}`}>
+                  {fmt(f[horizon])}
+                </div>
+                <div className="text-[10px] text-gray-500 uppercase tracking-wider">{horizon === "cagr10y" ? "10Y" : "5Y"} CAGR</div>
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] sm:grid-cols-6">
+              <Stat label="1Y" value={fmt(f.ret1y)} color={cagrColor(f.ret1y)} />
+              <Stat label="3Y CAGR" value={fmt(f.cagr3y)} color={cagrColor(f.cagr3y)} />
+              <Stat label="Sharpe" value={fmtNum(f.sharpe)} color={sharpeColor(f.sharpe)} />
+              <Stat label="Max DD" value={fmt(f.maxDd)} color={ddColor(f.maxDd)} />
+              <Stat label="Consistency" value={`${fmtNum(f.consistency, 0)}%`} color={consColor(f.consistency)} />
+              <Stat label="α 5Y" value={fmtPP(f.alpha5y)} color={alphaColor(f.alpha5y)} />
+            </div>
+          </div>
+        ))}
+        {ranked.length === 0 && (
+          <EmptyState msg="No funds match — try lowering the consistency filter." />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, color }) {
+  return (
+    <div className="rounded-lg bg-gray-800/50 px-2 py-1.5">
+      <div className="text-[9px] text-gray-600 uppercase tracking-wider">{label}</div>
+      <div className={`text-xs font-bold tabular-nums ${color}`}>{value}</div>
+    </div>
+  );
+}
+
+function EmptyState({ msg }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-gray-800 p-8 text-center text-sm text-gray-600">{msg}</div>
   );
 }
 
@@ -394,13 +524,10 @@ export default function MfRadar() {
   const [builtAt, setBuiltAt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
+  const [tab,     setTab]     = useState("category");
 
   useEffect(() => {
-    supabase
-      .from("radar_cache")
-      .select("data, built_at")
-      .eq("key", "mf_radar")
-      .single()
+    supabase.from("radar_cache").select("data,built_at").eq("key", "mf_radar").single()
       .then(({ data: row, error: err }) => {
         if (err) { setError(err.message); return; }
         setData(row.data);
@@ -409,35 +536,59 @@ export default function MfRadar() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <Spinner />;
-  if (error)   return <ErrorBox msg={error} />;
-  if (!data)   return <ErrorBox msg="No data yet — the first GitHub Actions run hasn't completed." />;
+  function switchTab(k) {
+    setTab(k);
+    trackEvent(user, `tab:${k}`, "/mf");
+  }
 
-  return (
-    <>
-      <div className="hidden md:block">
-        <DesktopView data={data} builtAt={builtAt} user={user} />
-      </div>
-      <div className="md:hidden">
-        <MobileView data={data} builtAt={builtAt} />
-      </div>
-    </>
-  );
-}
-
-function Spinner() {
-  return (
+  if (loading) return (
     <div className="flex flex-col items-center justify-center gap-3 py-24">
       <div className="h-9 w-9 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
-      <p className="animate-pulse text-center text-sm text-gray-400">Loading…</p>
+      <p className="text-sm text-gray-400">Loading…</p>
     </div>
   );
-}
+  if (error) return <EmptyState msg={`Error: ${error}`} />;
+  if (!data) return <EmptyState msg="No data yet — run the MF refresh job." />;
 
-function ErrorBox({ msg }) {
+  const fundCount = data.categories.reduce((s, c) => s + c.fundCount, 0);
+
   return (
-    <div className="rounded-2xl border border-red-800/40 bg-red-900/20 px-5 py-4 text-sm text-red-300">
-      <strong>Error:</strong> {msg}
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-xl font-bold">MF Momentum Radar</h1>
+        <p className="mt-0.5 text-xs text-gray-500">
+          {fundCount} funds · {data.categories.length} categories · benchmarks: {Object.keys(data.benchmarks ?? {}).filter((k) => data.benchmarks[k]).length}
+          {builtAt && <> · updated {timeAgo(builtAt)}</>}
+        </p>
+      </div>
+
+      <div className="flex gap-1 rounded-xl bg-gray-900 p-1 overflow-x-auto">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => switchTab(t.key)}
+            title={t.desc}
+            className={`flex-1 shrink-0 rounded-lg py-2 px-3 text-sm font-medium transition whitespace-nowrap ${
+              tab === t.key ? "bg-gray-700 text-white" : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "category"    && <CategoryRadar categories={data.categories} />}
+      {tab === "riskAdj"     && <RiskAdjusted  categories={data.categories} />}
+      {tab === "compounders" && <Compounders   categories={data.categories} />}
+
+      {data.warnings?.length > 0 && (
+        <details className="text-xs text-gray-600">
+          <summary className="cursor-pointer hover:text-gray-400">{data.warnings.length} warning(s)</summary>
+          <ul className="mt-2 list-disc pl-5">
+            {data.warnings.map((w, i) => <li key={i}>{w}</li>)}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

@@ -8,6 +8,7 @@
 require("dotenv").config();
 const { createClient }              = require("@supabase/supabase-js");
 const { getLeaderboard }            = require("./momentum");
+const { getBenchmarks }             = require("./mf_benchmarks");
 const { getStockLeaderboard }       = require("./stock_momentum");
 const { buildSignalsLeaderboard }   = require("./stock_signals");
 const { getDeliveryMap }            = require("./stock_bhavcopy");
@@ -43,8 +44,18 @@ async function main() {
   console.log(`Target: ${target} | ${new Date().toISOString()}`);
 
   if (target === "all" || target === "mf") {
+    console.log("Fetching NSE category benchmarks…");
+    let benchmarks = null;
+    try {
+      benchmarks = await getBenchmarks({ force: true });
+      const fetched = Object.keys(benchmarks.raw ?? {}).length;
+      console.log(`  ✓ ${fetched} indices fetched`);
+    } catch (e) {
+      console.warn(`  ⚠ benchmark fetch failed: ${e.message}`);
+    }
+
     console.log("Building MF radar…");
-    const mf = await getLeaderboard({ force: true });
+    const mf = await getLeaderboard({ force: true, benchmarks });
     await upsert("mf_radar", mf);
     console.log(`  ${mf.categories.length} categories processed`);
     if (mf.warnings?.length) console.warn("  warnings:", mf.warnings);
