@@ -66,12 +66,26 @@ const CATEGORY_RISKS = {
 const DEFAULT_RISK = "Sectoral concentration risk — any policy change or macro shift specific to this theme can cause sharp drawdowns";
 
 // ─── Scoring helpers ──────────────────────────────────────────────────────────
+// NOTE: Must stay in sync with computeRawScore() in frontend/src/pages/MfPicks.jsx
+
+function convictionMult(z) {
+  if (z >= 1.5)  return 1.00;
+  if (z >= 0.5)  return 0.92;
+  if (z >= -0.5) return 0.82;
+  if (z >= -1.5) return 0.68;
+  return 0.55;
+}
 
 function momentumScore(f, catZ) {
-  return (f.ret1w ?? 0) * 0.4
-       + (f.ret1m ?? 0) * 0.3
-       + (f.ret3m ?? 0) * 0.2
-       + (catZ    ?? 0) * 5  * 0.1;
+  const base =
+    (f.ret1w  ?? 0) * 0.25 +
+    (f.ret1m  ?? 0) * 0.20 +
+    (f.ret3m  ?? 0) * 0.15 +
+    (f.ret6m  ?? 0) * 0.10 +
+    (f.ret1y  ?? 0) * 0.10 +
+    (f.cagr5y ?? 0) * 0.05 +
+    Math.min(Math.max(f.sharpe ?? 0, 0), 2) * 5 * 0.05;
+  return base * convictionMult(catZ ?? 0);
 }
 
 function verdict(score, z) {
@@ -213,7 +227,7 @@ function buildRationale(pick, nextPick, rank) {
 // n is ignored — kept for API compatibility but we always do one-per-category so
 // every displayed pick has an analysis row, regardless of how many categories exist.
 function generateRationales(mfData, n = null) {
-  function score(f, catZ) { return momentumScore(f, catZ); }
+  function score(f, catZ) { return momentumScore(f, catZ); }  // uses updated formula above
 
   // One best fund per category, sorted by overall score (mirrors MfPicks.jsx logic)
   const picks = mfData.categories

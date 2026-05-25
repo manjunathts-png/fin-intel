@@ -120,6 +120,27 @@ async function main() {
       console.warn(`  ⚠ Nifty benchmark unavailable: ${e.message}`);
     }
 
+    // ── Fetch previous day's scores for smoothing ──────────────────────────
+    console.log("Fetching previous stock_picks for score smoothing…");
+    let prevScoreMap = {};   // symbol → previous smoothed compositeScore
+    try {
+      const { data: prevRow } = await supabase
+        .from("radar_cache").select("data").eq("key", "stock_picks").single();
+      if (prevRow?.data) {
+        for (const p of (prevRow.data.picks ?? [])) {
+          if (p.symbol && p.compositeScore != null) prevScoreMap[p.symbol] = p.compositeScore;
+        }
+        // also cover stocks outside top 50 from yesterday
+        for (const p of (prevRow.data.all ?? [])) {
+          if (p.symbol && p.compositeScore != null && !(p.symbol in prevScoreMap))
+            prevScoreMap[p.symbol] = p.compositeScore;
+        }
+        console.log(`  ✓ loaded prev scores for ${Object.keys(prevScoreMap).length} stocks`);
+      }
+    } catch (e) {
+      console.warn(`  ⚠ could not load previous scores: ${e.message}`);
+    }
+
     console.log("Computing stock signals across universe (this can take a few minutes)…");
     const signals = await buildSignalsLeaderboard({
       deliveryMap, discBonuses, niftyReturns, universe, concurrency: 6,
@@ -156,7 +177,26 @@ async function main() {
         p.compositeScore = Math.min(100, p.compositeScore + 3);
       }
     }
-    // Re-sort after fundamental adjustments
+
+    // ── 3-day rolling score smoothing (EMA α=0.6) ──────────────────────────
+    // Prevents single-day event spikes (gap-up, volume shock, NSE discovery
+    // lists) from dominating the leaderboard. A stock needs to sustain its
+    // signals across days to hold a top rank.
+    //   smoothedScore = 0.6 × todayRaw + 0.4 × prevSmoothed
+    // New stocks (no prior day entry) are not penalised — they use raw score.
+    let smoothedCount = 0;
+    for (const p of signals.all) {
+      p.rawScore = p.compositeScore;          // preserve today's raw signal score
+      const prev = prevScoreMap[p.symbol];
+      if (prev != null) {
+        p.compositeScore = Math.round(0.6 * p.rawScore + 0.4 * prev);
+        smoothedCount++;
+      }
+      // else new stock: compositeScore stays as rawScore (no prior to blend with)
+    }
+    console.log(`  ✓ score smoothing applied (EMA α=0.6): ${smoothedCount} stocks blended with yesterday`);
+
+    // Re-sort after fundamental adjustments + smoothing
     signals.all.sort((a, b) => b.compositeScore - a.compositeScore || b.signalCount - a.signalCount);
     signals.all.forEach((s, i) => { s.rank = i + 1; });
     signals.picks = signals.all.slice(0, 50);
