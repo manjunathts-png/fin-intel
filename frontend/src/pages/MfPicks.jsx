@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useOutletContext, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
+import PageFooter from "../components/PageFooter";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -341,10 +342,22 @@ function SectionDivider({ label, colorCls, lineCls, onClick }) {
 
 function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence }) {
   const [expanded, setExpanded] = useState(false);
+  const detailsRef    = useRef(null);
   const zl            = zLabel(fund.catZ);
   const isAvoid       = verdict === "Avoid";
   const isLowConfBuy  = (verdict === "Buy" || verdict === "Strong Buy") && confidence === "Low";
   const shownScore    = fund.finalScore ?? fund.displayScore;
+
+  function handleToggle() {
+    const opening = !expanded;
+    setExpanded(opening);
+    if (opening) {
+      // Scroll the details section into view after React renders it
+      setTimeout(() => {
+        detailsRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 80);
+    }
+  }
 
   return (
     <div className={`rounded-2xl border border-gray-800 bg-gray-900 p-4 ${verdictBorder(verdict, confidence)} ${isAvoid ? "opacity-80" : ""}`}>
@@ -410,7 +423,7 @@ function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence }) {
             />
           )}
           <button
-            onClick={() => setExpanded((e) => !e)}
+            onClick={handleToggle}
             className="rounded-lg bg-gray-800 px-2.5 py-1.5 text-xs font-medium text-gray-400 transition hover:bg-gray-700 hover:text-gray-200"
           >
             {expanded ? "Hide ▲" : "Details ▾"}
@@ -420,7 +433,7 @@ function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence }) {
 
       {/* ── Tier 2: risk + rationale ────────────────────────── */}
       {expanded && (
-        <div className="mt-3 space-y-3 border-t border-gray-800/60 pt-3">
+        <div ref={detailsRef} className="mt-3 space-y-3 border-t border-gray-800/60 pt-3">
           <div>
             <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Risk Metrics</div>
             <RiskStrip fund={fund} />
@@ -464,7 +477,7 @@ export default function MfPicks() {
 
   useEffect(() => {
     Promise.all([
-      supabase.from("pick_rationales").select("*").order("run_date", { ascending: false }).order("rank").limit(10),
+      supabase.from("pick_rationales").select("*").order("run_date", { ascending: false }).order("rank").limit(50),
       supabase.from("pick_ai_rationales").select("*").order("rank"),
     ]).then(([rule, ai]) => {
       if (!rule.error && rule.data) {
@@ -655,9 +668,36 @@ export default function MfPicks() {
         </div>
       )}
 
-      <p className="pt-2 text-[10px] text-gray-700">
-        Momentum signals only — not financial advice. Past performance does not guarantee future returns.
-      </p>
+      <PageFooter sections={[
+        {
+          title: "Data Sources",
+          items: [
+            '<span class="text-gray-400">AMFI NAVAll.txt</span> — fund names &amp; scheme codes',
+            '<span class="text-gray-400">mfapi.in</span> — daily NAV history per scheme',
+            "Refreshed nightly · NAV lags by 1 trading day",
+          ],
+        },
+        {
+          title: "Composite Score (20–100)",
+          items: [
+            "Momentum base: 1W×25% · 1M×20% · 3M×15%",
+            "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6M×10% · 1Y×10% · 5Y CAGR×5%",
+            "z-score conviction gate ×0.55–1.00 (multiplier)",
+            "Analyst verdict signal blended at 35% weight",
+            "Low confidence Buy → demoted to Watch",
+          ],
+        },
+        {
+          title: "Analyst Verdict",
+          items: [
+            '<span class="text-green-400">Buy</span> — momentum + macro signal aligned',
+            '<span class="text-yellow-500">Hold / Watch</span> — mixed or low conviction',
+            '<span class="text-red-400">Avoid</span> — strong returns but risk flags raised',
+            "Rule-based analysis runs daily",
+            "AI analysis runs weekly",
+          ],
+        },
+      ]} />
     </div>
   );
 }

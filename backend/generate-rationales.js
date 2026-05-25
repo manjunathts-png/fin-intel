@@ -209,9 +209,13 @@ function buildRationale(pick, nextPick, rank) {
 
 // ─── Exported function ────────────────────────────────────────────────────────
 
-function generateRationales(mfData, n = 10) {
+// Generate one rationale per category (best fund per category, same as MfPicks UI).
+// n is ignored — kept for API compatibility but we always do one-per-category so
+// every displayed pick has an analysis row, regardless of how many categories exist.
+function generateRationales(mfData, n = null) {
   function score(f, catZ) { return momentumScore(f, catZ); }
 
+  // One best fund per category, sorted by overall score (mirrors MfPicks.jsx logic)
   const picks = mfData.categories
     .map((cat) => {
       const catZ = cat.median.z1w ?? 0;
@@ -221,8 +225,8 @@ function generateRationales(mfData, n = 10) {
       return top ?? null;
     })
     .filter(Boolean)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, n);
+    .sort((a, b) => b.score - a.score);
+  // No .slice() — generate for all categories
 
   return picks.map((pick, i) => ({
     fund_code: pick.code,

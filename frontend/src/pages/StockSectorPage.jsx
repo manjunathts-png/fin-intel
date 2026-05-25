@@ -1,5 +1,6 @@
 import { useOutletContext } from "react-router-dom";
 import { SectorRadar } from "./StockRadar";
+import PageFooter from "../components/PageFooter";
 
 function Spinner() {
   return (
@@ -17,6 +18,38 @@ function timeAgo(iso) {
   if (hrs < 24)  return `${hrs}h ago`;
   return `${Math.round(hrs / 24)}d ago`;
 }
+
+const FOOTER = [
+  {
+    title: "Data Sources",
+    items: [
+      '<span class="text-gray-400">NSE via Yahoo Finance</span> — daily OHLCV price data',
+      '<span class="text-gray-400">NSE bhavcopy</span> — bulk &amp; block deal data',
+      '<span class="text-gray-400">NSE F&amp;O feeds</span> — open interest data',
+      "Refreshed nightly · prices lag by 1 trading day",
+    ],
+  },
+  {
+    title: "Composite Score (0–100)",
+    items: [
+      "15+ signals combined: momentum, RS vs Nifty,",
+      "volume breakouts, Golden Cross, MACD, RSI,",
+      "institutional activity (block/bulk, OI buildup),",
+      "52-week high proximity",
+      "Higher = more signals firing simultaneously",
+    ],
+  },
+  {
+    title: "Sector Metrics",
+    items: [
+      "<span class=\"text-gray-400\">Avg Score</span> — mean composite score of all stocks",
+      "<span class=\"text-gray-400\">Strong</span> — stocks with score ≥ 60",
+      "<span class=\"text-gray-400\">RS 1M / 3M</span> — stock return minus Nifty return",
+      "<span class=\"text-gray-400\">52W Hi</span> — % of stocks near 52-week highs",
+      "<span class=\"text-gray-400\">&gt; Nifty</span> — % outperforming Nifty 50",
+    ],
+  },
+];
 
 export default function StockSectorPage() {
   const { data, builtAt, sectors, loading, error } = useOutletContext();
@@ -37,6 +70,7 @@ export default function StockSectorPage() {
         </p>
       </div>
       <SectorRadar sectors={sectors} />
+      <PageFooter sections={FOOTER} />
     </div>
   );
 }

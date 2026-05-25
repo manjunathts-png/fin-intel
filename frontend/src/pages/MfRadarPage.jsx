@@ -1,5 +1,6 @@
 import { useOutletContext } from "react-router-dom";
 import { CategoryRadar } from "./MfRadar";
+import PageFooter from "../components/PageFooter";
 
 function Spinner() {
   return (
@@ -9,6 +10,43 @@ function Spinner() {
     </div>
   );
 }
+
+function timeAgo(iso) {
+  const mins = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24)  return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
+
+const FOOTER = [
+  {
+    title: "Data Sources",
+    items: [
+      '<span class="text-gray-400">AMFI NAVAll.txt</span> — fund names &amp; scheme codes',
+      '<span class="text-gray-400">mfapi.in</span> — daily NAV history per scheme',
+      "Refreshed nightly · NAV lags by 1 trading day",
+    ],
+  },
+  {
+    title: "Return Windows",
+    items: [
+      "1W / 1M / 3M / 6M / 1Y — raw (not annualised)",
+      "3Y / 5Y / 10Y CAGR — compound annual growth rate",
+      "Colour scale: green ≥ threshold · red below · grey = no data",
+    ],
+  },
+  {
+    title: "Risk Metrics",
+    items: [
+      "<span class=\"text-gray-400\">Sharpe</span> — excess return ÷ volatility (risk-free = 7%)",
+      "<span class=\"text-gray-400\">Max DD</span> — worst peak-to-trough over 5 years",
+      "<span class=\"text-gray-400\">Consistency</span> — % of 12M windows ≥ 12% CAGR",
+      "<span class=\"text-gray-400\">α 5Y</span> — fund CAGR minus benchmark CAGR",
+      "<span class=\"text-gray-400\">Z-score</span> — this week vs trailing 90-day avg",
+    ],
+  },
+];
 
 export default function MfRadarPage() {
   const { data, builtAt, loading, error } = useOutletContext();
@@ -39,14 +77,7 @@ export default function MfRadarPage() {
           </ul>
         </details>
       )}
+      <PageFooter sections={FOOTER} />
     </div>
   );
-}
-
-function timeAgo(iso) {
-  const mins = Math.round((Date.now() - new Date(iso)) / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24)  return `${hrs}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
 }

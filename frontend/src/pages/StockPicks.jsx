@@ -3,6 +3,7 @@ import { useOutletContext, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import { trackEvent } from "../lib/analytics";
+import PageFooter from "../components/PageFooter";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -672,9 +673,38 @@ export default function StockPicks() {
         </div>
       )}
 
-      <p className="pt-2 text-[10px] text-gray-700">
-        Momentum signals only — not financial advice. Past performance does not guarantee future returns.
-      </p>
+      <PageFooter sections={[
+        {
+          title: "Data Sources",
+          items: [
+            '<span class="text-gray-400">NSE via Yahoo Finance</span> — daily OHLCV price data',
+            '<span class="text-gray-400">NSE bhavcopy</span> — bulk &amp; block institutional trades',
+            '<span class="text-gray-400">NSE F&amp;O feeds</span> — open interest &amp; PCR data',
+            "Refreshed nightly · prices lag by 1 trading day",
+          ],
+        },
+        {
+          title: "Composite Score (0–100)",
+          items: [
+            "15+ signals: 1W / 1M / 3M momentum",
+            "Relative Strength vs Nifty 50",
+            "Volume breakout (≥ 2× 20-day avg)",
+            "Golden Cross · MACD · RSI (14)",
+            "Block/bulk deals · OI buildup · 52W high proximity",
+            "Score ≥ 60 = Strong Buy territory",
+          ],
+        },
+        {
+          title: "Signal Key",
+          items: [
+            '<span class="text-green-400">RS 1M/3M</span> — stock return minus Nifty (positive = outperforming)',
+            '<span class="text-amber-400">RSI</span> — 30–40 with strong fundamentals = potential buy',
+            '<span class="text-blue-400">Golden Cross</span> — 50d MA crossed above 200d MA (≤5 sessions)',
+            '<span class="text-purple-400">Volume Shock</span> — today\'s volume ≥ 2× 20-day average',
+            '<span class="text-orange-400">Block/Bulk</span> — institutional trade ≥ ₹10Cr or ≥ 0.5% equity',
+          ],
+        },
+      ]} />
     </div>
   );
 }
