@@ -120,22 +120,27 @@ async function main() {
       console.warn(`  ⚠ Nifty benchmark unavailable: ${e.message}`);
     }
 
-    // ── Fetch previous day's scores for smoothing ──────────────────────────
+    // ── Fetch previous day's EOD scores for smoothing ─────────────────────
+    // Use eodCompositeScore (not compositeScore) — intraday runs overwrite
+    // compositeScore during the day, so reading it here would mix today's
+    // intraday-updated values into the EMA instead of clean EOD-to-EOD blending.
     console.log("Fetching previous stock_picks for score smoothing…");
-    let prevScoreMap = {};   // symbol → previous smoothed compositeScore
+    let prevScoreMap = {};   // symbol → previous EOD composite score
     try {
       const { data: prevRow } = await supabase
         .from("radar_cache").select("data").eq("key", "stock_picks").single();
       if (prevRow?.data) {
         for (const p of (prevRow.data.picks ?? [])) {
-          if (p.symbol && p.compositeScore != null) prevScoreMap[p.symbol] = p.compositeScore;
+          // prefer eodCompositeScore; fall back to compositeScore for older entries
+          const score = p.eodCompositeScore ?? p.compositeScore;
+          if (p.symbol && score != null) prevScoreMap[p.symbol] = score;
         }
-        // also cover stocks outside top 50 from yesterday
         for (const p of (prevRow.data.all ?? [])) {
-          if (p.symbol && p.compositeScore != null && !(p.symbol in prevScoreMap))
-            prevScoreMap[p.symbol] = p.compositeScore;
+          const score = p.eodCompositeScore ?? p.compositeScore;
+          if (p.symbol && score != null && !(p.symbol in prevScoreMap))
+            prevScoreMap[p.symbol] = score;
         }
-        console.log(`  ✓ loaded prev scores for ${Object.keys(prevScoreMap).length} stocks`);
+        console.log(`  ✓ loaded prev EOD scores for ${Object.keys(prevScoreMap).length} stocks`);
       }
     } catch (e) {
       console.warn(`  ⚠ could not load previous scores: ${e.message}`);
@@ -183,12 +188,13 @@ async function main() {
       p.eodBaseScore = Math.max(0, Math.min(100, Math.round(eodSignalScore(p))));
     }
 
-    // ── 3-day rolling score smoothing (EMA α=0.6) ──────────────────────────
-    // Prevents single-day event spikes (gap-up, volume shock, NSE discovery
-    // lists) from dominating the leaderboard. A stock needs to sustain its
-    // signals across days to hold a top rank.
-    //   smoothedScore = 0.6 × todayRaw + 0.4 × prevSmoothed
-    // New stocks (no prior day entry) are not penalised — they use raw score.
+    // ── EOD-to-EOD score smoothing (EMA α=0.6) ────────────────────────────
+    // Blends today's raw EOD score with yesterday's EOD score so a stock
+    // needs consistent signals across days to hold a top rank.
+    //   eodSmoothed = 0.6 × todayRaw + 0.4 × prevEodSmoothed
+    // This is pure EOD-to-EOD: prevScoreMap holds eodCompositeScore values,
+    // so intraday updates during the day don't leak into this calculation.
+    // New stocks (no prior entry) enter at full raw score — no penalty.
     let smoothedCount = 0;
     for (const p of signals.all) {
       p.rawScore = p.compositeScore;          // preserve today's raw signal score
