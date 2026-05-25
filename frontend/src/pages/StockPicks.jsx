@@ -586,12 +586,22 @@ export default function StockPicks() {
   );
 
   const signalsPicks = stockPicksData?.picks ?? [];
+  const intradayAsOf = stockPicksData?.intradayAsOf;
+  const isIntraday = intradayAsOf && (Date.now() - new Date(intradayAsOf)) < 2 * 60 * 60 * 1000; // within 2h
 
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold">Stock Top Picks</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-xl font-bold">Stock Top Picks</h1>
+            {isIntraday && (
+              <span className="inline-flex items-center gap-1 text-xs bg-green-500/15 text-green-400 border border-green-600/30 rounded px-2 py-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                Live · {timeAgo(intradayAsOf)}
+              </span>
+            )}
+          </div>
           <p className="mt-0.5 text-xs text-gray-500">
             {signalsPicks.length} ranked picks · scanned {stockPicksData?.scanned ?? 0} of {stockPicksData?.universe ?? 0} Nifty 500 names
             {" · "}{Object.values(stockRuleRat).length} rationales seeded
@@ -689,7 +699,7 @@ export default function StockPicks() {
             "15+ signals scored daily: breakouts, volume, momentum, trend, patterns",
             "Relative Strength vs Nifty 50 (1M &amp; 3M excess return)",
             "Fundamentals: large-cap +3, earnings growth ≥20% +5, RoE ≥20% +3",
-            '<span class="text-yellow-300">3-day rolling average (EMA)</span> — score = 60% today + 40% yesterday · prevents single-day spikes from dominating',
+            '<span class="text-yellow-300">Two-layer scoring</span> — EOD signals (3:45 PM) + intraday signals refreshed live (5× daily, 9:30 AM–3:30 PM IST)',
             "Low volatility · a stock needs sustained signals across days to rank",
           ],
         },

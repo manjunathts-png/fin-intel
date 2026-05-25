@@ -225,78 +225,69 @@ function detectMacdBullish(prices) {
 // ─── Composite score ──────────────────────────────────────────────────────────
 //
 // Weighted blend of signals — bullish-biased momentum score (0-100).
-// Used to rank top picks.
+// Split into EOD signals (stable across the day) and intraday signals
+// (price/volume sensitive, refreshed ~5× per day).
 
-function compositeScore(sig) {
+// Score from signals stable across the trading day
+function eodSignalScore(sig) {
   let s = 0;
-
-  // ─── Volume + breakout = highest weight ──────────────────────────────
-  if (sig.volumeShock.fired) {
-    s += sig.volumeShock.ratio >= 5 ? 28
-       : sig.volumeShock.ratio >= 3 ? 22
-       :                              16;
-  }
-  if (sig.near52wHigh.fired) {
-    // closer to high = stronger; at/above = 22, within 2% = 18
-    s += sig.near52wHigh.distancePct >= -0.5 ? 22 : 18;
-  }
-  if (sig.breakout20d.fired) s += 15;
-  if (sig.breakout50d.fired) s += 12;
-  if (sig.gapUp.fired)       s += sig.gapUp.gapPct >= 3 ? 12 : 8;
-
-  // ─── Pattern bonuses ─────────────────────────────────────────────────
-  if (sig.bullishEngulfing) s += 8;
-  if (sig.hammer)           s += 5;
-
-  // ─── Trend & indicator bonuses ───────────────────────────────────────
-  if (sig.goldenCross) s += 18;
-  if (sig.macdBullish) s += 12;
-  if (sig.rsiSignal === "overbought") s -= 4;      // contrarian penalty
+  if (sig.goldenCross)              s += 18;
+  if (sig.macdBullish)              s += 12;
+  if (sig.bullishEngulfing)         s += 8;
+  if (sig.hammer)                   s += 5;
+  if (sig.rsiSignal === "overbought") s -= 4;
   if (sig.rsiSignal === "oversold")   s += 6;
-
-  // ─── DMA stack (long-term trend confirmation) ────────────────────────
   if (sig.above20DMA && sig.above50DMA && sig.above200DMA) s += 12;
   else if (sig.above50DMA && sig.above200DMA)              s += 6;
-  else if (!sig.above200DMA && !sig.above50DMA)            s -= 5;  // below trend penalty
-
-  // ─── Recent return momentum bonus (1W) ───────────────────────────────
-  if (sig.ret1w >= 8) s += 10;
-  else if (sig.ret1w >= 5) s += 7;
-  else if (sig.ret1w >= 2) s += 3;
-  else if (sig.ret1w <= -5) s -= 4;
-
-  // ─── Relative strength vs Nifty ──────────────────────────────────────
-  if (sig.rsVsNifty1M != null) {
-    if (sig.rsVsNifty1M >= 10) s += 14;
-    else if (sig.rsVsNifty1M >= 5) s += 9;
-    else if (sig.rsVsNifty1M >= 0) s += 3;
-    else if (sig.rsVsNifty1M <= -5) s -= 5;
-  }
+  else if (!sig.above200DMA && !sig.above50DMA)            s -= 5;
   if (sig.rsVsNifty3M != null) {
-    if (sig.rsVsNifty3M >= 15) s += 10;
-    else if (sig.rsVsNifty3M >= 5) s += 5;
+    if (sig.rsVsNifty3M >= 15)      s += 10;
+    else if (sig.rsVsNifty3M >= 5)  s += 5;
     else if (sig.rsVsNifty3M <= -10) s -= 4;
   }
+  if (sig.highDelivery)             s += 8;
+  if (sig.disc?.bulkBuy)            s += 12;
+  if (sig.disc?.blockBuy)           s += 18;
+  if (sig.disc?.oiLong)             s += 10;
+  if (sig.disc?.oiShortCover)       s += 8;
+  if (sig.disc?.oiShort)            s -= 10;
+  if (sig.disc?.oiLongUnwind)       s -= 6;
+  return s;
+}
 
-  // ─── Discovery-feed boosts (NSE published lists) ─────────────────────
-  if (sig.disc?.in52wHi)       s += 10;        // appears in NSE 52w high list today
-  if (sig.disc?.isGainer)      s += 8;         // top % gainer today
-  if (sig.disc?.isMostActive)  s += 4;         // volume leader
-  if (sig.disc?.bulkBuy)       s += 12;        // bulk deal BUY recently
-  if (sig.disc?.blockBuy)      s += 18;        // block deal BUY (large institutional)
-  if (sig.disc?.oiLong)        s += 10;        // F&O long buildup
-  if (sig.disc?.oiShortCover)  s += 8;         // short covering
+// Score from signals that update with live price/volume
+function intradaySignalScore(sig) {
+  let s = 0;
+  if (sig.volumeShock?.fired) {
+    s += sig.volumeShock.ratio >= 5 ? 28 : sig.volumeShock.ratio >= 3 ? 22 : 16;
+  }
+  if (sig.near52wHigh?.fired) {
+    s += (sig.near52wHigh.distancePct ?? -99) >= -0.5 ? 22 : 18;
+  }
+  if (sig.breakout20d?.fired)     s += 15;
+  if (sig.breakout50d?.fired)     s += 12;
+  if (sig.gapUp?.fired)           s += (sig.gapUp.gapPct ?? 0) >= 3 ? 12 : 8;
+  const r1w = sig.ret1w ?? 0;
+  if (r1w >= 8)       s += 10;
+  else if (r1w >= 5)  s += 7;
+  else if (r1w >= 2)  s += 3;
+  else if (r1w <= -5) s -= 4;
+  if (sig.rsVsNifty1M != null) {
+    if (sig.rsVsNifty1M >= 10)      s += 14;
+    else if (sig.rsVsNifty1M >= 5)  s += 9;
+    else if (sig.rsVsNifty1M >= 0)  s += 3;
+    else if (sig.rsVsNifty1M <= -5) s -= 5;
+  }
+  if (sig.disc?.in52wHi)      s += 10;
+  if (sig.disc?.isGainer)     s += 8;
+  if (sig.disc?.isMostActive) s += 4;
+  if (sig.disc?.isLoser)      s -= 6;
+  if (sig.disc?.in52wLo)      s -= 12;
+  return s;
+}
 
-  // ─── Bearish discovery flags ─────────────────────────────────────────
-  if (sig.disc?.in52wLo)       s -= 12;
-  if (sig.disc?.isLoser)       s -= 6;
-  if (sig.disc?.oiShort)       s -= 10;
-  if (sig.disc?.oiLongUnwind)  s -= 6;
-
-  // ─── High delivery % bonus (handled in leaderboard for backward compat) ─
-  if (sig.highDelivery) s += 8;
-
-  return Math.max(0, Math.min(100, Math.round(s)));
+function compositeScore(sig) {
+  return Math.max(0, Math.min(100, Math.round(eodSignalScore(sig) + intradaySignalScore(sig))));
 }
 
 // Count of "fired" bullish signals (display badge count)
@@ -344,6 +335,8 @@ function computeSignals(prices, extra = {}) {
     ? ((today.close - prices[prices.length - 6].close) / prices[prices.length - 6].close) * 100
     : null;
 
+  const avg20vol = avgVolume(prices, 20);
+
   const sig = {
     volumeShock:      detectVolumeShock(prices),
     near52wHigh:      detect52wHigh(prices),
@@ -368,6 +361,7 @@ function computeSignals(prices, extra = {}) {
     prevClose:        round(yest.close, 2),
     changePct:        round(((today.close - yest.close) / yest.close) * 100, 2),
     asOf:             today.date,
+    volumeAvg20:      avg20vol ? Math.round(avg20vol) : null,
     ...extra,
   };
 
@@ -486,4 +480,6 @@ async function buildSignalsLeaderboard({
 module.exports = {
   computeSignals,
   buildSignalsLeaderboard,
+  eodSignalScore,
+  intradaySignalScore,
 };

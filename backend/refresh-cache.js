@@ -10,7 +10,7 @@ const { createClient }              = require("@supabase/supabase-js");
 const { getLeaderboard }            = require("./momentum");
 const { getBenchmarks }             = require("./mf_benchmarks");
 const { getStockLeaderboard }       = require("./stock_momentum");
-const { buildSignalsLeaderboard }   = require("./stock_signals");
+const { buildSignalsLeaderboard, eodSignalScore }   = require("./stock_signals");
 const { getDeliveryMap }            = require("./stock_bhavcopy");
 const { getDiscovery, buildSymbolBonuses } = require("./nse_discovery");
 const { getNifty500 }               = require("./nifty500_universe");
@@ -178,6 +178,11 @@ async function main() {
       }
     }
 
+    // ── Store EOD base score (before smoothing) for intraday anchoring ────────
+    for (const p of signals.all) {
+      p.eodBaseScore = Math.max(0, Math.min(100, Math.round(eodSignalScore(p))));
+    }
+
     // ── 3-day rolling score smoothing (EMA α=0.6) ──────────────────────────
     // Prevents single-day event spikes (gap-up, volume shock, NSE discovery
     // lists) from dominating the leaderboard. A stock needs to sustain its
@@ -193,6 +198,7 @@ async function main() {
         smoothedCount++;
       }
       // else new stock: compositeScore stays as rawScore (no prior to blend with)
+      p.eodCompositeScore = p.compositeScore;  // fixed anchor used by intraday runs
     }
     console.log(`  ✓ score smoothing applied (EMA α=0.6): ${smoothedCount} stocks blended with yesterday`);
 

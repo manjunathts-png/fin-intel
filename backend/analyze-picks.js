@@ -32,7 +32,8 @@ function momentumScore(fund, catZ) {
        + (catZ       ?? 0) * 5 * 0.1;
 }
 
-function buildTopPicks(mfData, n = 10) {
+function buildTopPicks(mfData) {
+  // One best fund per category (mirrors MfPicks UI) — no slice
   return mfData.categories
     .map((cat) => {
       const catZ = cat.median.z1w ?? 0;
@@ -42,8 +43,7 @@ function buildTopPicks(mfData, n = 10) {
       return top ?? null;
     })
     .filter(Boolean)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, n);
+    .sort((a, b) => b.score - a.score);
 }
 
 function fmtPct(v) {
@@ -51,12 +51,16 @@ function fmtPct(v) {
   return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 }
 
+function fmtN(v, d = 2) { return v != null ? v.toFixed(d) : "N/A"; }
+
 function fundSummary(f) {
   return [
     `Fund: ${f.label}`,
     `Category: ${f.category}`,
     `Returns — 1W: ${fmtPct(f.ret1w)}, 1M: ${fmtPct(f.ret1m)}, 3M: ${fmtPct(f.ret3m)}, 6M: ${fmtPct(f.ret6m)}, 1Y: ${fmtPct(f.ret1y)}`,
-    `Category median 1W z-score: ${f.catZ?.toFixed(2) ?? "N/A"} (≥2 = unusually strong week, ≤-2 = unusually weak)`,
+    `Long-term CAGR — 3Y: ${fmtPct(f.cagr3y)}, 5Y: ${fmtPct(f.cagr5y)}, 10Y: ${fmtPct(f.cagr10y)}`,
+    `Risk — Sharpe: ${fmtN(f.sharpe)}, Max Drawdown: ${fmtPct(f.maxDd)}, Consistency: ${fmtN(f.consistency, 0)}%, Alpha 5Y: ${fmtPct(f.alpha5y)}`,
+    `Category median 1W z-score: ${fmtN(f.catZ)} (≥2 = unusually strong week, ≤-2 = unusually weak)`,
     `Momentum score: ${f.score.toFixed(2)}`,
   ].join("\n");
 }
@@ -102,7 +106,7 @@ async function main() {
     .single();
   if (error) throw new Error(`Supabase fetch failed: ${error.message}`);
 
-  const picks = buildTopPicks(row.data, 10);
+  const picks = buildTopPicks(row.data);
   console.log(`Top ${picks.length} picks:`);
   picks.forEach((p, i) => console.log(`  #${i + 1} ${p.label} (${p.category}) score=${p.score.toFixed(2)}`));
   console.log();
@@ -118,17 +122,15 @@ async function main() {
       const analysis = await analyzePickPair(pick, nextPick, i + 1);
 
       const { error: upsertErr } = await supabase
-        .from("pick_rationales")
+        .from("pick_ai_rationales")
         .upsert({
           fund_code:    pick.code,
           fund_name:    pick.label,
           category:     pick.category,
           rank:         i + 1,
-          score:        pick.score,
           analysis,
           generated_at: new Date().toISOString(),
-          run_date:     today,
-        }, { onConflict: "fund_code,run_date" });
+        }, { onConflict: "fund_code" });
 
       if (upsertErr) {
         console.error(`  ✗ Supabase upsert failed: ${upsertErr.message}`);
