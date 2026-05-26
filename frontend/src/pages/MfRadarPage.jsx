@@ -65,7 +65,7 @@ export default function MfRadarPage() {
           {fundCount} funds · {data.categories.length} categories
           {builtAt && ` · updated ${timeAgo(builtAt)}`}
           {" · "}
-          <span className="text-gray-600">Default view shows 5 key columns — click "Show all 12 metrics" for the full heatmap.</span>
+          <span className="text-gray-600">Click any fund row to open Deep Dive analysis.</span>
         </p>
       </div>
       <CategoryRadar categories={data.categories} />

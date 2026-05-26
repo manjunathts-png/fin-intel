@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import { trackEvent } from "../lib/analytics";
@@ -146,15 +147,24 @@ function CategoryRow({ cat, isExpanded, onToggle }) {
 
 function FundExpandedRow({ fund }) {
   const age = fundAge(fund.navStartDate);
+  const navigate = useNavigate();
   return (
-    <tr className="border-t border-gray-800/60 bg-gray-900/40 hover:bg-gray-800/40">
+    <tr
+      onClick={() => navigate(`/deep-dive?code=${fund.code}`)}
+      className="cursor-pointer border-t border-gray-800/60 bg-gray-900/40 hover:bg-blue-900/20"
+      title="Open Deep Dive →"
+    >
       <td className="py-2.5 pl-10 pr-3">
         <div className="flex flex-col">
-          <span className="text-xs font-medium text-gray-200">{fund.label}</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium text-gray-200">{fund.label}</span>
+            <span className="text-[10px] text-blue-500 opacity-0 group-hover:opacity-100">→</span>
+          </div>
           <div className="flex gap-2 text-[10px] text-gray-600">
             {age && <span>{age}Y history</span>}
             {fund.latestNav && <span>NAV ₹{fund.latestNav.toFixed(2)}</span>}
             {fund.benchmarkLabel && <span className="text-gray-700">vs {fund.benchmarkLabel}</span>}
+            <span className="text-blue-600">↗ Deep Dive</span>
           </div>
         </div>
       </td>
@@ -240,9 +250,11 @@ function HotColdStrip({ categories }) {
 }
 
 export function CategoryRadar({ categories }) {
+  const navigate   = useNavigate();
   const [expanded,  setExpanded]  = useState(new Set());
   const [sort,      setSort]      = useState({ key: "cagr5y", dir: "desc" });
-  const [showAll,   setShowAll]   = useState(false);   // Phase 3 — simplified table by default
+  // Default to full view on desktop (≥1024px), simplified on mobile
+  const [showAll,   setShowAll]   = useState(() => typeof window !== "undefined" && window.innerWidth >= 1024);
 
   const sorted = useMemo(() => {
     return [...categories].sort((a, b) => {
@@ -313,11 +325,17 @@ export function CategoryRadar({ categories }) {
                       <td className={`px-3 py-3 text-center tabular-nums text-sm font-medium ${alphaColor(m.alpha5y)}`}>{fmtPP(m.alpha5y)}</td>
                     </tr>
                     {isExp && c.funds.map((f) => (
-                      <tr key={f.code} className="border-t border-gray-800/60 bg-gray-900/40 hover:bg-gray-800/40">
+                      <tr
+                        key={f.code}
+                        onClick={() => navigate(`/deep-dive?code=${f.code}`)}
+                        className="cursor-pointer border-t border-gray-800/60 bg-gray-900/40 hover:bg-blue-900/20"
+                        title="Open Deep Dive →"
+                      >
                         <td className="py-2.5 pl-10 pr-3 border-r border-gray-700/20">
                           <div className="text-xs font-medium text-gray-200">{f.label}</div>
                           <div className="text-[10px] text-gray-600">
                             {fundAge(f.navStartDate) && `${fundAge(f.navStartDate)}Y · `}NAV ₹{f.latestNav?.toFixed(2)}
+                            <span className="ml-1.5 text-blue-600">↗ Deep Dive</span>
                           </div>
                         </td>
                         <td className={`px-3 py-2.5 text-center tabular-nums text-xs ${cagrColor(f.ret1y)}`}>{fmt(f.ret1y)}</td>

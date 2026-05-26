@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
 // ── constants ─────────────────────────────────────────────────────────────────
@@ -305,7 +306,11 @@ function DrawdownChart({ series }) {
 // ── main page ─────────────────────────────────────────────────────────────────
 
 export default function DeepDive() {
+  const [searchParams] = useSearchParams();
+  const incomingCode   = searchParams.get("code");
+
   const [picks,      setPicks]      = useState([]);
+  const [allFunds,   setAllFunds]   = useState([]);   // full universe for code lookup
   const [loadingInit,setLoadingInit]= useState(true);
   const [selected,   setSelected]   = useState(null);
   const [navs,       setNavs]       = useState(null);   // oldest-first
@@ -316,11 +321,29 @@ export default function DeepDive() {
     supabase.from("radar_cache").select("data").eq("key","mf_radar").single()
       .then(({ data, error: e }) => {
         if (e) { setError(e.message); return; }
-        const p = buildTopPicks(data.data);
+        const mfData = data.data;
+
+        // Build top picks for the selector grid
+        const p = buildTopPicks(mfData);
         setPicks(p);
-        setSelected(p[0]);
+
+        // Build full fund universe for code-based lookup
+        const universe = [];
+        for (const cat of mfData.categories) {
+          for (const f of cat.funds) universe.push({ ...f, category: cat.category });
+        }
+        setAllFunds(universe);
+
+        // If navigated with ?code=, find that fund; else default to #1 pick
+        if (incomingCode) {
+          const match = universe.find((f) => String(f.code) === String(incomingCode));
+          setSelected(match ?? p[0]);
+        } else {
+          setSelected(p[0]);
+        }
       })
       .finally(() => setLoadingInit(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -358,26 +381,41 @@ export default function DeepDive() {
         <p className="mt-0.5 text-xs text-gray-500">Rolling returns · drawdown · risk ratios · historical SIP performance</p>
       </div>
 
-      {/* fund selector */}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {picks.map((fund, i) => (
-          <button key={fund.code} onClick={() => setSelected(fund)}
-            className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition ${
-              selected?.code === fund.code
-                ? "border-blue-600/60 bg-blue-900/20 text-white"
-                : "border-gray-800 bg-gray-900 text-gray-400 hover:border-gray-700 hover:text-gray-200"
-            }`}>
-            <span className="text-xs font-bold text-blue-400 w-5 shrink-0">#{i+1}</span>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-medium">{fund.label}</div>
-              <div className="text-[10px] text-gray-500">{fund.category}</div>
+      {/* fund selector — top picks + the inbound fund if not already in picks */}
+      {(() => {
+        const inboundNotInPicks = selected && !picks.find((p) => p.code === selected.code);
+        const selectorFunds = inboundNotInPicks ? [selected, ...picks] : picks;
+        return (
+          <div className="space-y-2">
+            {inboundNotInPicks && (
+              <div className="text-[11px] text-blue-400 px-1">
+                ↗ Navigated from radar · showing this fund + top momentum picks below
+              </div>
+            )}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {selectorFunds.map((fund, i) => (
+                <button key={fund.code} onClick={() => setSelected(fund)}
+                  className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition ${
+                    selected?.code === fund.code
+                      ? "border-blue-600/60 bg-blue-900/20 text-white"
+                      : "border-gray-800 bg-gray-900 text-gray-400 hover:border-gray-700 hover:text-gray-200"
+                  }`}>
+                  <span className="text-xs font-bold text-blue-400 w-5 shrink-0">
+                    {inboundNotInPicks && i === 0 ? "↗" : `#${inboundNotInPicks ? i : i + 1}`}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-medium">{fund.label}</div>
+                    <div className="text-[10px] text-gray-500">{fund.category}</div>
+                  </div>
+                  <span className={`shrink-0 text-xs font-bold tabular-nums ${pctColor(fund.ret1y)}`}>
+                    {fmtPct(fund.ret1y)}
+                  </span>
+                </button>
+              ))}
             </div>
-            <span className={`shrink-0 text-xs font-bold tabular-nums ${pctColor(fund.ret1y)}`}>
-              {fmtPct(fund.ret1y)}
-            </span>
-          </button>
-        ))}
-      </div>
+          </div>
+        );
+      })()}
 
       {/* loading nav */}
       {loadingNav && (

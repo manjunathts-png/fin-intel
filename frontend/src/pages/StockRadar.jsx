@@ -241,7 +241,8 @@ function SectorRow({ sec, isExpanded, onToggle, showAll = true }) {
 
 export function SectorRadar({ sectors }) {
   const [expanded, setExpanded] = useState(new Set());
-  const [showAll,  setShowAll]  = useState(false);   // Phase 3 — default 4-col view
+  // Default to full view on desktop (≥1024px), simplified on mobile
+  const [showAll,  setShowAll]  = useState(() => typeof window !== "undefined" && window.innerWidth >= 1024);
   if (!sectors.length) return <EmptyState msg="Sector view requires stock_picks data. Run the refresh job first." />;
 
   // Hot sectors strip (top 3 by avg score)
