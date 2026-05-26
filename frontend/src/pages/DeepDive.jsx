@@ -324,12 +324,17 @@ export default function DeepDive() {
     setSelected(fund);
     setTimeout(() => {
       if (!deepDiveRef.current) return;
-      // getBoundingClientRect gives position relative to viewport;
-      // add window.scrollY to get the absolute page offset, then scroll so
-      // the ref sits flush at the top of the page (force scroll even if visible).
-      const top = deepDiveRef.current.getBoundingClientRect().top + window.scrollY;
-      window.scrollTo({ top, behavior: "smooth" });
-    }, 80);
+      // Walk offsetParent chain to get true absolute document position.
+      // getBoundingClientRect+scrollY can be unreliable; this is always correct.
+      let absTop = 0;
+      let el = deepDiveRef.current;
+      while (el) { absTop += el.offsetTop; el = el.offsetParent; }
+      // Subtract sticky nav height (~56px) so the section appears visibly
+      // below the nav bar rather than hidden behind it.
+      const stickyNav = document.querySelector("nav") || document.querySelector("[class*='sticky']");
+      const navH = stickyNav ? stickyNav.offsetHeight : 56;
+      window.scrollTo({ top: Math.max(0, absTop - navH - 8), behavior: "smooth" });
+    }, 150);
   }
 
   useEffect(() => {
