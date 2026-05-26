@@ -323,7 +323,12 @@ export default function DeepDive() {
   function selectAndScroll(fund) {
     setSelected(fund);
     setTimeout(() => {
-      deepDiveRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (!deepDiveRef.current) return;
+      // getBoundingClientRect gives position relative to viewport;
+      // add window.scrollY to get the absolute page offset, then scroll so
+      // the ref sits flush at the top of the page (force scroll even if visible).
+      const top = deepDiveRef.current.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo({ top, behavior: "smooth" });
     }, 80);
   }
 
