@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
@@ -309,6 +309,8 @@ export default function DeepDive() {
   const [searchParams] = useSearchParams();
   const incomingCode   = searchParams.get("code");
 
+  const deepDiveRef = useRef(null);   // ref for the analysis section to scroll to
+
   const [picks,      setPicks]      = useState([]);
   const [allFunds,   setAllFunds]   = useState([]);   // full universe for code lookup
   const [loadingInit,setLoadingInit]= useState(true);
@@ -316,6 +318,14 @@ export default function DeepDive() {
   const [navs,       setNavs]       = useState(null);   // oldest-first
   const [loadingNav, setLoadingNav] = useState(false);
   const [error,      setError]      = useState(null);
+
+  // Call this on explicit user clicks — selects fund AND scrolls to analysis
+  function selectAndScroll(fund) {
+    setSelected(fund);
+    setTimeout(() => {
+      deepDiveRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  }
 
   useEffect(() => {
     supabase.from("radar_cache").select("data").eq("key","mf_radar").single()
@@ -394,7 +404,7 @@ export default function DeepDive() {
             )}
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {selectorFunds.map((fund, i) => (
-                <button key={fund.code} onClick={() => setSelected(fund)}
+                <button key={fund.code} onClick={() => selectAndScroll(fund)}
                   className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition ${
                     selected?.code === fund.code
                       ? "border-blue-600/60 bg-blue-900/20 text-white"
@@ -416,6 +426,9 @@ export default function DeepDive() {
           </div>
         );
       })()}
+
+      {/* ── deep dive analysis section — scroll target ── */}
+      <div ref={deepDiveRef} />
 
       {/* loading nav */}
       {loadingNav && (
