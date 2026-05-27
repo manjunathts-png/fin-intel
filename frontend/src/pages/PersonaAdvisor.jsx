@@ -852,49 +852,38 @@ export default function PersonaAdvisor() {
               🎯 Potential Outcome — {fmtInr(corpus)} over {HORIZONS[horizonIdx].label}
             </p>
 
-            {/* % Growth — primary headline */}
-            <div className="mb-4">
-              <div className="mb-1 text-[10px] uppercase tracking-wider text-gray-500">Total % growth in {HORIZONS[horizonIdx].label}</div>
-              <div className="flex items-baseline gap-3 flex-wrap">
-                <span className="text-5xl font-black tracking-tight text-green-400 leading-none">
-                  +{gainPctLo}%
-                </span>
-                <span className="text-2xl font-black text-green-500/70">→</span>
-                <span className="text-5xl font-black tracking-tight text-emerald-300 leading-none">
-                  +{gainPctHi}%
-                </span>
-              </div>
-              <div className="mt-2 text-xs text-gray-500">
-                Based on {persona.expectedReturn} compounded annually · {HORIZONS[horizonIdx].label} horizon
-              </div>
-            </div>
-
-            {/* Corpus range — secondary */}
-            <div className="flex flex-wrap items-end gap-5 mb-4 border-t border-blue-900/40 pt-3">
-              <div>
-                <div className="mb-0.5 text-[10px] uppercase tracking-wider text-gray-500">Expected corpus</div>
-                <div className="text-2xl font-extrabold text-white tracking-tight">
-                  {fmtInr(plo)} – {fmtInr(phi)}
+            {/* Two equal-weight stat blocks */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="rounded-xl border border-blue-900/40 bg-black/30 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Expected Corpus</div>
+                <div className="text-xl font-extrabold text-white tracking-tight leading-snug">
+                  {fmtInr(plo)}<span className="text-gray-500 font-normal text-sm"> – </span>{fmtInr(phi)}
+                </div>
+                <div className="mt-1 text-[11px] text-gray-500">
+                  +{fmtInr(plo - corpus)} → +{fmtInr(phi - corpus)} gain
                 </div>
               </div>
-              <div>
-                <div className="mb-0.5 text-[10px] uppercase tracking-wider text-gray-500">Net gain</div>
-                <div className="text-lg font-bold text-emerald-400">
-                  +{fmtInr(plo - corpus)} → +{fmtInr(phi - corpus)}
+              <div className="rounded-xl border border-green-900/50 bg-green-950/20 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Total % Growth</div>
+                <div className="text-xl font-extrabold text-green-400 tracking-tight leading-snug">
+                  +{gainPctLo}%<span className="text-green-700 font-normal text-sm"> – </span>+{gainPctHi}%
+                </div>
+                <div className="mt-1 text-[11px] text-gray-500">
+                  {persona.expectedReturn} · compounded {HORIZONS[horizonIdx].label}
                 </div>
               </div>
             </div>
 
             {/* Progress bar */}
-            <div className="mb-1 h-2.5 overflow-hidden rounded-full border border-blue-900/60 bg-gray-950">
+            <div className="mb-1 h-2 overflow-hidden rounded-full border border-blue-900/60 bg-gray-950">
               <div
                 className="h-full rounded-full transition-all duration-500"
                 style={{ width: `${barPct}%`, background: "linear-gradient(90deg,#34d399,#3b82f6,#a78bfa)" }}
               />
             </div>
             <div className="mb-4 flex justify-between text-[10px] text-gray-600">
-              <span>0% gain (break-even)</span>
-              <span>+{gainPctHi}% upside in {HORIZONS[horizonIdx].label}</span>
+              <span>Break-even</span>
+              <span>+{gainPctHi}% in {HORIZONS[horizonIdx].label}</span>
             </div>
 
             {/* 4 outcome stat boxes */}
