@@ -13,6 +13,7 @@ import StockAllPage from "./pages/StockAllPage";
 import StockHotspotsPage from "./pages/StockHotspotsPage";
 import Simulator from "./pages/Simulator";
 import DeepDive from "./pages/DeepDive";
+import PersonaAdvisor from "./pages/PersonaAdvisor";
 import Admin from "./pages/Admin";
 import Glossary from "./pages/Glossary";
 
@@ -46,6 +47,7 @@ export default function App() {
             {/* ── Top-level pages ───────────────────────────────────── */}
             <Route path="/simulator"        element={<Simulator />} />
             <Route path="/deep-dive"        element={<DeepDive />} />
+            <Route path="/persona"          element={<PersonaAdvisor />} />
             <Route path="/admin"            element={<Admin />} />
             <Route path="/glossary"         element={<Glossary />} />
 

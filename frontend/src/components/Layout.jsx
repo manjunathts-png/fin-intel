@@ -10,6 +10,7 @@ const tabs = [
   { to: "/stocks",    label: "Stocks",       icon: "📈" },
   { to: "/simulator", label: "Simulator",    icon: "🧮" },
   { to: "/deep-dive", label: "Deep Dive",    icon: "🔍" },
+  { to: "/persona",   label: "Persona",      icon: "🧭" },
 ];
 
 export default function Layout() {
