@@ -26,9 +26,38 @@ function scoreCls(s) {
 function scoreEmoji(s) {
   return s >= 70 ? "🔥" : s >= 45 ? "📈" : "📉";
 }
-// Map MF z-score → 0-99 display score
-function zToScore(z) {
-  return Math.max(10, Math.min(99, Math.round((z ?? 0) * 20 + 50)));
+// ─── MF scoring — identical to MfPicks.jsx ───────────────────────────────────
+// conviction multiplier: z-score gates the overall score holistically
+function convictionMult(z) {
+  if (z >= 1.5)  return 1.00;
+  if (z >= 0.5)  return 0.92;
+  if (z >= -0.5) return 0.82;
+  if (z >= -1.5) return 0.68;
+  return 0.55;
+}
+function computeRawScore(fund, catZ) {
+  const base =
+    (fund.ret1w  ?? 0) * 0.25 +
+    (fund.ret1m  ?? 0) * 0.20 +
+    (fund.ret3m  ?? 0) * 0.15 +
+    (fund.ret6m  ?? 0) * 0.10 +
+    (fund.ret1y  ?? 0) * 0.10 +
+    (fund.cagr5y ?? 0) * 0.05 +
+    Math.min(Math.max(fund.sharpe ?? 0, 0), 2) * 5 * 0.05;
+  return base * convictionMult(catZ ?? 0);
+}
+// verdict contribution — same 65/35 blend as MfPicks
+function verdictScore(verdict, confidence) {
+  const base = { "Strong Buy": 100, "Buy": 80, "Hold": 50, "Avoid": 15 }[verdict] ?? 50;
+  const mult = { "High": 1.00, "Medium": 0.875, "Low": 0.70 }[confidence] ?? 0.875;
+  return Math.round(base * mult);
+}
+function resolveVerdict(code, ruleMap, aiMap) {
+  const src = ruleMap?.[code] ?? aiMap?.[code] ?? null;
+  return {
+    verdict:    src?.analysis?.verdict    ?? null,
+    confidence: src?.analysis?.confidence ?? null,
+  };
 }
 
 // ─── Auto-generate "why" text from live signal data ───────────────────────
@@ -284,8 +313,10 @@ const PERSONAS = [
 
 // ─── Derive recommendations from live data ────────────────────────────────────
 
-function buildMfPicks(persona, mfData) {
+function buildMfPicks(persona, mfData, mfRuleMap = {}, mfAiMap = {}) {
   if (!mfData?.categories) return [];
+
+  // Collect all funds from persona-eligible categories with rawScore
   const funds = [];
   mfData.categories.forEach((cat) => {
     const catMatch = persona.mfCategories.some((c) =>
@@ -298,11 +329,29 @@ function buildMfPicks(persona, mfData) {
         ...f,
         category: cat.category,
         catZ,
-        score: zToScore(f.z1w ?? catZ),
+        rawScore: computeRawScore(f, catZ),
       });
     });
   });
-  // Sort by score desc, dedupe by name prefix
+
+  if (funds.length === 0) return [];
+
+  // Normalise rawScore → displayScore 0–100 across this persona's pool
+  const scores = funds.map((f) => f.rawScore);
+  const minS = Math.min(...scores);
+  const maxS = Math.max(...scores);
+  const range = maxS - minS || 1;
+  funds.forEach((f) => {
+    f.displayScore = Math.round(((f.rawScore - minS) / range) * 100);
+    // Blend with analyst verdict (65% momentum + 35% verdict), same as MfPicks
+    const { verdict, confidence } = resolveVerdict(f.code, mfRuleMap, mfAiMap);
+    f.verdict    = verdict;
+    f.confidence = confidence;
+    const vPart  = verdict ? verdictScore(verdict, confidence) : f.displayScore; // neutral if no verdict
+    f.score      = Math.round(f.displayScore * 0.65 + vPart * 0.35);
+  });
+
+  // Sort by blended score, dedupe by name prefix
   funds.sort((a, b) => b.score - a.score);
   const seen = new Set();
   const deduped = funds.filter((f) => {
@@ -311,6 +360,7 @@ function buildMfPicks(persona, mfData) {
     seen.add(key);
     return true;
   });
+
   return deduped.slice(0, persona.mfCount).map((f, i) => ({
     ...f,
     allocation: persona.mfAllocs[i] ?? 0.10,
@@ -318,7 +368,7 @@ function buildMfPicks(persona, mfData) {
   }));
 }
 
-function buildStockPicks(persona, stockData) {
+function buildStockPicks(persona, stockData, stRuleMap = {}, stAiMap = {}) {
   if (!stockData?.picks) return [];
   let candidates = [...(stockData.picks ?? [])];
 
@@ -329,7 +379,6 @@ function buildStockPicks(persona, stockData) {
         (s.sector ?? "").toLowerCase().includes(sec.toLowerCase())
       )
     );
-    // If enough matches, use them; otherwise fall back to all
     if (sectorFiltered.length >= persona.stockCount) candidates = sectorFiltered;
   }
 
@@ -341,23 +390,45 @@ function buildStockPicks(persona, stockData) {
     if (largeCap.length >= persona.stockCount) candidates = largeCap;
   }
 
-  // Filter by min score
+  // Filter by min score; fall back to top-N if not enough
   const scoreFiltered = candidates.filter((s) => s.compositeScore >= persona.stockMinScore);
   const pool = scoreFiltered.length >= persona.stockCount ? scoreFiltered : candidates;
 
-  return pool.slice(0, persona.stockCount).map((s, i) => ({
-    ...s,
-    allocation: persona.stockAllocs[i] ?? 0.05,
-    why: genStockWhy(s),
-  }));
+  return pool.slice(0, persona.stockCount).map((s, i) => {
+    const { verdict, confidence } = resolveVerdict(s.symbol, stRuleMap, stAiMap);
+    return {
+      ...s,
+      verdict,
+      confidence,
+      allocation: persona.stockAllocs[i] ?? 0.05,
+      why: genStockWhy(s),
+    };
+  });
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+const VERDICT_CLS = {
+  "Strong Buy": "bg-green-500/20 text-green-300 border border-green-600/40",
+  "Buy":        "bg-green-800/30 text-green-400 border border-green-700/40",
+  "Hold":       "bg-yellow-500/20 text-yellow-300 border border-yellow-600/40",
+  "Avoid":      "bg-red-500/20 text-red-300 border border-red-600/40",
+};
 
 function ScorePill({ score }) {
   return (
     <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-bold ${scoreCls(score)}`}>
       {scoreEmoji(score)} {score}
+    </span>
+  );
+}
+
+function VerdictBadge({ verdict, confidence }) {
+  if (!verdict) return null;
+  const cls = VERDICT_CLS[verdict] ?? "bg-gray-700/30 text-gray-400 border border-gray-600/40";
+  return (
+    <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${cls}`}>
+      {verdict}
     </span>
   );
 }
@@ -381,7 +452,10 @@ function RecRow({ item, type, rank, corpus, alloc, onFullAnalysis }) {
       <div className="flex items-center gap-2 px-3 py-2.5">
         <span className="w-5 shrink-0 text-center text-xs font-bold text-blue-400">#{rank}</span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-semibold text-gray-100">{name}</div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="truncate text-xs font-semibold text-gray-100">{name}</span>
+            {item.verdict && <VerdictBadge verdict={item.verdict} confidence={item.confidence} />}
+          </div>
           <div className="truncate text-[10px] text-gray-500">{meta}</div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -443,9 +517,17 @@ function RecRow({ item, type, rank, corpus, alloc, onFullAnalysis }) {
             </span>
           </div>
 
-          {/* Why */}
+          {/* Verdict + why */}
           <div className="rounded-lg bg-blue-950/40 border border-blue-900/40 p-2.5 mb-2.5">
-            <div className="text-[9px] font-bold uppercase tracking-wider text-blue-400 mb-1">💡 Why recommended?</div>
+            <div className="flex items-center gap-2 mb-1.5">
+              <div className="text-[9px] font-bold uppercase tracking-wider text-blue-400">💡 Why recommended?</div>
+              {item.verdict && (
+                <VerdictBadge verdict={item.verdict} confidence={item.confidence} />
+              )}
+              {item.confidence && (
+                <span className="text-[9px] text-gray-600">{item.confidence} confidence</span>
+              )}
+            </div>
             <div className="text-[11px] text-blue-200 leading-relaxed">{item.why}</div>
           </div>
 
@@ -627,6 +709,12 @@ export default function PersonaAdvisor() {
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
 
+  // Rationale maps — keyed by fund_code / symbol
+  const [mfRuleMap, setMfRuleMap]   = useState({});
+  const [mfAiMap,   setMfAiMap]     = useState({});
+  const [stRuleMap, setStRuleMap]   = useState({});
+  const [stAiMap,   setStAiMap]     = useState({});
+
   const [personaIdx, setPersonaIdx] = useState(0);
   const [corpus, setCorpus]         = useState(1_000_000);
   const [inputVal, setInputVal]     = useState("10,00,000");
@@ -635,23 +723,50 @@ export default function PersonaAdvisor() {
   const [detail, setDetail]         = useState(null); // { item, type }
   const detailRef                   = useRef(null);
 
-  // Fetch both data sources in parallel
+  // Fetch radar data + rationale tables in parallel
   useEffect(() => {
     setLoading(true);
     Promise.all([
       supabase.from("radar_cache").select("data").eq("key", "mf_radar").single(),
       supabase.from("radar_cache").select("data").eq("key", "stock_picks").single(),
-    ]).then(([mfRes, stRes]) => {
-      if (mfRes.error)  setError(mfRes.error.message);
-      else              setMfData(mfRes.data?.data);
+      supabase.from("pick_rationales").select("fund_code,analysis").order("run_date", { ascending: false }).limit(200),
+      supabase.from("pick_ai_rationales").select("fund_code,analysis"),
+      supabase.from("stock_pick_rationales").select("symbol,analysis").order("run_date", { ascending: false }).limit(200),
+      supabase.from("stock_pick_ai_rationales").select("symbol,analysis"),
+    ]).then(([mfRes, stRes, mfRule, mfAi, stRule, stAi]) => {
+      if (mfRes.error) setError(mfRes.error.message);
+      else             setMfData(mfRes.data?.data);
       if (!stRes.error) setStockData(stRes.data?.data);
+
+      // Build keyed maps (first entry per code wins — most recent run_date first)
+      if (!mfRule.error && mfRule.data) {
+        const m = {};
+        mfRule.data.forEach((r) => { if (!m[r.fund_code]) m[r.fund_code] = r; });
+        setMfRuleMap(m);
+      }
+      if (!mfAi.error && mfAi.data) {
+        const m = {};
+        mfAi.data.forEach((r) => { m[r.fund_code] = r; });
+        setMfAiMap(m);
+      }
+      if (!stRule.error && stRule.data) {
+        const m = {};
+        stRule.data.forEach((r) => { if (!m[r.symbol]) m[r.symbol] = r; });
+        setStRuleMap(m);
+      }
+      if (!stAi.error && stAi.data) {
+        const m = {};
+        stAi.data.forEach((r) => { m[r.symbol] = r; });
+        setStAiMap(m);
+      }
+
       setLoading(false);
     });
   }, []);
 
   const persona = PERSONAS[personaIdx];
-  const mfPicks    = buildMfPicks(persona, mfData);
-  const stockPicks = buildStockPicks(persona, stockData);
+  const mfPicks    = buildMfPicks(persona, mfData, mfRuleMap, mfAiMap);
+  const stockPicks = buildStockPicks(persona, stockData, stRuleMap, stAiMap);
 
   const horizonYears = HORIZONS[horizonIdx].years;
   const plo = compoundGrowth(corpus, persona.annualReturnLo, horizonYears);
