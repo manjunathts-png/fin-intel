@@ -744,9 +744,14 @@ export default function PersonaAdvisor() {
   const [stAiMap,   setStAiMap]     = useState({});
 
   const [personaIdx, setPersonaIdx] = useState(0);
-  const [corpus, setCorpus]         = useState(1_000_000);
-  const [inputVal, setInputVal]     = useState("10,00,000");
   const [horizonIdx, setHorizonIdx] = useState(1); // default: 3 Years
+
+  // Persist corpus in localStorage so it survives page reloads
+  const savedCorpus = parseInt(localStorage.getItem("persona_corpus")) || 1_000_000;
+  const [corpus, setCorpus] = useState(savedCorpus);
+  const [inputVal, setInputVal] = useState(
+    savedCorpus.toLocaleString("en-IN")
+  );
 
   const [detail, setDetail]         = useState(null); // { item, type }
   const detailRef                   = useRef(null);
@@ -807,6 +812,7 @@ export default function PersonaAdvisor() {
   function handleCorpusChange() {
     const raw = parseInt(inputVal.replace(/[^0-9]/g, "")) || 1_000_000;
     setCorpus(raw);
+    localStorage.setItem("persona_corpus", raw);
     setDetail(null);
   }
 
