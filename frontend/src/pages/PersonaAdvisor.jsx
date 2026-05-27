@@ -74,6 +74,20 @@ function genStockWhy(stock) {
   return sigs.join(". ") + `. Composite score: ${stock.compositeScore}/100.`;
 }
 
+// ─── Shared investment horizon options ───────────────────────────────────────
+
+const HORIZONS = [
+  { label: "1 Year",   years: 1  },
+  { label: "3 Years",  years: 3  },
+  { label: "5 Years",  years: 5  },
+  { label: "10 Years", years: 10 },
+];
+
+// Compound growth helper
+function compoundGrowth(corpus, annualRate, years) {
+  return corpus * Math.pow(1 + annualRate, years);
+}
+
 // ─── Persona configuration ────────────────────────────────────────────────────
 
 const PERSONAS = [
@@ -88,8 +102,9 @@ const PERSONAS = [
     riskGrad: "linear-gradient(90deg,#fbbf24,#ef4444)",
     riskColor: "#ef4444",
     approach: "Momentum + Breakouts",
-    horizon: "1–3 Years",
     expectedReturn: "18–30% p.a.",
+    annualReturnLo: 0.18,
+    annualReturnHi: 0.30,
     volatility: "Very High (σ > 30%)",
     drawdown: "Can tolerate –40% or more",
     liquidity: "High — active rebalancing",
@@ -102,8 +117,7 @@ const PERSONAS = [
       { l: "Cash Buffer",            pct: 10, hex: "#4b5563" },
     ],
     outcome: {
-      loMult: 1.30, hiMult: 1.80,
-      horizon: "2–3 yrs", maxDD: "–40%", sharpe: "0.6–0.9", ret: "18–30% p.a.",
+      maxDD: "–40%", sharpe: "0.6–0.9",
       note: "High upside, very high variance. A 40% drawdown is plausible in a bear market — position sizing and stop-losses are critical.",
     },
     mfCategories: ["Small Cap", "Mid Cap"],
@@ -112,7 +126,7 @@ const PERSONAS = [
     stockCount: 4,
     stockAllocs: [0.10, 0.075, 0.075, 0.05],
     stockMinScore: 60,
-    stockSectors: null, // any sector
+    stockSectors: null,
   },
   {
     id: "growth",
@@ -125,8 +139,9 @@ const PERSONAS = [
     riskGrad: "linear-gradient(90deg,#34d399,#f59e0b)",
     riskColor: "#f59e0b",
     approach: "Quality Growth + Flexi Cap",
-    horizon: "5–7 Years",
     expectedReturn: "14–20% p.a.",
+    annualReturnLo: 0.14,
+    annualReturnHi: 0.20,
     volatility: "High (σ 20–30%)",
     drawdown: "Comfortable with –25% to –35%",
     liquidity: "Medium — quarterly review",
@@ -139,8 +154,7 @@ const PERSONAS = [
       { l: "Debt / Liquid",         pct: 10, hex: "#818cf8" },
     ],
     outcome: {
-      loMult: 1.20, hiMult: 1.50,
-      horizon: "5–7 yrs", maxDD: "–30%", sharpe: "0.8–1.1", ret: "14–20% p.a.",
+      maxDD: "–30%", sharpe: "0.8–1.1",
       note: "Reasonable wealth creation over 5+ years with manageable drawdowns. Best for goals like home purchase or retirement corpus.",
     },
     mfCategories: ["Flexi Cap", "Mid Cap", "Large & Mid Cap"],
@@ -162,8 +176,9 @@ const PERSONAS = [
     riskGrad: "linear-gradient(90deg,#34d399,#3b82f6,#a78bfa)",
     riskColor: "#3b82f6",
     approach: "Diversified Equity + Debt Hybrid",
-    horizon: "3–5 Years",
     expectedReturn: "10–14% p.a.",
+    annualReturnLo: 0.10,
+    annualReturnHi: 0.14,
     volatility: "Moderate (σ 12–20%)",
     drawdown: "Can bear –15% to –20%",
     liquidity: "Medium — semi-annual review",
@@ -176,8 +191,7 @@ const PERSONAS = [
       { l: "Cash / Liquid",           pct: 10, hex: "#4b5563" },
     ],
     outcome: {
-      loMult: 1.10, hiMult: 1.35,
-      horizon: "3–5 yrs", maxDD: "–18%", sharpe: "0.9–1.3", ret: "10–14% p.a.",
+      maxDD: "–18%", sharpe: "0.9–1.3",
       note: "Steady compounder with capital protection. Suitable for 3–5 year goals — home down-payment, child education, or a growing emergency fund.",
     },
     mfCategories: ["Large Cap", "Flexi Cap", "Gold"],
@@ -200,8 +214,9 @@ const PERSONAS = [
     riskGrad: "linear-gradient(90deg,#22c55e,#34d399)",
     riskColor: "#22c55e",
     approach: "Capital Protection First",
-    horizon: "2–4 Years",
     expectedReturn: "8–12% p.a.",
+    annualReturnLo: 0.08,
+    annualReturnHi: 0.12,
     volatility: "Low (σ < 12%)",
     drawdown: "Prefer < –10% drawdown",
     liquidity: "High — monthly monitoring",
@@ -214,8 +229,7 @@ const PERSONAS = [
       { l: "Cash",                    pct:  5, hex: "#4b5563" },
     ],
     outcome: {
-      loMult: 1.08, hiMult: 1.25,
-      horizon: "2–4 yrs", maxDD: "–10%", sharpe: "1.0–1.4", ret: "8–12% p.a.",
+      maxDD: "–10%", sharpe: "1.0–1.4",
       note: "Capital preservation priority. Modest growth with minimal drawdowns. Best for near-term goals or investors who lose sleep over volatility.",
     },
     mfCategories: ["Large Cap", "Gold"],
@@ -239,8 +253,9 @@ const PERSONAS = [
     riskGrad: "linear-gradient(90deg,#22c55e,#a78bfa)",
     riskColor: "#a78bfa",
     approach: "Yield + Steady Appreciation",
-    horizon: "5+ Years",
     expectedReturn: "10–15% p.a.",
+    annualReturnLo: 0.10,
+    annualReturnHi: 0.15,
     volatility: "Moderate (σ 12–18%)",
     drawdown: "Comfortable with –15%",
     liquidity: "Low — hold and collect",
@@ -253,9 +268,8 @@ const PERSONAS = [
       { l: "Cash",                   pct:  5, hex: "#4b5563" },
     ],
     outcome: {
-      loMult: 1.10, hiMult: 1.40,
-      horizon: "5+ yrs", maxDD: "–15%", sharpe: "0.9–1.2", ret: "10–15% p.a.",
-      note: "Yield on corpus ≈ 3–5% per year = ₹30K–₹50K annual income on ₹10L invested, plus capital appreciation over 5+ years.",
+      maxDD: "–15%", sharpe: "0.9–1.2",
+      note: "Yield on corpus ≈ 3–5% per year = ₹30K–₹50K annual income on ₹10L invested, plus capital appreciation.",
     },
     mfCategories: ["Value", "Large Cap"],
     mfCount: 3,
@@ -616,6 +630,7 @@ export default function PersonaAdvisor() {
   const [personaIdx, setPersonaIdx] = useState(0);
   const [corpus, setCorpus]         = useState(1_000_000);
   const [inputVal, setInputVal]     = useState("10,00,000");
+  const [horizonIdx, setHorizonIdx] = useState(1); // default: 3 Years
 
   const [detail, setDetail]         = useState(null); // { item, type }
   const detailRef                   = useRef(null);
@@ -638,11 +653,13 @@ export default function PersonaAdvisor() {
   const mfPicks    = buildMfPicks(persona, mfData);
   const stockPicks = buildStockPicks(persona, stockData);
 
-  const plo = persona.outcome.loMult * corpus;
-  const phi = persona.outcome.hiMult * corpus;
+  const horizonYears = HORIZONS[horizonIdx].years;
+  const plo = compoundGrowth(corpus, persona.annualReturnLo, horizonYears);
+  const phi = compoundGrowth(corpus, persona.annualReturnHi, horizonYears);
   const gainPctLo = Math.round((plo - corpus) / corpus * 100);
   const gainPctHi = Math.round((phi - corpus) / corpus * 100);
-  const barPct = Math.min(90, Math.round((gainPctLo + gainPctHi) / 2 * 1.5));
+  // Bar: aggressive at 10yr could be 1,378%; cap visual at 100%, scale relative
+  const barPct = Math.min(96, Math.round(gainPctLo / (gainPctHi * 1.1) * 85));
 
   function handleCorpusChange() {
     const raw = parseInt(inputVal.replace(/[^0-9]/g, "")) || 1_000_000;
@@ -696,26 +713,61 @@ export default function PersonaAdvisor() {
         </div>
       </div>
 
+      {/* Horizon + persona selector row */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Horizon pills */}
+        <div className="flex items-center gap-1.5 rounded-full border border-gray-700 bg-gray-900 p-1 shrink-0">
+          <span className="pl-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Horizon</span>
+          {HORIZONS.map((h, i) => (
+            <button
+              key={h.label}
+              onClick={() => setHorizonIdx(i)}
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+                i === horizonIdx
+                  ? "bg-blue-600 text-white shadow"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              {h.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-[10px] text-gray-600 hidden sm:block">← same horizon applied to all personas for a fair comparison</span>
+      </div>
+
       {/* Persona selector */}
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {PERSONAS.map((p, i) => (
-          <button
-            key={p.id}
-            onClick={() => { setPersonaIdx(i); setDetail(null); }}
-            className={`flex-1 min-w-[140px] rounded-2xl border px-3 py-3 text-center transition-all ${
-              i === personaIdx
-                ? "border-blue-600 bg-blue-900/30 shadow shadow-blue-900/50"
-                : "border-gray-800 bg-gray-900 hover:border-gray-700 hover:bg-gray-800/50"
-            }`}
-          >
-            <div className="text-2xl mb-1">{p.icon}</div>
-            <div className="text-xs font-bold text-gray-100">{p.name}</div>
-            <div className="text-[10px] text-gray-500 mt-0.5 leading-snug">{p.tagline}</div>
-            <div className={`mt-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${p.riskBadgeCls}`}>
-              {p.riskLabel} Risk
-            </div>
-          </button>
-        ))}
+        {PERSONAS.map((p, i) => {
+          const yrs = horizonYears;
+          const pLo = compoundGrowth(corpus, p.annualReturnLo, yrs);
+          const pHi = compoundGrowth(corpus, p.annualReturnHi, yrs);
+          const gLo = Math.round((pLo - corpus) / corpus * 100);
+          const gHi = Math.round((pHi - corpus) / corpus * 100);
+          return (
+            <button
+              key={p.id}
+              onClick={() => { setPersonaIdx(i); setDetail(null); }}
+              className={`flex-1 min-w-[148px] rounded-2xl border px-3 py-3 text-center transition-all ${
+                i === personaIdx
+                  ? "border-blue-600 bg-blue-900/30 shadow shadow-blue-900/50"
+                  : "border-gray-800 bg-gray-900 hover:border-gray-700 hover:bg-gray-800/50"
+              }`}
+            >
+              <div className="text-2xl mb-1">{p.icon}</div>
+              <div className="text-xs font-bold text-gray-100">{p.name}</div>
+              <div className="text-[10px] text-gray-500 mt-0.5 leading-snug">{p.tagline}</div>
+              {/* Projected growth for selected horizon — the key comparison number */}
+              <div className="mt-2 rounded-lg bg-gray-950/60 py-1.5 px-2">
+                <div className="text-[10px] text-gray-500 mb-0.5">In {HORIZONS[horizonIdx].label}</div>
+                <div className="text-sm font-extrabold text-green-400">+{gLo}% – +{gHi}%</div>
+                <div className="text-[10px] text-gray-500">{fmtInr(pLo)} – {fmtInr(pHi)}</div>
+              </div>
+              <div className={`mt-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${p.riskBadgeCls}`}>
+                {p.riskLabel} Risk
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       {/* 2-column main body */}
@@ -746,12 +798,12 @@ export default function PersonaAdvisor() {
             </div>
             {/* Attributes */}
             {[
-              ["⏱ Horizon",           persona.horizon,         "text-blue-400"],
-              ["📈 Expected Return",   persona.expectedReturn,  "text-green-400"],
-              ["📉 Max Drawdown",      persona.drawdown,        "text-red-400"],
-              ["〰️ Volatility",        persona.volatility,      "text-amber-400"],
-              ["💧 Liquidity",         persona.liquidity,       "text-gray-300"],
-              ["🧾 Tax",               persona.tax,             "text-gray-300"],
+              ["⏱ Horizon",           HORIZONS[horizonIdx].label, "text-blue-400"],
+              ["📈 Expected Return",   persona.expectedReturn,     "text-green-400"],
+              ["📉 Max Drawdown",      persona.drawdown,           "text-red-400"],
+              ["〰️ Volatility",        persona.volatility,         "text-amber-400"],
+              ["💧 Liquidity",         persona.liquidity,          "text-gray-300"],
+              ["🧾 Tax",               persona.tax,                "text-gray-300"],
             ].map(([label, val, cls]) => (
               <div key={label} className="flex justify-between border-t border-gray-800 py-1.5">
                 <span className="text-[11px] text-gray-500">{label}</span>
@@ -797,43 +849,61 @@ export default function PersonaAdvisor() {
           <div className="rounded-2xl border border-blue-900/60 p-5"
                style={{ background: "linear-gradient(135deg,#0c1a2e,#102040,#0f1e3d)" }}>
             <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-blue-400">
-              🎯 Potential Outcome — {fmtInr(corpus)} invested
+              🎯 Potential Outcome — {fmtInr(corpus)} over {HORIZONS[horizonIdx].label}
             </p>
-            <div className="flex flex-wrap items-end gap-5 mb-4">
+
+            {/* % Growth — primary headline */}
+            <div className="mb-4">
+              <div className="mb-1 text-[10px] uppercase tracking-wider text-gray-500">Total % growth in {HORIZONS[horizonIdx].label}</div>
+              <div className="flex items-baseline gap-3 flex-wrap">
+                <span className="text-5xl font-black tracking-tight text-green-400 leading-none">
+                  +{gainPctLo}%
+                </span>
+                <span className="text-2xl font-black text-green-500/70">→</span>
+                <span className="text-5xl font-black tracking-tight text-emerald-300 leading-none">
+                  +{gainPctHi}%
+                </span>
+              </div>
+              <div className="mt-2 text-xs text-gray-500">
+                Based on {persona.expectedReturn} compounded annually · {HORIZONS[horizonIdx].label} horizon
+              </div>
+            </div>
+
+            {/* Corpus range — secondary */}
+            <div className="flex flex-wrap items-end gap-5 mb-4 border-t border-blue-900/40 pt-3">
               <div>
-                <div className="mb-1 text-[10px] uppercase tracking-wider text-gray-500">Expected corpus range</div>
-                <div className="text-3xl font-extrabold text-green-400 tracking-tight">
+                <div className="mb-0.5 text-[10px] uppercase tracking-wider text-gray-500">Expected corpus</div>
+                <div className="text-2xl font-extrabold text-white tracking-tight">
                   {fmtInr(plo)} – {fmtInr(phi)}
                 </div>
               </div>
-              <div className="pb-0.5">
-                <div className="mb-1 text-[10px] uppercase tracking-wider text-gray-500">Potential gain</div>
-                <div className="text-xl font-extrabold text-emerald-300">
+              <div>
+                <div className="mb-0.5 text-[10px] uppercase tracking-wider text-gray-500">Net gain</div>
+                <div className="text-lg font-bold text-emerald-400">
                   +{fmtInr(plo - corpus)} → +{fmtInr(phi - corpus)}
-                </div>
-                <div className="text-xs text-gray-500 mt-0.5">
-                  +{gainPctLo}% to +{gainPctHi}% total return
                 </div>
               </div>
             </div>
+
             {/* Progress bar */}
-            <div className="mb-1 h-2 overflow-hidden rounded-full border border-blue-900/60 bg-gray-950">
+            <div className="mb-1 h-2.5 overflow-hidden rounded-full border border-blue-900/60 bg-gray-950">
               <div
                 className="h-full rounded-full transition-all duration-500"
                 style={{ width: `${barPct}%`, background: "linear-gradient(90deg,#34d399,#3b82f6,#a78bfa)" }}
               />
             </div>
             <div className="mb-4 flex justify-between text-[10px] text-gray-600">
-              <span>₹0 gain</span>
-              <span>Target over {persona.outcome.horizon}</span>
+              <span>0% gain (break-even)</span>
+              <span>+{gainPctHi}% upside in {HORIZONS[horizonIdx].label}</span>
             </div>
-            {/* 4 outcome boxes */}
+
+            {/* 4 outcome stat boxes */}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {[
-                [persona.outcome.horizon, "Investment Horizon",    "text-blue-300"],
-                [persona.outcome.maxDD,   "Worst-Case Drawdown",   "text-red-400"],
-                [persona.outcome.sharpe,  "Sharpe Ratio Range",    "text-amber-300"],
-                [persona.outcome.ret,     "Expected Annual Return", "text-purple-300"],
+                [HORIZONS[horizonIdx].label, "Shared Horizon",        "text-blue-300"],
+                [persona.outcome.maxDD,      "Worst-Case Drawdown",   "text-red-400"],
+                [persona.outcome.sharpe,     "Sharpe Ratio Range",    "text-amber-300"],
+                [persona.expectedReturn,     "Expected Annual Return", "text-purple-300"],
               ].map(([v, l, cls]) => (
                 <div key={l} className="rounded-xl border border-blue-900/40 bg-black/30 p-2.5">
                   <div className={`text-sm font-bold ${cls}`}>{v}</div>
