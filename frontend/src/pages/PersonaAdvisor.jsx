@@ -302,35 +302,42 @@ const PERSONAS = [
 // ─── Derive recommendations from live data ────────────────────────────────────
 
 function buildMfPicks(persona, mfData, mfRuleMap = {}, mfAiMap = {}) {
-  if (!mfData?.categories) return [];
+  if (!mfData?.categories) return { picks: [], skipped: [] };
 
-  // Build category → best-scored funds map
+  // Build category → { catZ, funds[] } map
   const catMap = {};
   mfData.categories.forEach((cat) => {
     const catZ = cat.median?.z1w ?? 0;
     const scored = cat.funds
       .map((f) => ({ ...f, category: cat.category, catZ, rawScore: computeRawScore(f, catZ) }))
       .sort((a, b) => b.rawScore - a.rawScore);
-    catMap[cat.category.toLowerCase()] = scored;
+    catMap[cat.category.toLowerCase()] = { catZ, funds: scored };
   });
 
   // One pick per alloc slot that has mfCategory — preserves allocation %
-  const picks = [];
+  const picks     = [];   // actionable recommendations
+  const skipped   = [];   // slots skipped due to weak category momentum
   const usedCodes = new Set();
 
   persona.alloc.forEach((slot) => {
     if (!slot.mfCategory) return;
     const needle = slot.mfCategory.toLowerCase();
-    // Find category key by substring match (e.g. "flexi cap" matches "Flexi Cap Fund")
     const key = Object.keys(catMap).find(
       (k) => k.includes(needle) || needle.includes(k)
     );
     if (!key) return;
-    // Pick the best fund in this category that:
-    //   1. Hasn't been used in another slot
-    //   2. Is not "Avoid"
-    //   3. Is not "Buy + Low confidence" (same rule as MfPicks Watch demotion)
-    // Falls through to best momentum fund if no verdict exists yet.
+
+    const { catZ, funds } = catMap[key];
+
+    // Skip entire category if momentum is Cool (z < −0.5) or Cold (z < −1.5)
+    // — no fund from a declining category should be recommended
+    if (catZ < -0.5) {
+      const strength = catZ < -1.5 ? "Cold ❄️" : "Cool 📉";
+      skipped.push({ ...slot, catZ, strength });
+      return;
+    }
+
+    // Pick best fund that is not Avoid and not Low-confidence Buy
     const isRecommendable = (f) => {
       if (usedCodes.has(f.code)) return false;
       const { verdict, confidence } = resolveVerdict(f.code, mfRuleMap, mfAiMap);
@@ -338,36 +345,37 @@ function buildMfPicks(persona, mfData, mfRuleMap = {}, mfAiMap = {}) {
       if ((verdict === "Buy" || verdict === "Strong Buy") && confidence === "Low") return false;
       return true;
     };
-    // Try verdict-filtered first; fall back to any unused fund if none pass
-    const fund = catMap[key].find(isRecommendable)
-              ?? catMap[key].find((f) => !usedCodes.has(f.code));
+    // Verdict-filtered first; fall back to any unused fund if none clear the bar
+    const fund = funds.find(isRecommendable)
+              ?? funds.find((f) => !usedCodes.has(f.code));
     if (!fund) return;
     usedCodes.add(fund.code);
     picks.push({ ...fund, allocPct: slot.pct, allocLabel: slot.l, allocHex: slot.hex });
   });
 
-  if (picks.length === 0) return [];
+  // Normalise rawScore → displayScore 0–100 across picks
+  if (picks.length > 0) {
+    const rawScores = picks.map((f) => f.rawScore);
+    const minS = Math.min(...rawScores);
+    const maxS = Math.max(...rawScores);
+    const range = maxS - minS || 1;
+    picks.forEach((f, i) => {
+      const displayScore = Math.round(((f.rawScore - minS) / range) * 100);
+      const { verdict, confidence } = resolveVerdict(f.code, mfRuleMap, mfAiMap);
+      const vPart = verdict ? verdictScore(verdict, confidence) : displayScore;
+      picks[i] = {
+        ...f,
+        displayScore,
+        verdict,
+        confidence,
+        score:      Math.round(displayScore * 0.65 + vPart * 0.35),
+        allocation: f.allocPct / 100,
+        why:        genMfWhy(f),
+      };
+    });
+  }
 
-  // Normalise rawScore → displayScore 0–100 across these picks
-  const rawScores = picks.map((f) => f.rawScore);
-  const minS = Math.min(...rawScores);
-  const maxS = Math.max(...rawScores);
-  const range = maxS - minS || 1;
-
-  return picks.map((f) => {
-    const displayScore = Math.round(((f.rawScore - minS) / range) * 100);
-    const { verdict, confidence } = resolveVerdict(f.code, mfRuleMap, mfAiMap);
-    const vPart = verdict ? verdictScore(verdict, confidence) : displayScore;
-    return {
-      ...f,
-      displayScore,
-      verdict,
-      confidence,
-      score:      Math.round(displayScore * 0.65 + vPart * 0.35),
-      allocation: f.allocPct / 100,
-      why:        genMfWhy(f),
-    };
-  });
+  return { picks, skipped };
 }
 
 function buildStockPicks(persona, stockData, stRuleMap = {}, stAiMap = {}) {
@@ -776,7 +784,7 @@ export default function PersonaAdvisor() {
   }, []);
 
   const persona = PERSONAS[personaIdx];
-  const mfPicks    = buildMfPicks(persona, mfData, mfRuleMap, mfAiMap);
+  const { picks: mfPicks, skipped: mfSkipped } = buildMfPicks(persona, mfData, mfRuleMap, mfAiMap) ?? { picks: [], skipped: [] };
   const stockPicks = buildStockPicks(persona, stockData, stRuleMap, stAiMap);
 
   const horizonYears = HORIZONS[horizonIdx].years;
@@ -1038,7 +1046,7 @@ export default function PersonaAdvisor() {
               Ranked by live momentum scores · click any row to expand · {fmtInr(corpus)} to invest
             </p>
 
-            {(mfPicks.length === 0 && stockPicks.length === 0) ? (
+            {(mfPicks.length === 0 && stockPicks.length === 0 && mfSkipped.length === 0) ? (
               <p className="text-xs text-gray-500 py-4 text-center">No data available — run the nightly refresh job.</p>
             ) : (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1062,6 +1070,23 @@ export default function PersonaAdvisor() {
                     ))}
                     {mfPicks.length === 0 && (
                       <p className="text-xs text-gray-600 py-2">No MF data — refresh pending.</p>
+                    )}
+                    {/* Skipped slots — category momentum too weak */}
+                    {mfSkipped.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {mfSkipped.map((s) => (
+                          <div key={s.l} className="flex items-center gap-2 rounded-lg border border-gray-800/60 bg-gray-950/40 px-3 py-2">
+                            <span className="text-[10px]">⏸</span>
+                            <div className="flex-1 min-w-0">
+                              <span className="text-[10px] text-gray-600 line-through">{s.l}</span>
+                              <span className="ml-1.5 text-[10px] text-gray-600">({s.pct}%)</span>
+                            </div>
+                            <span className="text-[10px] text-amber-600/80 shrink-0">
+                              {s.strength} · category momentum weak — skipped
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
