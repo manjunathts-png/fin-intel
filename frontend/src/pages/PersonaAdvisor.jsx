@@ -138,20 +138,19 @@ const PERSONAS = [
     drawdown: "Can tolerate –40% or more",
     liquidity: "High — active rebalancing",
     tax: "STCG heavy (< 1 yr)",
+    // mfCategory on a slot → picks the best fund in that radar category at that exact %
     alloc: [
-      { l: "Small & Mid Cap Equity", pct: 60, hex: "#ef4444" },
-      { l: "Large Cap Equity",       pct: 20, hex: "#f97316" },
-      { l: "Gold / Commodities",     pct:  5, hex: "#fbbf24" },
-      { l: "Debt / Liquid",          pct:  5, hex: "#818cf8" },
-      { l: "Cash Buffer",            pct: 10, hex: "#4b5563" },
+      { l: "Small Cap MF",      pct: 35, hex: "#ef4444", mfCategory: "Small Cap" },
+      { l: "Mid Cap MF",        pct: 25, hex: "#f97316", mfCategory: "Mid Cap"   },
+      { l: "Large Cap Stocks",  pct: 20, hex: "#fbbf24" }, // served by stock picks
+      { l: "Gold MF",           pct:  5, hex: "#eab308", mfCategory: "Gold"      },
+      { l: "Debt / Liquid",     pct:  5, hex: "#818cf8" },
+      { l: "Cash Buffer",       pct: 10, hex: "#4b5563" },
     ],
     outcome: {
       maxDD: "–40%", sharpe: "0.6–0.9",
       note: "High upside, very high variance. A 40% drawdown is plausible in a bear market — position sizing and stop-losses are critical.",
     },
-    mfCategories: ["Small Cap", "Mid Cap"],
-    mfCount: 4,
-    mfAllocs: [0.20, 0.15, 0.15, 0.10],
     stockCount: 4,
     stockAllocs: [0.10, 0.075, 0.075, 0.05],
     stockMinScore: 60,
@@ -176,19 +175,16 @@ const PERSONAS = [
     liquidity: "Medium — quarterly review",
     tax: "LTCG optimised (> 1 yr)",
     alloc: [
-      { l: "Flexi / Multi Cap MF",  pct: 35, hex: "#f59e0b" },
-      { l: "Mid Cap Equity",        pct: 25, hex: "#ef4444" },
-      { l: "Large Cap Equity",      pct: 20, hex: "#f97316" },
-      { l: "International MF",      pct: 10, hex: "#06b6d4" },
-      { l: "Debt / Liquid",         pct: 10, hex: "#818cf8" },
+      { l: "Flexi / Multi Cap MF", pct: 35, hex: "#f59e0b", mfCategory: "Flexi Cap"  },
+      { l: "Mid Cap MF",           pct: 25, hex: "#ef4444", mfCategory: "Mid Cap"    },
+      { l: "Large Cap MF",         pct: 20, hex: "#f97316", mfCategory: "Large Cap"  },
+      { l: "International MF",     pct: 10, hex: "#06b6d4" }, // no radar coverage
+      { l: "Debt / Liquid",        pct: 10, hex: "#818cf8" },
     ],
     outcome: {
       maxDD: "–30%", sharpe: "0.8–1.1",
       note: "Reasonable wealth creation over 5+ years with manageable drawdowns. Best for goals like home purchase or retirement corpus.",
     },
-    mfCategories: ["Flexi Cap", "Mid Cap", "Large & Mid Cap"],
-    mfCount: 4,
-    mfAllocs: [0.25, 0.15, 0.10, 0.05],
     stockCount: 4,
     stockAllocs: [0.15, 0.10, 0.10, 0.05],
     stockMinScore: 55,
@@ -213,21 +209,18 @@ const PERSONAS = [
     liquidity: "Medium — semi-annual review",
     tax: "Mix of STCG & LTCG",
     alloc: [
-      { l: "Large Cap / Nifty Index", pct: 35, hex: "#3b82f6" },
-      { l: "Flexi Cap MF",            pct: 20, hex: "#f59e0b" },
+      { l: "Large Cap / Nifty Index", pct: 35, hex: "#3b82f6", mfCategory: "Large Cap" },
+      { l: "Flexi Cap MF",            pct: 20, hex: "#f59e0b", mfCategory: "Flexi Cap" },
       { l: "Corporate Bond Fund",     pct: 20, hex: "#818cf8" },
-      { l: "Gold ETF / SGBs",         pct: 15, hex: "#fbbf24" },
+      { l: "Gold ETF / SGBs",         pct: 15, hex: "#fbbf24", mfCategory: "Gold"      },
       { l: "Cash / Liquid",           pct: 10, hex: "#4b5563" },
     ],
     outcome: {
       maxDD: "–18%", sharpe: "0.9–1.3",
       note: "Steady compounder with capital protection. Suitable for 3–5 year goals — home down-payment, child education, or a growing emergency fund.",
     },
-    mfCategories: ["Large Cap", "Flexi Cap", "Gold"],
-    mfCount: 3,
-    mfAllocs: [0.25, 0.15, 0.15],
     stockCount: 3,
-    stockAllocs: [0.20, 0.10, 0.15],
+    stockAllocs: [0.15, 0.10, 0.075],
     stockMinScore: 50,
     stockSectors: null,
     preferLargeCap: true,
@@ -251,19 +244,16 @@ const PERSONAS = [
     liquidity: "High — monthly monitoring",
     tax: "Debt LTCG + indexation",
     alloc: [
-      { l: "Large Cap / Nifty 50",    pct: 30, hex: "#22c55e" },
-      { l: "Short Duration Debt",     pct: 30, hex: "#818cf8" },
-      { l: "Gold ETF / SGBs",         pct: 20, hex: "#fbbf24" },
-      { l: "Arbitrage / Liquid",      pct: 15, hex: "#06b6d4" },
-      { l: "Cash",                    pct:  5, hex: "#4b5563" },
+      { l: "Large Cap / Nifty 50", pct: 30, hex: "#22c55e", mfCategory: "Large Cap" },
+      { l: "Short Duration Debt",  pct: 30, hex: "#818cf8" },
+      { l: "Gold ETF / SGBs",      pct: 20, hex: "#fbbf24", mfCategory: "Gold"      },
+      { l: "Arbitrage / Liquid",   pct: 15, hex: "#06b6d4" },
+      { l: "Cash",                 pct:  5, hex: "#4b5563" },
     ],
     outcome: {
       maxDD: "–10%", sharpe: "1.0–1.4",
       note: "Capital preservation priority. Modest growth with minimal drawdowns. Best for near-term goals or investors who lose sleep over volatility.",
     },
-    mfCategories: ["Large Cap", "Gold"],
-    mfCount: 3,
-    mfAllocs: [0.20, 0.15, 0.20],
     stockCount: 3,
     stockAllocs: [0.15, 0.10, 0.10],
     stockMinScore: 45,
@@ -290,19 +280,17 @@ const PERSONAS = [
     liquidity: "Low — hold and collect",
     tax: "Dividend taxed at income slab",
     alloc: [
-      { l: "Dividend Yield Stocks",  pct: 40, hex: "#a78bfa" },
-      { l: "Dividend Yield MF",      pct: 25, hex: "#818cf8" },
-      { l: "REITs / InvITs",         pct: 15, hex: "#f59e0b" },
-      { l: "Short Duration Debt",    pct: 15, hex: "#06b6d4" },
-      { l: "Cash",                   pct:  5, hex: "#4b5563" },
+      { l: "Dividend Yield Stocks", pct: 40, hex: "#a78bfa" }, // served by stock picks
+      { l: "Value / Dividend MF",   pct: 25, hex: "#818cf8", mfCategory: "Value"     },
+      { l: "Large Cap MF",          pct: 10, hex: "#9ca3af", mfCategory: "Large Cap" },
+      { l: "REITs / InvITs",        pct: 10, hex: "#f59e0b" },
+      { l: "Short Duration Debt",   pct: 10, hex: "#06b6d4" },
+      { l: "Cash",                  pct:  5, hex: "#4b5563" },
     ],
     outcome: {
       maxDD: "–15%", sharpe: "0.9–1.2",
       note: "Yield on corpus ≈ 3–5% per year = ₹30K–₹50K annual income on ₹10L invested, plus capital appreciation.",
     },
-    mfCategories: ["Value", "Large Cap"],
-    mfCount: 3,
-    mfAllocs: [0.15, 0.10, 0.10],
     stockCount: 4,
     stockAllocs: [0.15, 0.125, 0.10, 0.10],
     stockMinScore: 45,
@@ -316,56 +304,57 @@ const PERSONAS = [
 function buildMfPicks(persona, mfData, mfRuleMap = {}, mfAiMap = {}) {
   if (!mfData?.categories) return [];
 
-  // Collect all funds from persona-eligible categories with rawScore
-  const funds = [];
+  // Build category → best-scored funds map
+  const catMap = {};
   mfData.categories.forEach((cat) => {
-    const catMatch = persona.mfCategories.some((c) =>
-      cat.category.toLowerCase().includes(c.toLowerCase())
-    );
-    if (!catMatch) return;
     const catZ = cat.median?.z1w ?? 0;
-    cat.funds.forEach((f) => {
-      funds.push({
-        ...f,
-        category: cat.category,
-        catZ,
-        rawScore: computeRawScore(f, catZ),
-      });
-    });
+    const scored = cat.funds
+      .map((f) => ({ ...f, category: cat.category, catZ, rawScore: computeRawScore(f, catZ) }))
+      .sort((a, b) => b.rawScore - a.rawScore);
+    catMap[cat.category.toLowerCase()] = scored;
   });
 
-  if (funds.length === 0) return [];
+  // One pick per alloc slot that has mfCategory — preserves allocation %
+  const picks = [];
+  const usedCodes = new Set();
 
-  // Normalise rawScore → displayScore 0–100 across this persona's pool
-  const scores = funds.map((f) => f.rawScore);
-  const minS = Math.min(...scores);
-  const maxS = Math.max(...scores);
+  persona.alloc.forEach((slot) => {
+    if (!slot.mfCategory) return;
+    const needle = slot.mfCategory.toLowerCase();
+    // Find category key by substring match (e.g. "flexi cap" matches "Flexi Cap Fund")
+    const key = Object.keys(catMap).find(
+      (k) => k.includes(needle) || needle.includes(k)
+    );
+    if (!key) return;
+    // Best fund in this category not already used
+    const fund = catMap[key].find((f) => !usedCodes.has(f.code));
+    if (!fund) return;
+    usedCodes.add(fund.code);
+    picks.push({ ...fund, allocPct: slot.pct, allocLabel: slot.l, allocHex: slot.hex });
+  });
+
+  if (picks.length === 0) return [];
+
+  // Normalise rawScore → displayScore 0–100 across these picks
+  const rawScores = picks.map((f) => f.rawScore);
+  const minS = Math.min(...rawScores);
+  const maxS = Math.max(...rawScores);
   const range = maxS - minS || 1;
-  funds.forEach((f) => {
-    f.displayScore = Math.round(((f.rawScore - minS) / range) * 100);
-    // Blend with analyst verdict (65% momentum + 35% verdict), same as MfPicks
+
+  return picks.map((f) => {
+    const displayScore = Math.round(((f.rawScore - minS) / range) * 100);
     const { verdict, confidence } = resolveVerdict(f.code, mfRuleMap, mfAiMap);
-    f.verdict    = verdict;
-    f.confidence = confidence;
-    const vPart  = verdict ? verdictScore(verdict, confidence) : f.displayScore; // neutral if no verdict
-    f.score      = Math.round(f.displayScore * 0.65 + vPart * 0.35);
+    const vPart = verdict ? verdictScore(verdict, confidence) : displayScore;
+    return {
+      ...f,
+      displayScore,
+      verdict,
+      confidence,
+      score:      Math.round(displayScore * 0.65 + vPart * 0.35),
+      allocation: f.allocPct / 100,
+      why:        genMfWhy(f),
+    };
   });
-
-  // Sort by blended score, dedupe by name prefix
-  funds.sort((a, b) => b.score - a.score);
-  const seen = new Set();
-  const deduped = funds.filter((f) => {
-    const key = f.label?.slice(0, 12);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  return deduped.slice(0, persona.mfCount).map((f, i) => ({
-    ...f,
-    allocation: persona.mfAllocs[i] ?? 0.10,
-    why: genMfWhy(f),
-  }));
 }
 
 function buildStockPicks(persona, stockData, stRuleMap = {}, stAiMap = {}) {
@@ -438,7 +427,7 @@ function RecRow({ item, type, rank, corpus, alloc, onFullAnalysis }) {
   const ret = type === "mf" ? item.ret1y : item.ret3m;
   const name = type === "mf" ? item.label : (item.name || item.symbol);
   const meta = type === "mf"
-    ? item.category
+    ? `${item.category}${item.allocPct ? ` · ${item.allocPct}% of portfolio` : ""}`
     : `${item.sector ?? ""}${item.fundamentals?.marketCapCr ? ` · MCap ₹${item.fundamentals.marketCapCr >= 1e5 ? (item.fundamentals.marketCapCr / 1e5).toFixed(1) + "L" : item.fundamentals.marketCapCr.toLocaleString("en-IN")} Cr` : ""}`;
 
   return (
