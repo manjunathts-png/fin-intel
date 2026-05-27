@@ -326,8 +326,21 @@ function buildMfPicks(persona, mfData, mfRuleMap = {}, mfAiMap = {}) {
       (k) => k.includes(needle) || needle.includes(k)
     );
     if (!key) return;
-    // Best fund in this category not already used
-    const fund = catMap[key].find((f) => !usedCodes.has(f.code));
+    // Pick the best fund in this category that:
+    //   1. Hasn't been used in another slot
+    //   2. Is not "Avoid"
+    //   3. Is not "Buy + Low confidence" (same rule as MfPicks Watch demotion)
+    // Falls through to best momentum fund if no verdict exists yet.
+    const isRecommendable = (f) => {
+      if (usedCodes.has(f.code)) return false;
+      const { verdict, confidence } = resolveVerdict(f.code, mfRuleMap, mfAiMap);
+      if (verdict === "Avoid") return false;
+      if ((verdict === "Buy" || verdict === "Strong Buy") && confidence === "Low") return false;
+      return true;
+    };
+    // Try verdict-filtered first; fall back to any unused fund if none pass
+    const fund = catMap[key].find(isRecommendable)
+              ?? catMap[key].find((f) => !usedCodes.has(f.code));
     if (!fund) return;
     usedCodes.add(fund.code);
     picks.push({ ...fund, allocPct: slot.pct, allocLabel: slot.l, allocHex: slot.hex });
@@ -383,7 +396,16 @@ function buildStockPicks(persona, stockData, stRuleMap = {}, stAiMap = {}) {
   const scoreFiltered = candidates.filter((s) => s.compositeScore >= persona.stockMinScore);
   const pool = scoreFiltered.length >= persona.stockCount ? scoreFiltered : candidates;
 
-  return pool.slice(0, persona.stockCount).map((s, i) => {
+  // Exclude Avoid and Low-confidence Buys (same rule as Stock Picks page)
+  const actionable = pool.filter((s) => {
+    const { verdict, confidence } = resolveVerdict(s.symbol, stRuleMap, stAiMap);
+    if (verdict === "Avoid") return false;
+    if ((verdict === "Buy" || verdict === "Strong Buy") && confidence === "Low") return false;
+    return true;
+  });
+  const finalPool = actionable.length >= persona.stockCount ? actionable : pool;
+
+  return finalPool.slice(0, persona.stockCount).map((s, i) => {
     const { verdict, confidence } = resolveVerdict(s.symbol, stRuleMap, stAiMap);
     return {
       ...s,
