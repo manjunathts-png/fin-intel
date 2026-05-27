@@ -329,26 +329,35 @@ function buildMfPicks(persona, mfData, mfRuleMap = {}, mfAiMap = {}) {
 
     const { catZ, funds } = catMap[key];
 
-    // Skip entire category if momentum is Cool (z < −0.5) or Cold (z < −1.5)
-    // — no fund from a declining category should be recommended
+    // Gate 1: category-level — skip if Cool (z < −0.5) or Cold
     if (catZ < -0.5) {
-      const strength = catZ < -1.5 ? "Cold ❄️" : "Cool 📉";
-      skipped.push({ ...slot, catZ, strength });
+      skipped.push({ ...slot, catZ, strength: catZ < -1.5 ? "Cold ❄️" : "Cool 📉" });
       return;
     }
 
-    // Pick best fund that is not Avoid and not Low-confidence Buy
+    // Gate 2: individual fund — must have z1w >= −0.5 (not individually declining)
+    //          not Avoid, not Low-confidence Buy
+    // No unsafe fallback: if nothing clears all bars, the slot is skipped.
     const isRecommendable = (f) => {
       if (usedCodes.has(f.code)) return false;
+      if ((f.z1w ?? 0) < -0.5) return false;          // fund's own momentum gate
       const { verdict, confidence } = resolveVerdict(f.code, mfRuleMap, mfAiMap);
       if (verdict === "Avoid") return false;
       if ((verdict === "Buy" || verdict === "Strong Buy") && confidence === "Low") return false;
       return true;
     };
-    // Verdict-filtered first; fall back to any unused fund if none clear the bar
-    const fund = funds.find(isRecommendable)
-              ?? funds.find((f) => !usedCodes.has(f.code));
-    if (!fund) return;
+    // Fallback only for funds with NO verdict yet (not yet analyzed), still z1w-gated
+    const isUnanalyzed = (f) =>
+      !usedCodes.has(f.code) &&
+      (f.z1w ?? 0) >= -0.5 &&
+      resolveVerdict(f.code, mfRuleMap, mfAiMap).verdict === null;
+
+    const fund = funds.find(isRecommendable) ?? funds.find(isUnanalyzed);
+    if (!fund) {
+      // All funds in this category failed the momentum/verdict gates → skip slot
+      skipped.push({ ...slot, catZ, strength: "Weak fund momentum 📉" });
+      return;
+    }
     usedCodes.add(fund.code);
     picks.push({ ...fund, allocPct: slot.pct, allocLabel: slot.l, allocHex: slot.hex });
   });
