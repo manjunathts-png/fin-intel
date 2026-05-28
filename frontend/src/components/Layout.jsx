@@ -21,6 +21,11 @@ export default function Layout() {
     if (user) trackEvent(user, "page_view", location.pathname);
   }, [location.pathname, user]);
 
+  // Stop Clarity recording for the admin — keeps data clean
+  useEffect(() => {
+    if (user?.email === ADMIN_EMAIL) window.clarity?.("stop");
+  }, [user]);
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-950">
