@@ -55,34 +55,62 @@ function StatCard({ label, value, sub }) {
   );
 }
 
+function toLocalDateStr(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export default function Admin() {
   const { user } = useAuth();
-  const [profiles, setProfiles] = useState([]);
-  const [events,   setEvents]   = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [tab,      setTab]      = useState("users");
+  const [profiles,    setProfiles]    = useState([]);
+  const [events,      setEvents]      = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [evtLoading,  setEvtLoading]  = useState(false);
+  const [tab,         setTab]         = useState("users");
+
+  const today = toLocalDateStr(new Date());
+  const [dateFrom, setDateFrom] = useState("2025-01-01");
+  const [dateTo,   setDateTo]   = useState(today);
 
   if (user && user.email !== ADMIN_EMAIL) return <Navigate to="/mf" replace />;
 
+  async function loadEvents(from, to) {
+    setEvtLoading(true);
+    const fromISO = new Date(from + "T00:00:00").toISOString();
+    const toISO   = new Date(to   + "T23:59:59").toISOString();
+    const { data: e } = await supabase
+      .from("user_events")
+      .select("*")
+      .neq("email", ADMIN_EMAIL)
+      .gte("created_at", fromISO)
+      .lte("created_at", toISO)
+      .order("created_at", { ascending: false });
+    setEvents(e ?? []);
+    setEvtLoading(false);
+  }
+
   useEffect(() => {
     async function load() {
-      const [{ data: p }, { data: e }] = await Promise.all([
-        supabase.from("profiles").select("*").order("created_at", { ascending: false }),
-        supabase.from("user_events").select("*").order("created_at", { ascending: false }).limit(500),
-      ]);
-      setProfiles((p ?? []).filter((u) => u.email !== ADMIN_EMAIL));
-      setEvents((e ?? []).filter((ev) => ev.email !== ADMIN_EMAIL));
+      const { data: p } = await supabase
+        .from("profiles")
+        .select("*")
+        .neq("email", ADMIN_EMAIL)
+        .order("created_at", { ascending: false });
+      setProfiles(p ?? []);
       setLoading(false);
     }
     load();
+    loadEvents(dateFrom, dateTo);
   }, []);
 
   if (loading) return <Spinner />;
 
   // Derived stats
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const activeToday = new Set(
-    events.filter((e) => new Date(e.created_at) >= today).map((e) => e.user_id)
+    events.filter((e) => new Date(e.created_at) >= todayStart).map((e) => e.user_id)
   ).size;
   const logins = events.filter((e) => e.event === "login").length;
 
@@ -113,7 +141,7 @@ export default function Admin() {
         <StatCard label="Total Users"    value={profiles.length} />
         <StatCard label="Active Today"   value={activeToday} />
         <StatCard label="Total Logins"   value={logins} />
-        <StatCard label="Events (500)"   value={events.length} sub="last 500 loaded" />
+        <StatCard label="Events"   value={events.length} sub={`${dateFrom} → ${dateTo}`} />
       </div>
 
       {/* Page popularity */}
@@ -143,7 +171,7 @@ export default function Admin() {
                 : "border-transparent text-gray-500 hover:text-gray-300"
             }`}
           >
-            {t === "users" ? `Users (${profiles.length})` : `Activity (${events.length})`}
+            {t === "users" ? `Users (${profiles.length})` : `Activity (${evtLoading ? "…" : events.length})`}
           </button>
         ))}
       </div>
@@ -186,6 +214,40 @@ export default function Admin() {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {tab === "activity" && (
+        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-gray-800 bg-gray-900 p-4">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500 uppercase tracking-wider">From</label>
+            <input
+              type="date"
+              value={dateFrom}
+              max={dateTo}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500 uppercase tracking-wider">To</label>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom}
+              max={today}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <button
+            onClick={() => loadEvents(dateFrom, dateTo)}
+            disabled={evtLoading}
+            className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition"
+          >
+            {evtLoading ? "Loading…" : "Apply"}
+          </button>
+          <span className="ml-auto text-xs text-gray-500">{events.length} events in range</span>
         </div>
       )}
 
