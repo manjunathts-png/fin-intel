@@ -21,9 +21,12 @@ export default function Layout() {
     if (user) trackEvent(user, "page_view", location.pathname);
   }, [location.pathname, user]);
 
-  // Stop Clarity recording for the admin — keeps data clean
+  // Stop all analytics for the admin — keeps data clean
   useEffect(() => {
-    if (user?.email === ADMIN_EMAIL) window.clarity?.("stop");
+    if (user?.email === ADMIN_EMAIL) {
+      window.clarity?.("stop");
+      window["ga-disable-G-PF94PF3L0Y"] = true;
+    }
   }, [user]);
 
   if (loading) {
