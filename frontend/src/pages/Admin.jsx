@@ -70,8 +70,8 @@ export default function Admin() {
         supabase.from("profiles").select("*").order("created_at", { ascending: false }),
         supabase.from("user_events").select("*").order("created_at", { ascending: false }).limit(500),
       ]);
-      setProfiles(p ?? []);
-      setEvents(e ?? []);
+      setProfiles((p ?? []).filter((u) => u.email !== ADMIN_EMAIL));
+      setEvents((e ?? []).filter((ev) => ev.email !== ADMIN_EMAIL));
       setLoading(false);
     }
     load();
