@@ -1,7 +1,14 @@
 import { supabase } from "./supabase";
 
+const ADMIN_EMAIL = "manjunathts@gmail.com";
+
 export async function trackEvent(user, event, page = null) {
   if (!user) return;
+
+  // Skip all tracking for the admin
+  if (user.email === ADMIN_EMAIL) return;
+
+  // Supabase (existing)
   try {
     await supabase.from("user_events").insert({
       user_id: user.id,
@@ -9,9 +16,15 @@ export async function trackEvent(user, event, page = null) {
       event,
       page,
     });
-  } catch (_) {
-    // analytics failures are silent
-  }
+  } catch (_) {}
+
+  // GA4 — mirror every event so user flows appear in Google Analytics
+  try {
+    window.gtag?.("event", event, {
+      page_path:  page,
+      user_id:    user.id,
+    });
+  } catch (_) {}
 }
 
 export async function upsertProfile(user) {
