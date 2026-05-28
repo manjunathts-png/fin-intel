@@ -490,7 +490,7 @@ function RecRow({ item, type, rank, corpus, alloc, onFullAnalysis }) {
           <ScorePill score={type === "mf" ? item.score : item.compositeScore} />
           <div className="text-right">
             <div className={`text-xs font-bold tabular-nums ${pctCls(ret)}`}>{fmtPct(ret)}</div>
-            <div className="text-[10px] text-gray-500">{fmtInr(corpus * alloc)}</div>
+            <div className="text-[11px] font-semibold text-gray-200">{fmtInr(corpus * alloc)}</div>
           </div>
           <span className={`text-[10px] text-gray-600 transition-transform ${expanded ? "rotate-180 text-blue-400" : ""}`}>▼</span>
         </div>
@@ -1023,41 +1023,18 @@ export default function PersonaAdvisor() {
               </div>
             </div>
 
-            {/* Progress bar */}
-            <div className="mb-1 h-2 overflow-hidden rounded-full border border-blue-900/60 bg-gray-950">
-              <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{ width: `${barPct}%`, background: "linear-gradient(90deg,#34d399,#3b82f6,#a78bfa)" }}
-              />
+            {/* Compact stat row */}
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-500 border-t border-blue-900/30 pt-2.5">
+              <span>📉 Max DD <strong className="text-red-400">{persona.outcome.maxDD}</strong></span>
+              <span>📈 Return <strong className="text-purple-300">{persona.expectedReturn}</strong></span>
+              <span>⚡ Sharpe <strong className="text-amber-300">{persona.outcome.sharpe}</strong></span>
             </div>
-            <div className="mb-4 flex justify-between text-[10px] text-gray-600">
-              <span>Break-even</span>
-              <span>+{gainPctHi}% in {HORIZONS[horizonIdx].label}</span>
-            </div>
-
-            {/* 4 outcome stat boxes */}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {[
-                [HORIZONS[horizonIdx].label, "Shared Horizon",        "text-blue-300"],
-                [persona.outcome.maxDD,      "Worst-Case Drawdown",   "text-red-400"],
-                [persona.outcome.sharpe,     "Sharpe Ratio Range",    "text-amber-300"],
-                [persona.expectedReturn,     "Expected Annual Return", "text-purple-300"],
-              ].map(([v, l, cls]) => (
-                <div key={l} className="rounded-xl border border-blue-900/40 bg-black/30 p-2.5">
-                  <div className={`text-sm font-bold ${cls}`}>{v}</div>
-                  <div className="text-[10px] text-gray-600 mt-0.5">{l}</div>
-                </div>
-              ))}
-            </div>
-            <p className="mt-3 border-t border-blue-900/40 pt-2.5 text-[11px] italic text-gray-500">
-              ℹ️ {persona.outcome.note}
-            </p>
           </div>
 
           {/* Recommendations — MF + Stocks side by side */}
-          <div className="rounded-2xl border border-gray-800 bg-gray-900 p-4">
-            <p className="mb-0.5 text-[10px] font-bold uppercase tracking-wider text-gray-500">Recommended Portfolio</p>
-            <p className="mb-3 text-[10px] text-gray-600">
+          <div className="rounded-2xl border border-gray-700 bg-gray-900 p-4">
+            <p className="mb-0.5 text-sm font-bold text-white">Recommended Portfolio</p>
+            <p className="mb-3 text-[11px] text-gray-400">
               Ranked by live momentum scores · click any row to expand · {fmtInr(corpus)} to invest
             </p>
 
