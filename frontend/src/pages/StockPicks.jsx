@@ -199,6 +199,85 @@ function Tech({ label, val, fmt, color }) {
 // Tier 1 (default): rank · name · sector · verdict · score · price · "N signals" brief
 // Tier 2 (▾):       + signal chips + fundamentals + technicals + rationale
 
+// Filter tab component used by the Core / Tactical / All selector
+function FilterTab({ active, onClick, activeCls, icon, label, count, hint }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+        active
+          ? activeCls
+          : "border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600 hover:text-gray-200"
+      }`}
+      title={hint}
+    >
+      <span>{icon}</span>
+      <span>{label}</span>
+      <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${active ? "bg-white/20" : "bg-gray-800 text-gray-500"}`}>
+        {count}
+      </span>
+    </button>
+  );
+}
+
+// Stability chip — shows how long a stock has held its top-50 spot
+function StabilityChip({ pick }) {
+  const days = pick.daysInTop50;
+  const newToday = pick.newToday;
+  const delta = pick.rankDelta;
+
+  // New today: brand-new entry
+  if (newToday) {
+    return (
+      <span className="rounded-full border border-blue-700/40 bg-blue-900/30 px-2 py-0.5 text-[10px] font-bold text-blue-300">
+        🆕 New today
+      </span>
+    );
+  }
+
+  // Core: stable for 7+ days
+  if (days != null && days >= 14) {
+    return (
+      <span className="rounded-full border border-emerald-700/40 bg-emerald-900/30 px-2 py-0.5 text-[10px] font-bold text-emerald-300" title="In top 50 for 14+ trading days">
+        📌 Core · {days}d
+      </span>
+    );
+  }
+  if (days != null && days >= 7) {
+    return (
+      <span className="rounded-full border border-green-700/40 bg-green-900/30 px-2 py-0.5 text-[10px] font-bold text-green-300" title="In top 50 for 7+ trading days">
+        📌 Core · {days}d
+      </span>
+    );
+  }
+  if (days != null && days >= 1) {
+    // Tactical: < 7 days
+    return (
+      <span className="rounded-full border border-amber-700/40 bg-amber-900/20 px-2 py-0.5 text-[10px] font-bold text-amber-300" title="Recent entry, not yet 'Core'">
+        ⚡ Tactical · {days}d
+      </span>
+    );
+  }
+  return null;
+}
+
+// Rank delta chip — shows up/down movement vs yesterday
+function RankDeltaChip({ delta }) {
+  if (delta == null || delta === 0) return null;
+  if (delta > 0) {
+    return (
+      <span className="rounded border border-green-700/40 bg-green-900/20 px-1.5 py-0.5 text-[10px] font-bold text-green-400" title={`Moved up ${delta} ranks vs yesterday`}>
+        ↑ +{delta}
+      </span>
+    );
+  }
+  return (
+    <span className="rounded border border-red-700/40 bg-red-900/20 px-1.5 py-0.5 text-[10px] font-bold text-red-400" title={`Moved down ${-delta} ranks vs yesterday`}>
+      ↓ {delta}
+    </span>
+  );
+}
+
 function StockPickCard({ pick, rank, ruleBased, aiRationale, onOpenDrawer }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -248,6 +327,8 @@ function StockPickCard({ pick, rank, ruleBased, aiRationale, onOpenDrawer }) {
                 ✦ AI
               </span>
             )}
+            <StabilityChip pick={pick} />
+            <RankDeltaChip delta={pick.rankDelta} />
           </div>
           {/* Price + brief summary */}
           <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -569,6 +650,7 @@ export default function StockPicks() {
   const [stockAiRat,   setStockAiRat]   = useState({});
   const [stockShowCount, setStockShowCount] = useState(10);
   const [drawer,       setDrawer]       = useState(null);
+  const [filterMode,   setFilterMode]   = useState("core"); // "core" | "tactical" | "all"
 
   useEffect(() => {
     Promise.all([
@@ -598,6 +680,21 @@ export default function StockPicks() {
 
   const signalsPicks = stockPicksData?.picks ?? [];
   const intradayAsOf = stockPicksData?.intradayAsOf;
+
+  // ── Stability filtering ──────────────────────────────────────────────────
+  // Core    = held top 50 for 7+ days (stable enough to act on)
+  // Tactical = new/recent entries (< 7 days) — watch, not buy
+  // All     = everything
+  // Pipeline still shows top 50 ranked by score within each subset.
+  const corePicks     = signalsPicks.filter((p) => (p.daysInTop50 ?? 0) >= 7);
+  const tacticalPicks = signalsPicks.filter((p) => (p.daysInTop50 ?? 0) < 7);
+  const filteredPicks = filterMode === "core"     ? corePicks
+                      : filterMode === "tactical" ? tacticalPicks
+                      : signalsPicks;
+  // If persistence data isn't built yet (first deploy or pre-stability run),
+  // gracefully fall back to all picks regardless of filter.
+  const hasPersistenceData = signalsPicks.some((p) => p.daysInTop50 != null);
+  const displayedPicks = hasPersistenceData ? filteredPicks : signalsPicks;
   const isIntraday = intradayAsOf && (Date.now() - new Date(intradayAsOf)) < 2 * 60 * 60 * 1000; // within 2h
 
   return (
@@ -634,18 +731,65 @@ export default function StockPicks() {
         scannedPicks={stockPicksData?.all ?? signalsPicks}
       />
 
+      {/* Stability filter tabs */}
+      {hasPersistenceData && (
+        <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">View:</span>
+            <FilterTab
+              active={filterMode === "core"}
+              onClick={() => setFilterMode("core")}
+              activeCls="bg-emerald-600 text-white border-emerald-500"
+              icon="📌"
+              label="Core"
+              count={corePicks.length}
+              hint="stable for 7+ days"
+            />
+            <FilterTab
+              active={filterMode === "tactical"}
+              onClick={() => setFilterMode("tactical")}
+              activeCls="bg-amber-600 text-white border-amber-500"
+              icon="⚡"
+              label="Tactical"
+              count={tacticalPicks.length}
+              hint="recent entries"
+            />
+            <FilterTab
+              active={filterMode === "all"}
+              onClick={() => setFilterMode("all")}
+              activeCls="bg-blue-600 text-white border-blue-500"
+              icon="📊"
+              label="All"
+              count={signalsPicks.length}
+            />
+            <p className="ml-auto hidden md:block text-[10px] text-gray-500">
+              {filterMode === "core" && "Held the top 50 for 7+ trading days — stable enough to act on."}
+              {filterMode === "tactical" && "Recent entries (< 7 days). Treat as watchlist, not buy list."}
+              {filterMode === "all" && "Every pick in today's top 50 — sorted by composite score."}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Pick cards */}
       <div className="space-y-3">
-        {signalsPicks.slice(0, stockShowCount).map((pick, i) => (
+        {displayedPicks.slice(0, stockShowCount).map((pick) => (
           <StockPickCard
             key={pick.symbol}
             pick={pick}
-            rank={i + 1}
+            rank={pick.rank ?? "—"}
             ruleBased={stockRuleRat[pick.symbol] ?? null}
             aiRationale={stockAiRat[pick.symbol] ?? null}
             onOpenDrawer={setDrawer}
           />
         ))}
+
+        {displayedPicks.length === 0 && hasPersistenceData && (
+          <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6 text-center text-sm text-gray-500">
+            {filterMode === "core" && "No Core picks yet — persistence tracking just started. Check back in a week."}
+            {filterMode === "tactical" && "No Tactical picks right now — all current picks have been stable for 7+ days."}
+          </div>
+        )}
 
         {signalsPicks.length === 0 && (
           <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6 text-center text-sm text-gray-500">
@@ -655,28 +799,28 @@ export default function StockPicks() {
       </div>
 
       {/* Show more / show less */}
-      {signalsPicks.length > 10 && (
+      {displayedPicks.length > 10 && (
         <div className="flex items-center justify-center gap-2 pt-2">
-          {stockShowCount < signalsPicks.length && (
+          {stockShowCount < displayedPicks.length && (
             <>
               <button
                 onClick={() => {
-                  const next = Math.min(stockShowCount + 10, signalsPicks.length);
+                  const next = Math.min(stockShowCount + 10, displayedPicks.length);
                   setStockShowCount(next);
                   trackEvent(user, `show_more:${next}`, "/stocks/picks");
                 }}
                 className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
               >
-                Show 10 more ({signalsPicks.length - stockShowCount} remaining)
+                Show 10 more ({displayedPicks.length - stockShowCount} remaining)
               </button>
               <button
                 onClick={() => {
-                  setStockShowCount(signalsPicks.length);
+                  setStockShowCount(displayedPicks.length);
                   trackEvent(user, "show_all", "/stocks/picks");
                 }}
                 className="rounded-xl bg-gray-800 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700"
               >
-                Show all {signalsPicks.length}
+                Show all {displayedPicks.length}
               </button>
             </>
           )}

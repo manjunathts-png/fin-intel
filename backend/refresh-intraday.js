@@ -186,16 +186,31 @@ async function main() {
     updated++;
   }
 
-  // ── Re-sort by updated compositeScore ─────────────────────────────────────
+  // ── Re-sort by updated compositeScore (within top 50 only) ───────────────
+  // NOTE: persistence fields (daysInTop50, yesterdayRank, etc.) are preserved
+  // via the `...p` spread above — intraday must not touch them. Those only
+  // get recomputed at EOD when the full Nifty-500 scan runs.
   top50.sort((a, b) => b.compositeScore - a.compositeScore || b.signalCount - a.signalCount);
   top50.forEach((s, i) => { s.rank = i + 1; });
   console.log(`  ✓ Updated ${updated} picks · top 5: ${top50.slice(0,5).map(p => `${p.label}[${p.compositeScore}]`).join(", ")}`);
+
+  // ── Preserve the full `all` list from EOD ─────────────────────────────────
+  // Previously this intraday run clobbered `all` with just top 50, which
+  // erased rank context for positions 51-200. That broke next-morning
+  // persistence tracking (couldn't tell if a stock was rank 75 yesterday).
+  // Now we splice the updated top 50 back into the stored `all` and keep
+  // the rest untouched.
+  const updatedAll = stored.all ? [...stored.all] : [...top50];
+  const top50Map = Object.fromEntries(top50.map((p) => [p.symbol, p]));
+  for (let i = 0; i < updatedAll.length; i++) {
+    if (top50Map[updatedAll[i].symbol]) updatedAll[i] = top50Map[updatedAll[i].symbol];
+  }
 
   // ── Upsert back to Supabase ───────────────────────────────────────────────
   const updatedData = {
     ...stored,
     picks:          top50,
-    all:            top50,    // intraday run only maintains top 50
+    all:            updatedAll,   // preserves EOD context for stocks 51-200
     intradayAsOf,
   };
 

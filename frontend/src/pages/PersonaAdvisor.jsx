@@ -420,7 +420,12 @@ function buildStockPicks(persona, stockData, stRuleMap = {}, stAiMap = {}) {
     if ((verdict === "Buy" || verdict === "Strong Buy") && confidence === "Low") return false;
     return true;
   });
-  const finalPool = actionable.length >= persona.stockCount ? actionable : pool;
+
+  // Prefer Core (stable for 7+ days in top 50) — only act on persona recs that won't churn next week.
+  // Fall back to the broader actionable pool if not enough Core picks satisfy the persona's needs.
+  const corePicks = actionable.filter((s) => (s.daysInTop50 ?? 0) >= 7);
+  const stablePool = corePicks.length >= persona.stockCount ? corePicks : actionable;
+  const finalPool = stablePool.length >= persona.stockCount ? stablePool : pool;
 
   return finalPool.slice(0, persona.stockCount).map((s, i) => {
     const { verdict, confidence } = resolveVerdict(s.symbol, stRuleMap, stAiMap);

@@ -126,23 +126,37 @@ async function main() {
     // Use eodCompositeScore (not compositeScore) — intraday runs overwrite
     // compositeScore during the day, so reading it here would mix today's
     // intraday-updated values into the EMA instead of clean EOD-to-EOD blending.
-    console.log("Fetching previous stock_picks for score smoothing…");
-    let prevScoreMap = {};   // symbol → previous EOD composite score
+    console.log("Fetching previous stock_picks for score smoothing + persistence…");
+    let prevScoreMap = {};                       // symbol → prev EOD composite score
+    let prevPersistenceMap = {};                 // symbol → { rank, daysInTop50, daysInTop100 }
     try {
       const { data: prevRow } = await supabase
         .from("radar_cache").select("data").eq("key", "stock_picks").single();
       if (prevRow?.data) {
         for (const p of (prevRow.data.picks ?? [])) {
-          // prefer eodCompositeScore; fall back to compositeScore for older entries
           const score = p.eodCompositeScore ?? p.compositeScore;
           if (p.symbol && score != null) prevScoreMap[p.symbol] = score;
+          if (p.symbol) {
+            prevPersistenceMap[p.symbol] = {
+              rank:          p.rank,
+              daysInTop50:   p.daysInTop50  ?? 0,
+              daysInTop100:  p.daysInTop100 ?? 0,
+            };
+          }
         }
         for (const p of (prevRow.data.all ?? [])) {
           const score = p.eodCompositeScore ?? p.compositeScore;
           if (p.symbol && score != null && !(p.symbol in prevScoreMap))
             prevScoreMap[p.symbol] = score;
+          if (p.symbol && !(p.symbol in prevPersistenceMap)) {
+            prevPersistenceMap[p.symbol] = {
+              rank:          p.rank,
+              daysInTop50:   p.daysInTop50  ?? 0,
+              daysInTop100:  p.daysInTop100 ?? 0,
+            };
+          }
         }
-        console.log(`  ✓ loaded prev EOD scores for ${Object.keys(prevScoreMap).length} stocks`);
+        console.log(`  ✓ loaded prev EOD scores for ${Object.keys(prevScoreMap).length} stocks · persistence for ${Object.keys(prevPersistenceMap).length}`);
       }
     } catch (e) {
       console.warn(`  ⚠ could not load previous scores: ${e.message}`);
@@ -210,9 +224,53 @@ async function main() {
     }
     console.log(`  ✓ score smoothing applied (EMA α=0.6): ${smoothedCount} stocks blended with yesterday`);
 
-    // Re-sort after fundamental adjustments + smoothing
+    // ── Incumbent hysteresis: +5 bonus to stocks that were in yesterday's top 50 ──
+    // Prevents 50↔51 boundary churn. Stocks legitimately losing momentum will still
+    // fall enough for +5 not to save them. Bonus is stored separately for transparency.
+    let incumbentCount = 0;
+    for (const p of signals.all) {
+      const prev = prevPersistenceMap[p.symbol];
+      const wasTop50  = prev && prev.rank != null && prev.rank <= 50;
+      const wasTop100 = prev && prev.rank != null && prev.rank <= 100;
+      p.incumbentBonus = wasTop50 ? 5 : 0;
+      if (wasTop50) {
+        p.compositeScore = Math.min(100, p.compositeScore + 5);
+        incumbentCount++;
+      }
+      // Track persistence for downstream sort + UI badges
+      p.yesterdayRank = prev?.rank ?? null;
+      p.wasInTop50  = !!wasTop50;
+      p.wasInTop100 = !!wasTop100;
+      p.prevDaysInTop50  = prev?.daysInTop50  ?? 0;
+      p.prevDaysInTop100 = prev?.daysInTop100 ?? 0;
+    }
+    console.log(`  ✓ incumbent hysteresis: +5 applied to ${incumbentCount} stocks from yesterday's top 50`);
+
+    // Re-sort after fundamental adjustments + smoothing + hysteresis
     signals.all.sort((a, b) => b.compositeScore - a.compositeScore || b.signalCount - a.signalCount);
     signals.all.forEach((s, i) => { s.rank = i + 1; });
+
+    // ── Persistence counters (using FINAL ranks) ──────────────────────────────
+    // daysInTop50  = consecutive days in current top 50 (including today)
+    // daysInTop100 = consecutive days in current top 100 (including today)
+    // rankDelta    = positive if moved up, negative if moved down
+    // newToday     = true if not in yesterday's top 200
+    for (const p of signals.all) {
+      const inTop50  = p.rank <= 50;
+      const inTop100 = p.rank <= 100;
+      p.daysInTop50  = inTop50  ? p.prevDaysInTop50  + 1 : 0;
+      p.daysInTop100 = inTop100 ? p.prevDaysInTop100 + 1 : 0;
+      p.rankDelta    = p.yesterdayRank != null ? p.yesterdayRank - p.rank : null;
+      p.newToday     = p.yesterdayRank == null && inTop100;
+      // Cleanup transient fields
+      delete p.prevDaysInTop50;
+      delete p.prevDaysInTop100;
+      delete p.wasInTop50;
+      delete p.wasInTop100;
+    }
+    const coreCount = signals.all.filter((p) => p.rank <= 50 && p.daysInTop50 >= 7).length;
+    console.log(`  ✓ persistence tracked: ${coreCount} of top 50 are Core (≥7 days)`);
+
     signals.picks = signals.all.slice(0, 50);
 
     await upsert("stock_picks", {
