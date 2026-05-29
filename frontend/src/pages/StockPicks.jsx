@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import { trackEvent } from "../lib/analytics";
 import PageFooter from "../components/PageFooter";
+import InstrumentDrawer from "../components/InstrumentDrawer";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -198,7 +199,7 @@ function Tech({ label, val, fmt, color }) {
 // Tier 1 (default): rank · name · sector · verdict · score · price · "N signals" brief
 // Tier 2 (▾):       + signal chips + fundamentals + technicals + rationale
 
-function StockPickCard({ pick, rank, ruleBased, aiRationale }) {
+function StockPickCard({ pick, rank, ruleBased, aiRationale, onOpenDrawer }) {
   const [expanded, setExpanded] = useState(false);
 
   const verdict   = ruleBased?.analysis?.verdict ?? aiRationale?.analysis?.verdict;
@@ -220,7 +221,16 @@ function StockPickCard({ pick, rank, ruleBased, aiRationale }) {
           {/* Name row */}
           <div className="mb-1 flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold text-blue-400">#{rank}</span>
-            <span className="font-semibold leading-snug text-gray-100">{pick.label}</span>
+            {onOpenDrawer ? (
+              <button
+                onClick={() => onOpenDrawer({ type: "STOCK", id: pick.symbol?.replace(".NS", "") })}
+                className="font-semibold leading-snug text-gray-100 hover:text-blue-400 hover:underline text-left"
+              >
+                {pick.label}
+              </button>
+            ) : (
+              <span className="font-semibold leading-snug text-gray-100">{pick.label}</span>
+            )}
             <span className="text-[10px] text-gray-600 font-mono">{pick.symbol?.replace(".NS", "")}</span>
           </div>
           {/* Tag row */}
@@ -558,6 +568,7 @@ export default function StockPicks() {
   const [stockRuleRat, setStockRuleRat] = useState({});
   const [stockAiRat,   setStockAiRat]   = useState({});
   const [stockShowCount, setStockShowCount] = useState(10);
+  const [drawer,       setDrawer]       = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -632,6 +643,7 @@ export default function StockPicks() {
             rank={i + 1}
             ruleBased={stockRuleRat[pick.symbol] ?? null}
             aiRationale={stockAiRat[pick.symbol] ?? null}
+            onOpenDrawer={setDrawer}
           />
         ))}
 
@@ -715,6 +727,13 @@ export default function StockPicks() {
           ],
         },
       ]} />
+
+      <InstrumentDrawer
+        open={drawer != null}
+        type={drawer?.type}
+        id={drawer?.id}
+        onClose={() => setDrawer(null)}
+      />
     </div>
   );
 }

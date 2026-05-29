@@ -3,6 +3,7 @@ import { useOutletContext, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageFooter from "../components/PageFooter";
+import InstrumentDrawer from "../components/InstrumentDrawer";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -340,7 +341,7 @@ function SectionDivider({ label, colorCls, lineCls, onClick }) {
 
 // ─── Pick card ────────────────────────────────────────────────────────────────
 
-function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence }) {
+function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence, onOpenDrawer }) {
   const [expanded, setExpanded] = useState(false);
   const detailsRef    = useRef(null);
   const zl            = zLabel(fund.catZ);
@@ -386,7 +387,16 @@ function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence }) {
           {/* Name row */}
           <div className="mb-1.5 flex flex-wrap items-center gap-2">
             <span className="text-[10px] font-semibold text-gray-600">#{fund.momentumRank} momentum</span>
-            <span className="font-semibold leading-snug text-gray-100">{fund.label}</span>
+            {onOpenDrawer ? (
+              <button
+                onClick={() => onOpenDrawer({ type: "MF", id: String(fund.code) })}
+                className="font-semibold leading-snug text-gray-100 hover:text-blue-400 hover:underline text-left"
+              >
+                {fund.label}
+              </button>
+            ) : (
+              <span className="font-semibold leading-snug text-gray-100">{fund.label}</span>
+            )}
           </div>
           {/* Tags */}
           <div className="flex flex-wrap items-center gap-1.5">
@@ -474,6 +484,7 @@ export default function MfPicks() {
   const [aiRationale,   setAiRationale]   = useState({});
   const [ratLoading,    setRatLoading]    = useState(true);
   const [avoidOpen,     setAvoidOpen]     = useState(true);
+  const [drawer,        setDrawer]        = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -581,6 +592,7 @@ export default function MfPicks() {
               aiRationale={null}
               verdict={null}
               confidence={null}
+              onOpenDrawer={setDrawer}
             />
           ))}
         </div>
@@ -602,6 +614,7 @@ export default function MfPicks() {
                   aiRationale={aiRationale[fund.code] ?? null}
                   verdict={fund.verdict}
                   confidence={fund.confidence}
+                  onOpenDrawer={setDrawer}
                 />
               ))}
             </div>
@@ -623,6 +636,7 @@ export default function MfPicks() {
                   aiRationale={aiRationale[fund.code] ?? null}
                   verdict={fund.verdict ?? "Hold"}
                   confidence={fund.confidence}
+                  onOpenDrawer={setDrawer}
                 />
               ))}
             </div>
@@ -645,6 +659,7 @@ export default function MfPicks() {
                   aiRationale={aiRationale[fund.code] ?? null}
                   verdict="Avoid"
                   confidence={fund.confidence}
+                  onOpenDrawer={setDrawer}
                 />
               ))}
             </div>
@@ -661,6 +676,7 @@ export default function MfPicks() {
                   aiRationale={aiRationale[fund.code] ?? null}
                   verdict={null}
                   confidence={null}
+              onOpenDrawer={setDrawer}
                 />
               ))}
             </div>
@@ -699,6 +715,13 @@ export default function MfPicks() {
           ],
         },
       ]} />
+
+      <InstrumentDrawer
+        open={drawer != null}
+        type={drawer?.type}
+        id={drawer?.id}
+        onClose={() => setDrawer(null)}
+      />
     </div>
   );
 }
