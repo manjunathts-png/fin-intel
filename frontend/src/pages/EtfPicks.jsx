@@ -287,7 +287,39 @@ export default function EtfPicks() {
         </details>
       )}
 
-      <PageFooter />
+      <PageFooter sections={[
+        {
+          title: "Data Sources",
+          items: [
+            '<span class="text-gray-400">AMFI NAVAll.txt</span> — daily NAV (24h cache)',
+            '<span class="text-gray-400">mfapi.in</span> — per-scheme NAV history (24h cache, primary for momentum)',
+            '<span class="text-gray-400">Yahoo Finance (NSE)</span> — live exchange price, 20-day avg volume, fallback momentum for international ETFs',
+            '<span class="text-gray-400">Curated universe</span> — 30 ETFs across Equity (Broad / Sector / Smart Beta), Commodity (Gold / Silver), International (Nasdaq / FANG / Hang Seng / S&amp;P 500)',
+            "GitHub Actions refreshes ETF data daily at 5 AM IST as part of the 'all' target",
+          ],
+        },
+        {
+          title: "Composite Score",
+          items: [
+            'Multi-window momentum: <span class="text-blue-300">ret1w×0.30 + ret1m×0.25 + ret3m×0.20 + ret6m×0.15 + ret1y×0.10</span>',
+            '× <span class="text-yellow-300">conviction multiplier</span> 0.55–1.00 based on type-level z-score',
+            'Blended 65% momentum + 35% verdict signal (Strong Buy / Buy / Hold / Watch / Avoid)',
+            '<span class="text-orange-300">ETF-specific adjustments:</span> liquidity penalty (tiny −5, thin −3, small −1), premium-to-NAV penalty (|p|&gt;1% −3, |p|&gt;0.5% −1), TER penalty (&gt;1% −1.5, &lt;0.2% +0.5 bonus)',
+            'Top 10 Overall surfaces only <span class="text-green-400">recommendable</span> ETFs (excludes Avoid / Watch / Low-conf Buy / weak-type)',
+          ],
+        },
+        {
+          title: "Signal Key",
+          items: [
+            '<span class="text-green-300">Liquid</span> — ≥₹50L/day volume + ≥₹500Cr AUM · safe to enter/exit',
+            '<span class="text-yellow-300">Small AUM</span> — AUM ₹100–500Cr · trading cost may bite',
+            '<span class="text-orange-300">Thin Vol</span> — &lt;₹50L/day · wide bid-ask spread likely',
+            '<span class="text-red-300">Tiny</span> — &lt;₹100Cr AUM · risk of winding down, avoid',
+            '<span class="text-blue-300">Premium chip</span> — green if within 0.3% of NAV (fair), red if &gt;1% off (paying tax to enter)',
+            '<span class="text-purple-300">z-score</span> — fund\'s 1W return vs trailing 90d weekly distribution',
+          ],
+        },
+      ]} note="ETF momentum can drift from underlying index — premium to NAV indicates exchange-side mispricing, not fund quality. Not financial advice." />
 
       <InstrumentDrawer
         open={drawer != null}
