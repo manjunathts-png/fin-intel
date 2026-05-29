@@ -744,10 +744,10 @@ export default function PersonaAdvisor() {
   const [stAiMap,   setStAiMap]     = useState({});
 
   const [personaIdx, setPersonaIdx] = useState(0);
-  const [horizonIdx, setHorizonIdx] = useState(1); // default: 3 Years
+  const [horizonIdx, setHorizonIdx] = useState(3); // default: 10 Years
 
   // Persist corpus in localStorage so it survives page reloads
-  const savedCorpus = parseInt(localStorage.getItem("persona_corpus")) || 1_000_000;
+  const savedCorpus = parseInt(localStorage.getItem("persona_corpus")) || 10_000_000;
   const [corpus, setCorpus] = useState(savedCorpus);
   const [inputVal, setInputVal] = useState(
     savedCorpus.toLocaleString("en-IN")
