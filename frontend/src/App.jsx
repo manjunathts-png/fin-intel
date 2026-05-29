@@ -8,6 +8,7 @@ import MfRadarPage from "./pages/MfRadarPage";
 import MfRiskPage from "./pages/MfRiskPage";
 import MfCompoundersPage from "./pages/MfCompoundersPage";
 import StockPicks from "./pages/StockPicks";
+import EtfPicks from "./pages/EtfPicks";
 import StockSectorPage from "./pages/StockSectorPage";
 import StockAllPage from "./pages/StockAllPage";
 import StockHotspotsPage from "./pages/StockHotspotsPage";
@@ -43,6 +44,9 @@ export default function App() {
 
             {/* ── Legacy redirect ───────────────────────────────────── */}
             <Route path="/picks"            element={<Navigate to="/mf/picks"   replace />} />
+
+            {/* ── ETFs ──────────────────────────────────────────────── */}
+            <Route path="/etf"              element={<EtfPicks />} />
 
             {/* ── Top-level pages ───────────────────────────────────── */}
             <Route path="/simulator"        element={<Simulator />} />

@@ -8,6 +8,7 @@ const ADMIN_EMAIL = "manjunathts@gmail.com";
 const tabs = [
   { to: "/mf",        label: "Mutual Funds", icon: "📊" },
   { to: "/stocks",    label: "Stocks",       icon: "📈" },
+  { to: "/etf",       label: "ETFs",         icon: "🪙" },
   { to: "/simulator", label: "Simulator",    icon: "🧮" },
   { to: "/deep-dive", label: "Deep Dive",    icon: "🔍" },
   { to: "/persona",   label: "Persona",      icon: "🧭" },

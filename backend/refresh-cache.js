@@ -10,6 +10,8 @@ const { createClient }              = require("@supabase/supabase-js");
 const { getLeaderboard }            = require("./momentum");
 const { getBenchmarks }             = require("./mf_benchmarks");
 const { getStockLeaderboard }       = require("./stock_momentum");
+const { getEtfLeaderboard }         = require("./etf_momentum");
+const { buildStockDetail, buildMfDetail, buildEtfDetail, buildBatch } = require("./instrument_details");
 const { buildSignalsLeaderboard, eodSignalScore }   = require("./stock_signals");
 const { getDeliveryMap }            = require("./stock_bhavcopy");
 const { getDiscovery, buildSymbolBonuses } = require("./nse_discovery");
@@ -238,6 +240,71 @@ async function main() {
         );
       if (error) console.warn(`  ✗ rationale for ${r.symbol}: ${error.message}`);
       else       console.log(`  ✓ #${r.rank} ${r.stock_name} (score ${r.composite_score}) → ${r.analysis.verdict}`);
+    }
+  }
+
+  if (target === "all" || target === "etf") {
+    console.log("Building ETF picks (equity + commodity + international)…");
+    const etfs = await getEtfLeaderboard({ force: true });
+    await upsert("etf_picks", etfs);
+    console.log(`  ${etfs.types.length} types processed (${etfs.types.reduce((s, t) => s + t.etfCount, 0)} ETFs)`);
+    if (etfs.warnings?.length) console.warn(`  ${etfs.warnings.length} warnings (first 5):`, etfs.warnings.slice(0, 5));
+
+    // Detail payloads for all ETFs
+    const flatEtfs = etfs.types.flatMap((t) => t.etfs.map((e) => ({ ticker: e.ticker, label: e.label, type: e.type, aumCr: e.aumCr, ter: e.ter, benchmark: e.benchmark })));
+    console.log(`Building detail payloads for ${flatEtfs.length} ETFs…`);
+    const { results: etfDetails, errors: etfErr } = await buildBatch(flatEtfs, buildEtfDetail, { concurrency: 4, label: "ETF" });
+    for (const d of etfDetails) {
+      await upsert(`instrument_details.ETF.${d.id}`, d);
+    }
+    console.log(`  ✓ ${etfDetails.length} ETF detail payloads cached`);
+    if (etfErr.length) console.warn(`  ${etfErr.length} detail errors (first 3):`, etfErr.slice(0, 3));
+  }
+
+  if (target === "all" || target === "details" || target === "stocks") {
+    // Detail payloads for top 50 stock picks (uses the just-built stock_picks if present)
+    console.log("Loading stock_picks for stock detail cache…");
+    const { data: stockRow } = await supabase.from("radar_cache").select("data").eq("key", "stock_picks").single();
+    if (stockRow?.data?.picks?.length) {
+      const niftyReturns = stockRow.data.niftyReturns ?? null;
+      const stockItems = stockRow.data.picks.slice(0, 50).map((p) => p.symbol);
+      console.log(`Building detail payloads for top ${stockItems.length} stocks…`);
+      const { results, errors } = await buildBatch(
+        stockItems,
+        (sym) => buildStockDetail(sym, { niftyReturns }),
+        { concurrency: 4, label: "STOCK" }
+      );
+      for (const d of results) {
+        await upsert(`instrument_details.STOCK.${d.id}`, d);
+      }
+      console.log(`  ✓ ${results.length} stock detail payloads cached`);
+      if (errors.length) console.warn(`  ${errors.length} detail errors (first 3):`, errors.slice(0, 3));
+    } else {
+      console.log("  no stock_picks row found — skipping stock details");
+    }
+  }
+
+  if (target === "all" || target === "details" || target === "mf") {
+    // Detail payloads for top 10 MFs per category from mf_radar
+    console.log("Loading mf_radar for MF detail cache…");
+    const { data: mfRow } = await supabase.from("radar_cache").select("data").eq("key", "mf_radar").single();
+    if (mfRow?.data?.categories?.length) {
+      const mfCodes = new Set();
+      for (const cat of mfRow.data.categories) {
+        for (const fund of (cat.funds ?? []).slice(0, 10)) {
+          if (fund.code) mfCodes.add(fund.code);
+        }
+      }
+      const codes = [...mfCodes];
+      console.log(`Building detail payloads for ${codes.length} MFs…`);
+      const { results, errors } = await buildBatch(codes, buildMfDetail, { concurrency: 3, label: "MF" });
+      for (const d of results) {
+        await upsert(`instrument_details.MF.${d.id}`, d);
+      }
+      console.log(`  ✓ ${results.length} MF detail payloads cached`);
+      if (errors.length) console.warn(`  ${errors.length} detail errors (first 3):`, errors.slice(0, 3));
+    } else {
+      console.log("  no mf_radar row found — skipping MF details");
     }
   }
 
