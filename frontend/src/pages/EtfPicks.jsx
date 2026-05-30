@@ -297,9 +297,8 @@ export default function EtfPicks() {
         {
           title: "Data Sources",
           items: [
-            '<span class="text-gray-400">AMFI NAVAll.txt</span> — daily NAV (24h cache)',
-            '<span class="text-gray-400">mfapi.in</span> — per-scheme NAV history (24h cache, primary for momentum)',
-            '<span class="text-gray-400">Yahoo Finance (NSE)</span> — live exchange price, 20-day avg volume, fallback momentum for international ETFs',
+            '<span class="text-gray-400">Yahoo Finance (NSE)</span> — primary source for all ETF momentum; exchange price is the authoritative signal for ETFs (real-time vs once-daily NAV)',
+            '<span class="text-gray-400">mfapi.in</span> — best-effort NAV lookup for premium/discount calculation only; momentum is unaffected if NAV is unavailable',
             '<span class="text-gray-400">Curated universe</span> — 30 ETFs across Equity (Broad / Sector / Smart Beta), Commodity (Gold / Silver), International (Nasdaq / FANG / Hang Seng / S&amp;P 500)',
             "GitHub Actions refreshes ETF data daily at 5 AM IST as part of the 'all' target",
           ],

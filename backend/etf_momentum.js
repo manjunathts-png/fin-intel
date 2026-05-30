@@ -266,42 +266,42 @@ async function buildEtfEntry(etf) {
     warnings:  [],
   };
 
-  // Fetch NAV (optional — international ETFs may not have mfapi coverage)
-  let navSeries = null;
-  if (etf.code) {
-    try {
-      const navEntry = await fetchSchemeNav(etf.code);
-      navSeries = navEntry.navs;
-      out.name = navEntry.name;
-      out.latestNav = navSeries[navSeries.length - 1]?.nav ?? null;
-    } catch (e) {
-      out.warnings.push(`NAV fetch failed: ${e.message}`);
-    }
-  }
-
-  // Fetch price (always)
+  // ── Primary: Yahoo Finance NSE price (always — price is the authoritative
+  //    source for exchange-traded funds; real-time vs once-daily NAV)
   let priceSeries = null;
   try {
     const priceEntry = await fetchTickerPrice(etf.ticker);
     priceSeries = priceEntry.prices;
     const latest = priceSeries[priceSeries.length - 1];
-    out.latestPrice = latest?.close ?? null;
-    out.latestPriceDate = latest?.date ?? null;
+    out.latestPrice     = latest?.close ?? null;
+    out.latestPriceDate = latest?.date  ?? null;
   } catch (e) {
     out.warnings.push(`Price fetch failed: ${e.message}`);
   }
 
-  // Momentum from NAV if available, else from price (international ETFs)
-  const momentumSeries = (navSeries && navSeries.length >= 30)
-    ? navSeries.map((n) => ({ date: n.date, val: n.nav }))
-    : (priceSeries ? priceSeries.map((p) => ({ date: p.date, val: p.close })) : null);
-
-  if (momentumSeries) {
+  // Momentum from price series
+  if (priceSeries && priceSeries.length >= 30) {
+    const momentumSeries = priceSeries.map((p) => ({ date: p.date, val: p.close }));
     const stats = computeStats(momentumSeries, "val");
     Object.assign(out, stats);
-    out.momentumSource = navSeries && navSeries.length >= 30 ? "nav" : "price";
+    out.momentumSource = "price";
   } else {
-    out.warnings.push("No usable series for momentum");
+    out.warnings.push("No usable price series for momentum");
+  }
+
+  // ── Secondary (best-effort): mfapi.in NAV — used only for premium/discount
+  //    calculation. Silently skipped if unavailable; not surfaced as a warning
+  //    since NAV unavailability doesn't affect momentum quality.
+  if (etf.code) {
+    try {
+      const navEntry = await fetchSchemeNav(etf.code);
+      const navSeries = navEntry.navs;
+      if (navEntry.name) out.name = navEntry.name;
+      out.latestNav = navSeries[navSeries.length - 1]?.nav ?? null;
+    } catch (_e) {
+      // NAV fetch failure is non-critical — momentum still computed from price
+      out.latestNav = null;
+    }
   }
 
   // ETF-specific signals
