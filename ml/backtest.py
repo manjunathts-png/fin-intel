@@ -42,6 +42,8 @@ import pandas as pd
 from dotenv import load_dotenv
 from supabase import create_client
 
+from config import FEATURE_COLS, TARGET_COL, RETURN_COL, RISK_FREE_RATE
+
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
@@ -53,37 +55,6 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
 )
 log = logging.getLogger("backtest")
-
-# Feature columns used by the model (must match mf_features schema)
-FEATURE_COLS = [
-    # Fund-level returns
-    "ret1w", "ret1m", "ret3m", "ret6m", "ret1y", "ret3y", "ret5y",
-    "cagr5y", "cagr10y",
-    # Volatility + risk
-    "vol_30d", "vol_90d", "vol_1y",
-    "max_dd_1y", "downside_dev_1y",
-    "sharpe_1y", "sortino_1y",
-    # Momentum
-    "z1w",
-    # Consistency
-    "positive_months_12m",
-    # Cross-sectional ranks
-    "cat_rank_1m", "cat_rank_3m", "cat_rank_1y",
-    "univ_rank_1m", "univ_rank_3m", "univ_rank_1y",
-    "cat_z",
-    # Style
-    "beta_nifty", "alpha_nifty", "corr_nifty",
-    # Macro context (same across funds on same date)
-    "nifty_ret1m", "nifty_ret3m",
-    "india_vix", "usd_inr", "us_10y_yield",
-    # News sentiment (-1.0 → +1.0; NULL imputed to 0.0)
-    "sentiment_score",
-]
-
-TARGET_COL = "fwd_top_q_3m"           # binary: 1 = top quartile next 3m
-RETURN_COL = "fwd_ret_3m"             # for simulated return computation
-
-RISK_FREE_RATE = 0.07
 
 
 # ─── Data loading ────────────────────────────────────────────────────────────

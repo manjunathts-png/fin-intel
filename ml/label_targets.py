@@ -140,7 +140,18 @@ def compute_labels(
                     if not past.empty and not fut.empty:
                         nav_past = float(past.iloc[-1]["nav"])
                         nav_fut  = float(fut.iloc[-1]["nav"])
-                        if nav_past > 0:
+                        actual_fut_date = fut.iloc[-1]["date"]
+                        # Staleness guard: if the closest future NAV is >30 days
+                        # away from target_date, the label measures the wrong window.
+                        gap_days = abs((pd.Timestamp(target_date) - actual_fut_date).days)
+                        if gap_days > 30:
+                            log.debug(
+                                "Skipping stale label for %s as_of=%s: "
+                                "future NAV date %s is %d days from target %s",
+                                code, as_of, actual_fut_date.date(), gap_days, target_date,
+                            )
+                            # Leave fwd_ret as None — row won't be labeled
+                        elif nav_past > 0:
                             fwd_ret = (nav_fut - nav_past) / nav_past * 100.0
                 except Exception as e:
                     log.debug("NAV cache read failed for %s: %s", code, e)

@@ -66,7 +66,7 @@ log = logging.getLogger("sentiment")
 ROOT = Path(__file__).parent.parent
 UNIVERSE_JS = ROOT / "backend" / "mf_universe.js"
 
-DEFAULT_MODEL = "claude-3-haiku-20240307"  # cheapest, ~$0.00025/1k tokens
+DEFAULT_MODEL = "claude-haiku-4-5-20251001"  # Haiku 4.5 — faster + cheaper than Haiku 3
 MAX_HEADLINES_PER_FUND = 10
 BATCH_SIZE = 5        # funds per Claude API call
 RETRY_DELAY = 2.0     # seconds between retries

@@ -25,6 +25,7 @@ Env:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -39,6 +40,8 @@ import pandas as pd
 from dotenv import load_dotenv
 from supabase import create_client
 
+from config import FEATURE_COLS, TARGET_COL
+
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
@@ -50,33 +53,6 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
 )
 log = logging.getLogger("train")
-
-FEATURE_COLS = [
-    # Fund-level returns
-    "ret1w", "ret1m", "ret3m", "ret6m", "ret1y", "ret3y", "ret5y",
-    "cagr5y", "cagr10y",
-    # Volatility + risk
-    "vol_30d", "vol_90d", "vol_1y",
-    "max_dd_1y", "downside_dev_1y",
-    "sharpe_1y", "sortino_1y",
-    # Momentum
-    "z1w",
-    # Consistency
-    "positive_months_12m",
-    # Cross-sectional ranks
-    "cat_rank_1m", "cat_rank_3m", "cat_rank_1y",
-    "univ_rank_1m", "univ_rank_3m", "univ_rank_1y",
-    "cat_z",
-    # Style vs benchmark
-    "beta_nifty", "alpha_nifty", "corr_nifty",
-    # Macro context (same across funds on same date)
-    "nifty_ret1m", "nifty_ret3m",
-    "india_vix", "usd_inr", "us_10y_yield",
-    # News sentiment (-1.0 → +1.0; NULL imputed to 0.0)
-    "sentiment_score",
-]
-
-TARGET_COL = "fwd_top_q_3m"
 
 
 # ─── Default LightGBM hyperparameters ────────────────────────────────────────
@@ -171,6 +147,24 @@ def prepare_X(df: pd.DataFrame, fit_medians: dict[str, float] | None = None) -> 
     return X, medians
 
 
+# ─── Data quality audit ──────────────────────────────────────────────────────
+
+def audit_null_rates(X: pd.DataFrame, threshold: float = 0.20) -> None:
+    """Log features whose null rate exceeds threshold before imputation."""
+    null_rates = X.isnull().mean().sort_values(ascending=False)
+    high_null = null_rates[null_rates > threshold]
+    if high_null.empty:
+        log.info("Null-rate audit: all features below %.0f%% threshold", threshold * 100)
+    else:
+        log.warning(
+            "Null-rate audit: %d feature(s) exceed %.0f%% nulls — "
+            "consider data quality investigation:",
+            len(high_null), threshold * 100,
+        )
+        for feat, rate in high_null.items():
+            log.warning("  %-25s  %.1f%% null", feat, rate * 100)
+
+
 # ─── Optuna tuning ────────────────────────────────────────────────────────────
 
 def tune_hyperparams(X_train: pd.DataFrame, y_train: pd.Series, n_trials: int = 50) -> dict[str, Any]:
@@ -245,12 +239,16 @@ def train_model(
 def cross_val_metrics(
     X: pd.DataFrame, y: pd.Series, params: dict[str, Any]
 ) -> dict[str, float]:
-    """5-fold stratified CV for AUC + precision@top-quartile."""
+    """5-fold time-series CV for AUC + precision@top-quartile.
+
+    Uses TimeSeriesSplit so each validation fold is always strictly after its
+    training fold — no lookahead bias from shuffling across dates.
+    """
     import lightgbm as lgb
-    from sklearn.model_selection import StratifiedKFold
+    from sklearn.model_selection import TimeSeriesSplit
     from sklearn.metrics import roc_auc_score
 
-    kf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    kf = TimeSeriesSplit(n_splits=5)
     aucs: list[float] = []
     precs: list[float] = []
 
@@ -284,12 +282,14 @@ def compute_shap_top5(model, X: pd.DataFrame) -> list[list[dict]]:
     try:
         import shap
 
-        # Get base estimator if calibrated
+        # CalibratedClassifierCV (sklearn >= 1.2) stores fitted estimators in
+        # calibrated_classifiers_[i].estimator — model.estimator is the *unfitted*
+        # template and cannot be used for SHAP.
         base = model
-        if hasattr(model, "estimator"):
+        if hasattr(model, "calibrated_classifiers_"):
+            base = model.calibrated_classifiers_[0].estimator
+        elif hasattr(model, "estimator") and hasattr(model.estimator, "feature_importances_"):
             base = model.estimator
-        elif hasattr(model, "base_estimator"):
-            base = model.base_estimator
 
         explainer = shap.TreeExplainer(base)
         shap_vals = explainer.shap_values(X)
@@ -327,10 +327,10 @@ def compute_shap_top5(model, X: pd.DataFrame) -> list[list[dict]]:
 def get_feature_importance(model, feature_names: list[str]) -> list[dict]:
     """Top 20 features by importance from the fitted model."""
     base = model
-    if hasattr(model, "estimator"):
+    if hasattr(model, "calibrated_classifiers_"):
+        base = model.calibrated_classifiers_[0].estimator
+    elif hasattr(model, "estimator") and hasattr(model.estimator, "feature_importances_"):
         base = model.estimator
-    elif hasattr(model, "base_estimator"):
-        base = model.base_estimator
 
     if not hasattr(base, "feature_importances_"):
         return []
@@ -464,6 +464,9 @@ def main():
              y_train.sum(), len(y_train) - y_train.sum(),
              y_train.mean() * 100)
 
+    # ── 1b. Null-rate audit (before imputation) ────────────────────────────
+    audit_null_rates(train_df[[c for c in FEATURE_COLS if c in train_df.columns]])
+
     # ── 2. Hyperparameter selection ────────────────────────────────────────
     if args.tune:
         log.info("Running Optuna tuning with %d trials…", args.n_trials)
@@ -502,8 +505,18 @@ def main():
 
     # ── 7. Predict ─────────────────────────────────────────────────────────
     probs = model.predict_proba(X_pred)[:, 1]
-    log.info("Predictions: %d funds  p_top_quartile_3m range=[%.3f, %.3f]",
-             len(probs), probs.min(), probs.max())
+    p5, p95 = np.percentile(probs, [5, 95])
+    log.info(
+        "Predictions: %d funds  mean=%.3f  std=%.3f  p5=%.3f  p95=%.3f  "
+        "range=[%.3f, %.3f]",
+        len(probs), probs.mean(), probs.std(), p5, p95, probs.min(), probs.max(),
+    )
+    if probs.std() < 0.05:
+        log.warning(
+            "Prediction std=%.4f is very low — model may not be discriminating "
+            "between funds. Check feature data and training set size.",
+            probs.std(),
+        )
 
     # ── 8. SHAP ────────────────────────────────────────────────────────────
     if args.no_shap:
@@ -513,7 +526,12 @@ def main():
         top_features_list = compute_shap_top5(model, X_pred)
 
     # ── 9. Model version tag ───────────────────────────────────────────────
-    model_version = f"lgbm_v1.0_{pred_date}"
+    # Include a short hash of the feature set so the version string changes
+    # whenever columns are added or removed.
+    feat_hash = hashlib.md5(
+        ",".join(sorted(X_train.columns)).encode()
+    ).hexdigest()[:6]
+    model_version = f"lgbm_v1.0_{pred_date}_{feat_hash}"
 
     # ── 10. Write to Supabase ──────────────────────────────────────────────
     if args.dry_run:

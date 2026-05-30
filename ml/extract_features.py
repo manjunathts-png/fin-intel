@@ -27,6 +27,7 @@ import logging
 import os
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -355,16 +356,30 @@ def upsert_features(supabase, rows: list[dict[str, Any]], batch: int = 500) -> i
 
 # ─── Main ────────────────────────────────────────────────────────────────────
 
-def run_for_date(funds: list[Fund], http: httpx.Client, as_of: pd.Timestamp) -> list[dict[str, Any]]:
+def _fetch_and_build(fund: Fund, http: httpx.Client, as_of: pd.Timestamp) -> dict[str, Any] | None:
+    """Fetch NAV and compute features for one fund. Used by thread pool."""
+    nav = fetch_nav_history(fund.code, http)
+    return build_fund_features(fund, nav, as_of)
+
+
+def run_for_date(
+    funds: list[Fund],
+    http: httpx.Client,
+    as_of: pd.Timestamp,
+    workers: int = 8,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for fund in tqdm(funds, desc=f"features {as_of.date()}", leave=False):
-        try:
-            nav = fetch_nav_history(fund.code, http)
-            feats = build_fund_features(fund, nav, as_of)
-            if feats:
-                rows.append(feats)
-        except Exception as e:
-            log.warning("scheme %s (%s): %s", fund.code, fund.label, e)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_fetch_and_build, fund, http, as_of): fund for fund in funds}
+        for future in tqdm(as_completed(futures), total=len(futures),
+                           desc=f"features {as_of.date()}", leave=False):
+            fund = futures[future]
+            try:
+                feats = future.result()
+                if feats:
+                    rows.append(feats)
+            except Exception as e:
+                log.warning("scheme %s (%s): %s", fund.code, fund.label, e)
     return add_cross_sectional(rows)
 
 
@@ -373,6 +388,8 @@ def main():
     p.add_argument("--as-of", type=str, default=None, help="YYYY-MM-DD (default: today)")
     p.add_argument("--backfill", type=int, default=0, help="N days to backfill (e.g. 365)")
     p.add_argument("--dry-run", action="store_true", help="Compute but don't write to Supabase")
+    p.add_argument("--workers", type=int, default=8,
+                   help="Parallel NAV fetch threads per date (default: 8)")
     args = p.parse_args()
 
     funds = load_universe()
@@ -401,10 +418,11 @@ def main():
         key = os.environ["SUPABASE_SERVICE_KEY"]
         supabase = create_client(url, key)
 
+    log.info("Using %d parallel NAV fetch workers", args.workers)
     with httpx.Client(headers={"User-Agent": "fin-intel-ml/0.1"}) as http:
         total_written = 0
         for as_of in tqdm(dates, desc="dates"):
-            rows = run_for_date(funds, http, as_of)
+            rows = run_for_date(funds, http, as_of, workers=args.workers)
             if args.dry_run:
                 log.info("dry-run: would write %d rows for %s", len(rows), as_of.date())
                 if as_of == dates[0]:
