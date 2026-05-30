@@ -325,7 +325,7 @@ async function main() {
     const { data: stockRow } = await supabase.from("radar_cache").select("data").eq("key", "stock_picks").single();
     if (stockRow?.data?.picks?.length) {
       const niftyReturns = stockRow.data.niftyReturns ?? null;
-      const stockItems = stockRow.data.picks.slice(0, 50).map((p) => p.symbol);
+      const stockItems = stockRow.data.picks.slice(0, 50).map((p) => p.symbol.replace(/\.NS$/i, ""));
       console.log(`Building detail payloads for top ${stockItems.length} stocks…`);
       const { results, errors } = await buildBatch(
         stockItems,
