@@ -616,10 +616,11 @@ export default function MfPicks() {
       const mlProb  = mlRec?.p_top_quartile_3m ?? null;
       const mlScore = mlProb != null ? mlProb * 100 : null;
       // Score blend:
-      //   With ML:    momentum 60% + verdict 30% + ml 10%
+      //   With ML:    momentum 50% + verdict 25% + ml 25%
       //   Without ML: momentum 65% + verdict 35%
+      // ML weight raised to 25% — backtest AUC 0.689, alpha +1.8% ann., precision@Q1 47.4%
       const finalScore = mlScore != null
-        ? Math.round(f.displayScore * 0.60 + verdictPart * 0.30 + mlScore * 0.10)
+        ? Math.round(f.displayScore * 0.50 + verdictPart * 0.25 + mlScore * 0.25)
         : Math.round(f.displayScore * 0.65 + verdictPart * 0.35);
       const sentiment = sentimentMap[f.code] ?? null;
       return { ...f, verdict, confidence, finalScore, mlProb, sentiment };

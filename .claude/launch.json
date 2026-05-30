@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "fin-intel-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3010,
+      "cwd": "/Users/Manjunath.Talwar/fin-intel/frontend",
+      "env": { "PORT": "3010", "BROWSER": "none" }
+    }
+  ]
+}
