@@ -320,14 +320,31 @@ def add_cross_sectional(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 # ─── Supabase writer ─────────────────────────────────────────────────────────
 
+_INTEGER_COLS = {"positive_months_12m"}  # DB INTEGER columns that pandas promotes to float64
+
+
+def _clean_val(k: str, v) -> Any:
+    """Convert numpy/pandas scalars to JSON-safe Python types."""
+    # numpy scalar → Python native first
+    if hasattr(v, "item"):
+        v = v.item()
+    if isinstance(v, float):
+        if np.isnan(v):
+            return None
+        # Postgres INTEGER columns can't accept "6.0" — cast whole-number floats
+        if k in _INTEGER_COLS and v == int(v):
+            return int(v)
+    return v
+
+
 def upsert_features(supabase, rows: list[dict[str, Any]], batch: int = 500) -> int:
     if not rows:
         return 0
     total = 0
-    # Convert NaN to None so Postgres accepts NULLs
+    # Convert NaN to None and fix numpy/float types so Postgres accepts them
     cleaned = []
     for row in rows:
-        cleaned.append({k: (None if isinstance(v, float) and np.isnan(v) else v) for k, v in row.items()})
+        cleaned.append({k: _clean_val(k, v) for k, v in row.items()})
 
     for i in range(0, len(cleaned), batch):
         chunk = cleaned[i : i + batch]

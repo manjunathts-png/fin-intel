@@ -6,7 +6,7 @@ Fetches market-wide macro indicators for each trading day and upserts them
 into mf_features rows as additional columns. These are identical across all
 funds on the same date, providing market context to the model.
 
-Macro signals fetched (all via yfinance):
+Macro signals fetched (all via Yahoo Finance chart API):
   nifty_ret1m    — Nifty 50 1-month return (%)
   nifty_ret3m    — Nifty 50 3-month return (%)
   india_vix      — India VIX level (fear gauge)
@@ -35,17 +35,21 @@ import argparse
 import logging
 import os
 import sys
+import time
 import warnings
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import requests
+import urllib3
 from dotenv import load_dotenv
 from supabase import create_client
 from tqdm import tqdm
 
 warnings.filterwarnings("ignore")
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
 
@@ -61,63 +65,249 @@ TRADING_DAYS = 252
 CACHE_DIR = Path(__file__).parent / ".cache_macro"
 CACHE_DIR.mkdir(exist_ok=True)
 
-# Yahoo Finance tickers
+# Yahoo Finance tickers — tried in order until one succeeds
 TICKERS = {
-    "nifty":    "^NSEI",
-    "vix":      "^INDIAVIX",
-    "usd_inr":  "USDINR=X",
-    "us_10y":   "^TNX",
+    "nifty":   ["^NSEI", "NIFTYBEES.NS"],   # Nifty 50 index, fallback ETF proxy
+    "vix":     ["^INDIAVIX"],
+    "usd_inr": ["USDINR=X", "INR=X"],
+    "us_10y":  ["^TNX", "TLT"],             # US 10Y yield, fallback: 20Y bond ETF
 }
 
-NIFTY_CACHE = CACHE_DIR / "nifty_daily.parquet"
-VIX_CACHE   = CACHE_DIR / "vix_daily.parquet"
+# Fallback: UTI Nifty 50 Index Direct Growth on mfapi.in (use as Nifty proxy)
+NIFTY_MFAPI_CODE = "120716"
+
+NIFTY_CACHE  = CACHE_DIR / "nifty_daily.parquet"
+VIX_CACHE    = CACHE_DIR / "vix_daily.parquet"
 USDINR_CACHE = CACHE_DIR / "usdinr_daily.parquet"
 US10Y_CACHE  = CACHE_DIR / "us10y_daily.parquet"
 NAV_CACHE_DIR = Path(__file__).parent / ".cache_nav"
 
+# Shared requests session (SSL disabled for macOS LibreSSL compatibility)
+_SESSION: requests.Session | None = None
 
-# ─── yfinance data fetching ──────────────────────────────────────────────────
+_YF_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json",
+}
 
-def fetch_yf(ticker: str, cache_file: Path, start: str = "2018-01-01") -> pd.DataFrame:
+# Yahoo Finance chart API v8 — no crumb needed for basic queries
+_YF_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+
+
+def _get_session() -> requests.Session:
+    global _SESSION
+    if _SESSION is None:
+        _SESSION = requests.Session()
+        _SESSION.verify = False          # LibreSSL workaround on macOS
+        _SESSION.headers.update(_YF_HEADERS)
+        # Warm up cookies from fc.yahoo.com (same as yfinance basic strategy)
+        try:
+            _SESSION.get("https://fc.yahoo.com", timeout=10, allow_redirects=True)
+        except Exception:
+            pass
+    return _SESSION
+
+
+# ─── Direct Yahoo Finance chart API fetcher ──────────────────────────────────
+
+def _fetch_yahoo_direct(ticker: str, start: str) -> pd.DataFrame:
     """
-    Fetch daily OHLCV from Yahoo Finance. Cache to parquet.
-    Returns DataFrame with DatetimeIndex and 'close' column.
+    Fetch daily close directly from Yahoo Finance chart API (v8).
+    Bypasses yfinance to avoid rate-limiting and SSL issues on macOS.
+    Returns a DataFrame with DatetimeIndex and 'close' column, or empty DF.
+    """
+    start_ts = int(pd.Timestamp(start).timestamp())
+    end_ts   = int(pd.Timestamp.now().timestamp()) + 86400
+
+    params = {
+        "interval": "1d",
+        "period1":  start_ts,
+        "period2":  end_ts,
+        "events":   "history",
+        "includePrePost": "false",
+    }
+    url = _YF_CHART_URL.format(ticker=ticker)
+    session = _get_session()
+
+    for attempt in range(2):  # 2 tries max; fallbacks handle persistent 429s
+        try:
+            r = session.get(url, params=params, timeout=20)
+            if r.status_code == 429:
+                if attempt == 0:
+                    log.warning("%s rate-limited (429) — waiting 5s before retry", ticker)
+                    time.sleep(5)
+                else:
+                    log.warning("%s rate-limited again — giving up, will try fallback", ticker)
+                    return pd.DataFrame()
+                continue
+            if r.status_code != 200:
+                log.warning("%s returned HTTP %d", ticker, r.status_code)
+                return pd.DataFrame()
+
+            data = r.json()
+            result = data.get("chart", {}).get("result")
+            if not result:
+                log.warning("%s: no chart result in response", ticker)
+                return pd.DataFrame()
+
+            meta = result[0]
+            timestamps = meta.get("timestamp", [])
+            closes = (
+                meta.get("indicators", {})
+                    .get("adjclose", [{}])[0]
+                    .get("adjclose")
+                or meta.get("indicators", {})
+                    .get("quote", [{}])[0]
+                    .get("close")
+            )
+            if not timestamps or not closes:
+                log.warning("%s: empty timestamps or closes", ticker)
+                return pd.DataFrame()
+
+            idx = pd.to_datetime(timestamps, unit="s").tz_localize(None)
+            df = pd.DataFrame({"close": closes}, index=idx)
+            df = df.dropna().sort_index()
+            return df
+
+        except requests.exceptions.RequestException as e:
+            log.warning("%s fetch error (attempt %d): %s", ticker, attempt + 1, e)
+            time.sleep(5)
+
+    return pd.DataFrame()
+
+
+def _fetch_nifty_via_mfapi(start: str = "2018-01-01") -> pd.DataFrame:
+    """
+    Fetch Nifty 50 daily close via UTI Nifty 50 Index Fund NAV from mfapi.in.
+    Used as fallback when Yahoo Finance rate-limits ^NSEI.
+    NAV of a pure Nifty 50 index fund tracks the index within ~0.1%.
     """
     try:
-        import yfinance as yf
-    except ImportError:
-        log.error("yfinance not installed. Run: pip install yfinance")
+        session = _get_session()
+        r = session.get(f"https://api.mfapi.in/mf/{NIFTY_MFAPI_CODE}", timeout=20)
+        if r.status_code != 200:
+            return pd.DataFrame()
+        data = r.json()
+        navs = data.get("data", [])
+        if not navs:
+            return pd.DataFrame()
+        df = pd.DataFrame(navs)
+        df["date"] = pd.to_datetime(df["date"], dayfirst=True)
+        df["nav"]  = pd.to_numeric(df["nav"], errors="coerce")
+        df = df.rename(columns={"nav": "close"}).set_index("date").sort_index()
+        df = df[["close"]].dropna()
+        df = df[df.index >= pd.Timestamp(start)]
+        log.info("Fetched Nifty via mfapi.in (UTI Nifty 50): %d rows (%s → %s)",
+                 len(df), df.index.min().date(), df.index.max().date())
+        return df
+    except Exception as e:
+        log.warning("mfapi.in Nifty fallback failed: %s", e)
         return pd.DataFrame()
+
+
+def _fetch_usdinr_frankfurter(start: str = "2018-01-01") -> pd.DataFrame:
+    """
+    Fetch USD/INR historical rates from frankfurter.app (ECB data, free, no key).
+    Fallback when Yahoo Finance rate-limits USDINR=X.
+    """
+    try:
+        session = _get_session()
+        # Frankfurter.app max range is ~1 year per call; chunk if needed
+        start_dt = pd.Timestamp(start)
+        today    = pd.Timestamp.now().normalize()
+        chunks   = []
+        dt = start_dt
+        while dt <= today:
+            end = min(dt + timedelta(days=364), today)
+            url = f"https://api.frankfurter.app/{dt.date()}..{end.date()}"
+            r = session.get(url, params={"from": "USD", "to": "INR"}, timeout=15)
+            if r.status_code != 200:
+                break
+            rates = r.json().get("rates", {})
+            if rates:
+                chunk = pd.DataFrame(
+                    [(pd.Timestamp(d), v["INR"]) for d, v in rates.items()],
+                    columns=["date", "close"]
+                ).set_index("date")
+                chunks.append(chunk)
+            dt = end + timedelta(days=1)
+            time.sleep(0.3)
+
+        if not chunks:
+            return pd.DataFrame()
+        df = pd.concat(chunks).sort_index()
+        df = df[~df.index.duplicated(keep="last")]
+        log.info("Fetched USD/INR via frankfurter.app: %d rows", len(df))
+        return df
+    except Exception as e:
+        log.warning("frankfurter.app USD/INR fallback failed: %s", e)
+        return pd.DataFrame()
+
+
+def fetch_yf(tickers, cache_file: Path, start: str = "2018-01-01") -> pd.DataFrame:
+    """
+    Fetch daily close from Yahoo Finance with fallback to alternative sources.
+    tickers: str or list[str] — tried in order until one succeeds.
+    Caches result to parquet (12h TTL).
+    """
+    if isinstance(tickers, str):
+        tickers = [tickers]
 
     # Use cache if fresh (< 12h)
     if cache_file.exists():
         age_h = (datetime.now().timestamp() - cache_file.stat().st_mtime) / 3600
         if age_h < 12:
             df = pd.read_parquet(cache_file)
-            log.debug("Loaded %s from cache (%d rows)", ticker, len(df))
+            log.debug("Loaded %s from cache (%d rows)", tickers[0], len(df))
             return df
 
-    try:
-        df = yf.download(ticker, start=start, auto_adjust=True, progress=False)
-        if df.empty:
-            log.warning("yfinance returned no data for %s", ticker)
-            return pd.DataFrame()
+    # ── Try Yahoo Finance first ──────────────────────────────────────────────
+    for ticker in tickers:
+        try:
+            df = _fetch_yahoo_direct(ticker, start)
+            if not df.empty:
+                df.to_parquet(cache_file)
+                log.info("Fetched %s (via %s): %d rows (%s → %s)",
+                         tickers[0], ticker, len(df),
+                         df.index.min().date(), df.index.max().date())
+                return df
+            log.warning("%s returned no data — trying next fallback", ticker)
+        except Exception as e:
+            log.warning("%s failed (%s) — trying next fallback", ticker, e)
 
-        df = df[["Close"]].rename(columns={"Close": "close"})
-        df.index = pd.to_datetime(df.index)
-        df = df.sort_index()
-        df.to_parquet(cache_file)
-        log.info("Fetched %s: %d rows (%s → %s)",
-                 ticker, len(df), df.index.min().date(), df.index.max().date())
-        return df
-    except Exception as e:
-        log.error("Failed to fetch %s: %s", ticker, e)
-        return pd.DataFrame()
+    # ── Non-Yahoo fallbacks ──────────────────────────────────────────────────
+    primary = tickers[0]
+
+    if primary in ("^NSEI", "NIFTYBEES.NS"):
+        log.info("Yahoo rate-limited for Nifty — trying mfapi.in fallback")
+        df = _fetch_nifty_via_mfapi(start)
+        if not df.empty:
+            df.to_parquet(cache_file)
+            return df
+
+    if primary in ("USDINR=X", "INR=X"):
+        log.info("Yahoo rate-limited for USD/INR — trying frankfurter.app fallback")
+        df = _fetch_usdinr_frankfurter(start)
+        if not df.empty:
+            df.to_parquet(cache_file)
+            return df
+
+    log.error("All sources failed for %s: %s", primary, tickers)
+    return pd.DataFrame()
 
 
 def value_at_or_before(df: pd.DataFrame, target: pd.Timestamp) -> float | None:
     """Latest close at or before target date."""
-    sub = df[df.index <= target]
+    if df.empty or "close" not in df.columns:
+        return None
+    try:
+        sub = df[df.index <= target]
+    except TypeError:
+        return None  # index is not DatetimeIndex (empty df with RangeIndex)
     if sub.empty:
         return None
     return float(sub["close"].iloc[-1])
