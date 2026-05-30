@@ -19,13 +19,26 @@ const CONFIDENCE_STYLE = {
   "Low":    "text-red-400",
 };
 
-// ML probability → label + style
-function mlProbStyle(p) {
-  if (p == null) return null;
-  if (p >= 0.65) return { label: `🤖 ${Math.round(p * 100)}%`, cls: "bg-emerald-900/30 text-emerald-300 border-emerald-700/40", title: "ML model: high probability of top-quartile 3m return" };
-  if (p >= 0.50) return { label: `🤖 ${Math.round(p * 100)}%`, cls: "bg-blue-900/30 text-blue-300 border-blue-700/40",    title: "ML model: above-average probability of top-quartile 3m return" };
-  if (p >= 0.35) return { label: `🤖 ${Math.round(p * 100)}%`, cls: "bg-gray-700/30 text-gray-400 border-gray-600/40",    title: "ML model: average probability of top-quartile 3m return" };
-  return           { label: `🤖 ${Math.round(p * 100)}%`, cls: "bg-red-900/20 text-red-400 border-red-700/30",          title: "ML model: below-average probability of top-quartile 3m return" };
+// ─── AI/ML prediction badge ───────────────────────────────────────────────────
+
+function MlBadge({ prob }) {
+  if (prob == null) return null;
+  const pct = Math.round(prob * 100);
+  const [gradient, ring, label] =
+    prob >= 0.65 ? ["from-emerald-700 to-emerald-500", "ring-emerald-500/40", "Strong"]  :
+    prob >= 0.50 ? ["from-blue-700 to-blue-500",       "ring-blue-500/40",    "Positive"] :
+    prob >= 0.35 ? ["from-gray-700 to-gray-500",       "ring-gray-500/30",    "Neutral"]  :
+                   ["from-red-900 to-red-700",          "ring-red-500/30",     "Weak"];
+  return (
+    <div
+      className={`shrink-0 rounded-xl bg-gradient-to-br ${gradient} ring-1 ${ring} px-2.5 py-1.5 text-center shadow-sm`}
+      title={`AI/ML model: ${pct}% probability of top-quartile 3m return`}
+    >
+      <div className="text-[10px] text-white/60 uppercase tracking-wider leading-none mb-0.5">🤖 AI/ML</div>
+      <div className="text-lg font-bold tabular-nums leading-none text-white">{pct}%</div>
+      <div className="text-[9px] font-semibold uppercase tracking-wider text-white/75">{label}</div>
+    </div>
+  );
 }
 
 const RETURN_WINDOWS = [
@@ -389,7 +402,6 @@ function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence, mlProb,
   const [expanded, setExpanded] = useState(false);
   const detailsRef    = useRef(null);
   const zl            = zLabel(fund.catZ);
-  const mlStyle       = mlProbStyle(mlProb);
   const isAvoid       = verdict === "Avoid";
   const isLowConfBuy  = (verdict === "Buy" || verdict === "Strong Buy") && confidence === "Low";
   const isMddDemoted  = fund.mddDemoted === true;
@@ -472,14 +484,6 @@ function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence, mlProb,
             {aiRationale && (
               <span className="rounded-full border border-purple-700/40 bg-purple-900/20 px-2 py-0.5 text-[10px] font-bold text-purple-400">✦ AI</span>
             )}
-            {mlStyle && (
-              <span
-                className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${mlStyle.cls}`}
-                title={mlStyle.title}
-              >
-                {mlStyle.label}
-              </span>
-            )}
             {highDrawdown && fund.maxDd != null && (
               <span
                 className="rounded-full border border-orange-700/40 bg-orange-900/20 px-2 py-0.5 text-[10px] font-bold text-orange-400"
@@ -496,15 +500,18 @@ function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence, mlProb,
           <ReturnGrid fund={fund} />
         </div>
 
-        {/* Score + toggle */}
+        {/* Score + AI/ML badge + toggle */}
         <div className="shrink-0 flex flex-col items-end gap-2 mt-0.5">
-          {shownScore != null && (
-            <MfScoreBadge
-              score={shownScore}
-              momentumScore={fund.displayScore}
-              hasVerdict={fund.finalScore != null}
-            />
-          )}
+          <div className="flex gap-2">
+            <MlBadge prob={mlProb} />
+            {shownScore != null && (
+              <MfScoreBadge
+                score={shownScore}
+                momentumScore={fund.displayScore}
+                hasVerdict={fund.finalScore != null}
+              />
+            )}
+          </div>
           <button
             onClick={handleToggle}
             className="rounded-lg bg-gray-800 px-2.5 py-1.5 text-xs font-medium text-gray-400 transition hover:bg-gray-700 hover:text-gray-200"
