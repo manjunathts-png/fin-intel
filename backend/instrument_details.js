@@ -75,16 +75,22 @@ async function buildStockDetail(symbol, { niftyReturns } = {}) {
     }).catch(() => null),
   ]);
 
-  // Optional: news (best-effort)
+  // Optional: news via Google News RSS — scoped to company name so each stock gets its own headlines
   let news = [];
   try {
-    const s = await yf.search(yahooSym, { newsCount: 8, quotesCount: 0 });
-    news = (s?.news ?? []).slice(0, 8).map((n) => ({
-      title:  n.title,
-      url:    n.link,
-      source: n.publisher,
-      date:   n.providerPublishTime ? new Date(n.providerPublishTime * 1000).toISOString() : null,
-    }));
+    const companyName = summary?.price?.longName || summary?.price?.shortName || symbol;
+    const query = encodeURIComponent(`${companyName} NSE stock`);
+    const rssUrl = `https://news.google.com/rss/search?q=${query}&hl=en-IN&gl=IN&ceid=IN:en`;
+    const xml = await httpsGet(rssUrl, { timeoutMs: 10000 });
+    const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)];
+    news = items.slice(0, 8).map((m) => {
+      const item = m[1];
+      const title   = (item.match(/<title>(.*?)<\/title>/))?.[1]?.replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").trim() ?? null;
+      const url     = (item.match(/<link>(.*?)<\/link>/))?.[1]?.trim() ?? null;
+      const source  = (item.match(/<source[^>]*>(.*?)<\/source>/))?.[1]?.trim() ?? "Google News";
+      const pubDate = (item.match(/<pubDate>(.*?)<\/pubDate>/))?.[1]?.trim() ?? null;
+      return { title, url, source, date: pubDate ? new Date(pubDate).toISOString() : null };
+    }).filter((n) => n.title && n.url);
   } catch {}
 
   if (!chart?.quotes) throw new Error(`No chart data for ${symbol}`);

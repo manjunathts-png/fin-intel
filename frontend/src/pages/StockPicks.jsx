@@ -669,7 +669,7 @@ export default function StockPicks() {
   const [mlPredMap,       setMlPredMap]       = useState({});
   const [stockShowCount,  setStockShowCount]  = useState(10);
   const [drawer,          setDrawer]          = useState(null);
-  const [filterMode,      setFilterMode]      = useState("tactical"); // "core" | "tactical" | "all"
+  const [filterMode,      setFilterMode]      = useState("core"); // "core" | "tactical" | "all"
 
   useEffect(() => {
     Promise.all([
@@ -698,6 +698,14 @@ export default function StockPicks() {
       }
     });
   }, []);
+
+  // Auto-fall back to tactical if core is empty once data arrives
+  useEffect(() => {
+    if (!stockPicksData) return;
+    const picks = stockPicksData?.picks ?? [];
+    const hasCore = picks.some((p) => (p.daysInTop50 ?? 0) >= 7);
+    if (!hasCore) setFilterMode("tactical");
+  }, [stockPicksData]);
 
   if (dataLoading) return <Spinner />;
   if (dataError)   return <ErrorBox msg={dataError} />;
