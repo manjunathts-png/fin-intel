@@ -17,7 +17,12 @@ on:
         required: false
         default: 'all'
         type: choice
-        options: [all, mf, stocks, intraday, sentiment]
+        options: [all, mf, stocks, intraday, sentiment, stock_backfill]
+      backfill_days:
+        description: 'Days to backfill for stock_backfill target (default 730)'
+        required: false
+        default: '730'
+        type: string
 
 jobs:
   refresh:
@@ -50,7 +55,9 @@ jobs:
           fi
 
       - name: Refresh cache
-        if: steps.target.outputs.target != 'sentiment'
+        if: >-
+          steps.target.outputs.target != 'sentiment' &&
+          steps.target.outputs.target != 'stock_backfill'
         run: |
           if [ "${{ steps.target.outputs.target }}" = "intraday" ]; then
             node backend/refresh-intraday.js
@@ -61,9 +68,12 @@ jobs:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      # ── ML pipeline: runs only on the nightly full rebuild ────────────────
+      # ── ML pipeline: runs on nightly rebuild, sentiment, or stock_backfill ──
       - name: Set up Python (ML pipeline)
-        if: steps.target.outputs.target == 'all' || steps.target.outputs.target == 'sentiment'
+        if: >-
+          steps.target.outputs.target == 'all' ||
+          steps.target.outputs.target == 'sentiment' ||
+          steps.target.outputs.target == 'stock_backfill'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -71,11 +81,17 @@ jobs:
           cache-dependency-path: 'ml/requirements.txt'
 
       - name: Install ML dependencies
-        if: steps.target.outputs.target == 'all' || steps.target.outputs.target == 'sentiment'
+        if: >-
+          steps.target.outputs.target == 'all' ||
+          steps.target.outputs.target == 'sentiment' ||
+          steps.target.outputs.target == 'stock_backfill'
         run: pip install -r ml/requirements.txt -q
 
       - name: Check DB tables exist
-        if: steps.target.outputs.target == 'all' || steps.target.outputs.target == 'sentiment'
+        if: >-
+          steps.target.outputs.target == 'all' ||
+          steps.target.outputs.target == 'sentiment' ||
+          steps.target.outputs.target == 'stock_backfill'
         id: dbcheck
         run: |
           python ml/setup_db.py --check && echo "tables_ok=true" >> $GITHUB_OUTPUT || echo "tables_ok=false" >> $GITHUB_OUTPUT
@@ -124,6 +140,29 @@ jobs:
 
       - name: Train stock model + generate predictions
         if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: python ml/train_stock.py --no-shap || echo "Stock training skipped (insufficient labeled data)"
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # ── Stock historical backfill (one-shot, run manually when needed) ────────
+      - name: Backfill stock OHLCV + features (${{ github.event.inputs.backfill_days || '730' }} days)
+        if: steps.target.outputs.target == 'stock_backfill' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: python ml/extract_stock_features.py --backfill ${{ github.event.inputs.backfill_days || '730' }} --workers 2
+        timeout-minutes: 90
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      - name: Label stock targets after backfill
+        if: steps.target.outputs.target == 'stock_backfill' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: python ml/label_stock_targets.py
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      - name: Train first stock model after backfill
+        if: steps.target.outputs.target == 'stock_backfill' && steps.dbcheck.outputs.tables_ok == 'true'
         run: python ml/train_stock.py --no-shap || echo "Stock training skipped (insufficient labeled data)"
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}

@@ -764,10 +764,6 @@ def main():
     if not stocks:
         log.error("No stocks loaded"); sys.exit(1)
 
-    # ── Pre-flight: wait until Yahoo Finance is not rate-limiting ────────────
-    if not args.dry_run:
-        _wait_for_yahoo()
-
     as_of_end = pd.Timestamp(args.as_of) if args.as_of else pd.Timestamp.now().normalize()
 
     if args.backfill > 0:
