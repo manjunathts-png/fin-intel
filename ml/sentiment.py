@@ -56,6 +56,7 @@ from supabase import create_client
 from tqdm import tqdm
 
 load_dotenv()
+load_dotenv(Path(__file__).parent.parent / "backend" / ".env", override=False)
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s %(message)s",

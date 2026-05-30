@@ -25,6 +25,7 @@ import logging
 import os
 import sys
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -33,6 +34,7 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 load_dotenv()
+load_dotenv(Path(__file__).parent.parent / "backend" / ".env", override=False)
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s %(message)s",
