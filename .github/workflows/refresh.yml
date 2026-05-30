@@ -148,7 +148,7 @@ jobs:
       # ── Stock historical backfill (one-shot, run manually when needed) ────────
       - name: Backfill stock OHLCV + features (${{ github.event.inputs.backfill_days || '730' }} days)
         if: steps.target.outputs.target == 'stock_backfill' && steps.dbcheck.outputs.tables_ok == 'true'
-        run: python ml/extract_stock_features.py --backfill ${{ github.event.inputs.backfill_days || '730' }} --workers 2
+        run: python ml/extract_stock_features.py --backfill ${{ github.event.inputs.backfill_days || '730' }} --workers 1
         timeout-minutes: 90
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}

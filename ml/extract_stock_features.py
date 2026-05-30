@@ -210,7 +210,7 @@ def fetch_ohlcv(symbol: str, start: str = "2022-01-01") -> pd.DataFrame:
                 df = df[df["close"] > 0]
                 if not df.empty:
                     df.to_parquet(cache_file)
-                time.sleep(1.5)   # polite inter-request delay
+                time.sleep(1.0)   # polite inter-request delay
                 return df
 
             except requests.exceptions.RequestException as e:
@@ -248,13 +248,10 @@ def fetch_fundamentals(symbol: str) -> dict[str, Any]:
     session = _get_session()
 
     try:
-        for attempt in range(3):
-            r = session.get(url, params=params, timeout=15)
-            if r.status_code != 429:
-                break
-            backoff = 30 * (2 ** attempt)
-            log.debug("%s fundamentals rate-limited — sleeping %ds", symbol, backoff)
-            time.sleep(backoff)
+        r = session.get(url, params=params, timeout=15)
+        if r.status_code == 429:
+            log.debug("%s fundamentals rate-limited — skipping (non-critical)", symbol)
+            return {}
         if r.status_code != 200:
             return {}
 
