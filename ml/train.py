@@ -392,6 +392,105 @@ def write_predictions(
     return total
 
 
+def check_shap_stability(
+    supabase,
+    current_fi: list[dict],
+    model_version: str,
+) -> dict[str, Any]:
+    """
+    Compare the current run's top-5 features against the most recent previous
+    model run stored in mf_model_runs.
+
+    Returns a stability report dict that is attached to the model-run notes.
+
+    Stability thresholds (top-5 overlap):
+      5/5 — stable      (no warning)
+      4/5 — mild drift  (INFO)
+      3/5 — moderate    (WARNING — monitor)
+      <3/5 — unstable   (WARNING — investigate before trusting predictions)
+    """
+    report = {"checked": False, "overlap": None, "status": "unknown", "prev_version": None}
+    if not current_fi:
+        return report
+    try:
+        resp = (
+            supabase.table("mf_model_runs")
+            .select("model_version,feature_importance,created_at")
+            .neq("model_version", model_version)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not resp.data:
+            log.info("SHAP stability: no previous model run found — first run, skipping")
+            return report
+
+        prev = resp.data[0]
+        prev_fi: list[dict] = prev.get("feature_importance") or []
+        prev_top5 = [x["feature"] for x in prev_fi[:5]]
+        curr_top5 = [x["feature"] for x in current_fi[:5]]
+
+        overlap = len(set(curr_top5) & set(prev_top5))
+        report.update({
+            "checked": True,
+            "overlap": overlap,
+            "prev_version": prev["model_version"],
+            "current_top5": curr_top5,
+            "prev_top5": prev_top5,
+        })
+
+        # Rank-shift: position change for features that appear in both lists
+        rank_shifts = []
+        for feat in set(curr_top5) & set(prev_top5):
+            curr_rank = curr_top5.index(feat)
+            prev_rank = prev_top5.index(feat)
+            rank_shifts.append(abs(curr_rank - prev_rank))
+        mean_shift = round(float(np.mean(rank_shifts)), 2) if rank_shifts else None
+        report["mean_rank_shift"] = mean_shift
+
+        if overlap == 5:
+            status = "stable"
+            log.info("SHAP stable: 5/5 top features match previous run (%s)", prev["model_version"])
+        elif overlap == 4:
+            status = "mild_drift"
+            log.info(
+                "SHAP mild drift: 4/5 top features match (%s). "
+                "New: %s  Dropped: %s",
+                prev["model_version"],
+                list(set(curr_top5) - set(prev_top5)),
+                list(set(prev_top5) - set(curr_top5)),
+            )
+        elif overlap == 3:
+            status = "moderate_drift"
+            log.warning(
+                "[!] SHAP moderate drift: only 3/5 top features match (%s). "
+                "New features: %s  Dropped: %s  Mean rank shift: %.1f. "
+                "Monitor next 2-3 runs before trusting predictions.",
+                prev["model_version"],
+                list(set(curr_top5) - set(prev_top5)),
+                list(set(prev_top5) - set(curr_top5)),
+                mean_shift or 0,
+            )
+        else:
+            status = "unstable"
+            log.warning(
+                "[!!] SHAP unstable: only %d/5 top features match (%s). "
+                "Current: %s  Previous: %s. "
+                "Possible causes: india_vix/sentiment went live, feature data gap, "
+                "regime shift in training window. Investigate before acting on predictions.",
+                overlap,
+                prev["model_version"],
+                curr_top5,
+                prev_top5,
+            )
+
+        report["status"] = status
+    except Exception as e:
+        log.debug("SHAP stability check failed: %s", e)
+
+    return report
+
+
 def write_model_run(
     supabase,
     model_version: str,
@@ -533,6 +632,12 @@ def main():
     ).hexdigest()[:6]
     model_version = f"lgbm_v1.0_{pred_date}_{feat_hash}"
 
+    # ── 9b. SHAP stability check ───────────────────────────────────────────
+    # Compare top-5 features against the previous model run. Warn if <4/5
+    # features overlap — signals feature drift, data gap, or regime shift.
+    # Runs even in dry-run mode (read-only query).
+    shap_stability = check_shap_stability(supabase, fi, model_version)
+
     # ── 10. Write to Supabase ──────────────────────────────────────────────
     if args.dry_run:
         log.info("dry-run: skipping Supabase writes")
@@ -546,6 +651,12 @@ def main():
             model_version=model_version,
             prediction_date=pred_date,
         )
+        # Attach SHAP stability report to model-run notes for the audit log
+        stability_note = (
+            f"shap_stability={shap_stability.get('status', 'unknown')} "
+            f"overlap={shap_stability.get('overlap')}/5 "
+            f"vs {shap_stability.get('prev_version', 'n/a')}"
+        ) if shap_stability.get("checked") else ""
         write_model_run(
             supabase,
             model_version=model_version,
@@ -555,6 +666,7 @@ def main():
             cv_metrics=cv_metrics,
             params={k: v for k, v in params.items() if k not in ("verbose", "random_state")},
             feature_importance=fi,
+            notes=stability_note,
         )
 
     log.info("Done. Model version: %s", model_version)

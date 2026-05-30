@@ -515,7 +515,13 @@ def aggregate_report(results: list[FoldResult]) -> dict[str, Any]:
         "mean_gain_loss_ratio":     round(float(np.mean(gls)),    2) if gls    else None,
         # ── Downside risk ────────────────────────────────────────────────
         "mean_mdd_selected_pct":    round(float(np.mean(mdd_sel)), 2) if mdd_sel else None,
+        "std_mdd_selected_pct":     round(float(np.std(mdd_sel)),  2) if len(mdd_sel) > 1 else None,
         "mean_mdd_universe_pct":    round(float(np.mean(mdd_uni)), 2) if mdd_uni else None,
+        "mdd_concentration_flag":   (
+            # True if any single fold's MDD is >5pp worse than the mean — risk concentrated
+            any(abs(m - float(np.mean(mdd_sel))) > 5 for m in mdd_sel)
+            if len(mdd_sel) > 1 else None
+        ),
         # ── Regime breakdown ─────────────────────────────────────────────
         "regime_breakdown":         regime_summary,
         # ── Feature importance ───────────────────────────────────────────
@@ -554,32 +560,38 @@ def print_report(results: list[FoldResult], agg: dict[str, Any]) -> None:
     print(f"  {'Folds evaluated:':<28} {agg.get('n_folds')}")
     print()
     print(f"  {'── Classification ──'}")
-    print(f"  {'Mean AUC:':<28} {agg.get('mean_auc', '–')} ± {agg.get('std_auc', '–')}")
-    print(f"  {'Precision @Top-Q (base=25%):':<28} {agg.get('mean_precision_top_q', '–')}")
+    print(f"  {'Mean AUC:':<28} {agg.get('mean_auc', '--')} +/- {agg.get('std_auc', '--')}")
+    print(f"  {'Precision @Top-Q (base=25%):':<28} {agg.get('mean_precision_top_q', '--')}")
     print()
     print(f"  {'── Portfolio CAGR ──'}")
-    print(f"  {'Model (compounded CAGR):':<28} {agg.get('cagr_model_pct', '–')}%")
-    print(f"  {'Benchmark (eq-wt CAGR):':<28} {agg.get('cagr_benchmark_pct', '–')}%")
-    print(f"  {'CAGR alpha:':<28} {agg.get('cagr_alpha_pct', '–')}%")
-    print(f"  {'Win rate (beats bench):':<28} {agg.get('win_rate_pct', '–')}% of folds")
+    print(f"  {'Model (compounded CAGR):':<28} {agg.get('cagr_model_pct', '--')}%")
+    print(f"  {'Benchmark (eq-wt CAGR):':<28} {agg.get('cagr_benchmark_pct', '--')}%")
+    print(f"  {'CAGR alpha:':<28} {agg.get('cagr_alpha_pct', '--')}%")
+    print(f"  {'Win rate (beats bench):':<28} {agg.get('win_rate_pct', '--')}% of folds")
     print()
     print(f"  {'── Asymmetric Error Analysis ──'}")
-    print(f"  {'Avg return when CORRECT:':<28} {agg.get('avg_hit_return_pct', '–')}%  ← magnitude of wins")
-    print(f"  {'Avg return when WRONG:':<28} {agg.get('avg_miss_return_pct', '–')}%  ← magnitude of losses")
-    print(f"  {'Gain/Loss ratio:':<28} {agg.get('mean_gain_loss_ratio', '–')}×  (>1 = wins outweigh losses)")
+    print(f"  {'Avg return when CORRECT:':<28} {agg.get('avg_hit_return_pct', '--')}%  (wins)")
+    print(f"  {'Avg return when WRONG:':<28} {agg.get('avg_miss_return_pct', '--')}%  (losses)")
+    print(f"  {'Gain/Loss ratio:':<28} {agg.get('mean_gain_loss_ratio', '--')}x  (>1 = wins outweigh losses)")
     print()
     print(f"  {'── Downside Risk of Q1 Picks ──'}")
-    print(f"  {'Mean max-drawdown (selected):':<28} {agg.get('mean_mdd_selected_pct', '–')}%")
-    print(f"  {'Mean max-drawdown (universe):':<28} {agg.get('mean_mdd_universe_pct', '–')}%")
+    conc = agg.get("mdd_concentration_flag")
+    conc_flag = "  [!] concentrated in one fold" if conc else ""
+    mdd_sel_s = f"{agg['mean_mdd_selected_pct']}% +/- {agg.get('std_mdd_selected_pct', '?')}%{conc_flag}" \
+        if agg.get("mean_mdd_selected_pct") is not None else "--"
+    mdd_uni_s = f"{agg['mean_mdd_universe_pct']}%" \
+        if agg.get("mean_mdd_universe_pct") is not None else "--"
+    print(f"  {'Mean max-drawdown (selected):':<28} {mdd_sel_s}")
+    print(f"  {'Mean max-drawdown (universe):':<28} {mdd_uni_s}")
     print()
     regime_breakdown = agg.get("regime_breakdown", {})
     if regime_breakdown:
         print(f"  {'── Regime Breakdown ──'}")
         for reg, stat in sorted(regime_breakdown.items()):
             print(f"    {reg.capitalize():<10}  folds={stat['n_folds']}  "
-                  f"AUC={stat.get('mean_auc', '–')}  "
-                  f"α={stat.get('mean_alpha', '–')}%  "
-                  f"P@Q1={stat.get('mean_prec', '–')}")
+                  f"AUC={stat.get('mean_auc', '--')}  "
+                  f"α={stat.get('mean_alpha', '--')}%  "
+                  f"P@Q1={stat.get('mean_prec', '--')}")
         print()
     if agg.get("top_features"):
         print(f"  {'── Top Features (avg importance) ──'}")
