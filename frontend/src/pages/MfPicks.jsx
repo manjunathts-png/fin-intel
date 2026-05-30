@@ -392,6 +392,8 @@ function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence, mlProb,
   const mlStyle       = mlProbStyle(mlProb);
   const isAvoid       = verdict === "Avoid";
   const isLowConfBuy  = (verdict === "Buy" || verdict === "Strong Buy") && confidence === "Low";
+  const isMddDemoted  = fund.mddDemoted === true;
+  const highDrawdown  = fund.highDrawdown === true;
   const shownScore    = fund.finalScore ?? fund.displayScore;
 
   function handleToggle() {
@@ -422,6 +424,16 @@ function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence, mlProb,
           <span className="text-xs text-yellow-400">⚠</span>
           <span className="text-xs font-medium text-yellow-400">
             Buy signal but Low confidence — moved to Watch. Conviction too weak to act.
+          </span>
+        </div>
+      )}
+      {/* High-drawdown gate banner — MDD demoted from Buy → Watch */}
+      {isMddDemoted && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-orange-800/30 bg-orange-900/10 px-3 py-1.5">
+          <span className="text-xs text-orange-400">📉</span>
+          <span className="text-xs font-medium text-orange-400">
+            High drawdown risk ({fund.maxDd != null ? `${fund.maxDd.toFixed(1)}% max 1Y DD` : "—"}) — ML contribution halved, moved to Watch.
+            Backtest shows model bias toward high-beta funds; High-confidence analyst signal overrides.
           </span>
         </div>
       )}
@@ -466,6 +478,14 @@ function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence, mlProb,
                 title={mlStyle.title}
               >
                 {mlStyle.label}
+              </span>
+            )}
+            {highDrawdown && fund.maxDd != null && (
+              <span
+                className="rounded-full border border-orange-700/40 bg-orange-900/20 px-2 py-0.5 text-[10px] font-bold text-orange-400"
+                title={`Trailing 1-year max drawdown: ${fund.maxDd.toFixed(1)}%. Funds below −20% carry elevated tail risk. ML score penalised if below −25%.`}
+              >
+                📉 {fund.maxDd.toFixed(1)}% MDD
               </span>
             )}
             {fund.latestNav && (
@@ -537,6 +557,7 @@ export default function MfPicks() {
   const [ruleRationale, setRuleRationale] = useState({});
   const [aiRationale,   setAiRationale]   = useState({});
   const [mlPredMap,     setMlPredMap]     = useState({});   // scheme_code → p_top_quartile_3m
+  const [mddMap,        setMddMap]        = useState({});   // scheme_code → max_dd_1y (%)
   const [sentimentMap,  setSentimentMap]  = useState({});   // scheme_code → sentiment record
   const [ratLoading,    setRatLoading]    = useState(true);
   const [avoidOpen,     setAvoidOpen]     = useState(true);
@@ -559,7 +580,13 @@ export default function MfPicks() {
         .select("scheme_code,sentiment_score,sentiment_label,summary,key_themes,week_start_date")
         .order("week_start_date", { ascending: false })
         .limit(300),
-    ]).then(([rule, ai, mlPred, sent]) => {
+      // Trailing max drawdown — most recent mf_features row per scheme
+      supabase
+        .from("mf_features")
+        .select("scheme_code,max_dd_1y,as_of_date")
+        .order("as_of_date", { ascending: false })
+        .limit(400),
+    ]).then(([rule, ai, mlPred, sent, mdd]) => {
       if (!rule.error && rule.data) {
         const byCode = {};
         rule.data.forEach((r) => { if (!byCode[r.fund_code]) byCode[r.fund_code] = r; });
@@ -585,6 +612,14 @@ export default function MfPicks() {
           if (!byCode[r.scheme_code]) byCode[r.scheme_code] = r;
         });
         setSentimentMap(byCode);
+      }
+      if (!mdd.error && mdd.data && mdd.data.length > 0) {
+        // Rows ordered by as_of_date desc — keep first (most recent) per scheme
+        const byCode = {};
+        mdd.data.forEach((r) => {
+          if (!byCode[r.scheme_code] && r.max_dd_1y != null) byCode[r.scheme_code] = r.max_dd_1y;
+        });
+        setMddMap(byCode);
       }
     }).finally(() => setRatLoading(false));
   }, []);
@@ -615,22 +650,35 @@ export default function MfPicks() {
       const mlRec   = mlPredMap[f.code];
       const mlProb  = mlRec?.p_top_quartile_3m ?? null;
       const mlScore = mlProb != null ? mlProb * 100 : null;
+      // ── Drawdown gate ───────────────────────────────────────────────────
+      // Backtest showed Q1 picks carry -18.4% mean MDD vs -15.9% for universe —
+      // the model has a high-beta bias. Gate prevents volatile funds from riding
+      // a high ML score into the Buy section.
+      //   max_dd_1y < -20%: show warning badge (visible but not demoted)
+      //   max_dd_1y < -25%: halve ML contribution in score + demote Buy → Watch
+      //                     unless analyst has High confidence (override)
+      const maxDd        = mddMap[f.code] ?? null;
+      const highDrawdown = maxDd != null && maxDd < -20;
+      const mddPenalty   = maxDd != null && maxDd < -25 ? 0.5 : 1.0;
+      const mlScoreGated = mlScore != null ? mlScore * mddPenalty : mlScore;
+      // A High-confidence analyst verdict is enough to override the demotion —
+      // the human signal takes precedence over the automated gate.
+      const mddDemoted   = mddPenalty < 1 && confidence !== "High";
       // Score blend:
-      //   With ML:    momentum 50% + verdict 25% + ml 25%
+      //   With ML:    momentum 50% + verdict 25% + ml 25% (ml halved if MDD gate triggered)
       //   Without ML: momentum 65% + verdict 35%
-      // ML weight raised to 25% — backtest AUC 0.689, alpha +1.8% ann., precision@Q1 47.4%
-      const finalScore = mlScore != null
-        ? Math.round(f.displayScore * 0.50 + verdictPart * 0.25 + mlScore * 0.25)
+      const finalScore = mlScoreGated != null
+        ? Math.round(f.displayScore * 0.50 + verdictPart * 0.25 + mlScoreGated * 0.25)
         : Math.round(f.displayScore * 0.65 + verdictPart * 0.35);
       const sentiment = sentimentMap[f.code] ?? null;
-      return { ...f, verdict, confidence, finalScore, mlProb, sentiment };
+      return { ...f, verdict, confidence, finalScore, mlProb, sentiment, maxDd, highDrawdown, mddDemoted };
     });
     const byFinal = (a, b) => b.finalScore - a.finalScore;
     return {
-      // Only confident Buys go to the Buy section
-      buy:   withVerdict.filter((f) => isConfidentBuy(f.verdict, f.confidence)).sort(byFinal),
-      // Hold + unrated + Low-confidence Buys all go to Watch
-      hold:  withVerdict.filter((f) => !isConfidentBuy(f.verdict, f.confidence) && f.verdict !== "Avoid").sort(byFinal),
+      // Confident Buys — but not MDD-demoted ones (high-beta gate)
+      buy:   withVerdict.filter((f) => isConfidentBuy(f.verdict, f.confidence) && !f.mddDemoted).sort(byFinal),
+      // Watch: Hold + Low-confidence Buys + MDD-demoted Buys
+      hold:  withVerdict.filter((f) => (!isConfidentBuy(f.verdict, f.confidence) || f.mddDemoted) && f.verdict !== "Avoid").sort(byFinal),
       avoid: withVerdict.filter((f) => f.verdict === "Avoid").sort(byFinal),
     };
   })();
