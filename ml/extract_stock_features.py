@@ -160,57 +160,64 @@ def fetch_ohlcv(symbol: str, start: str = "2022-01-01") -> pd.DataFrame:
     url      = _YF_CHART_URL.format(ticker=ticker)
     session  = _get_session()
 
-    for attempt in range(2):
-        try:
-            r = session.get(url, params=params, timeout=20)
-            if r.status_code == 429:
-                if attempt == 0:
-                    time.sleep(6)
-                    continue
-                log.debug("%s rate-limited — giving up", symbol)
-                return pd.DataFrame()
-            if r.status_code != 200:
-                log.debug("%s HTTP %d", symbol, r.status_code)
-                return pd.DataFrame()
+    # Try query1 then query2 as fallback
+    for base_url in [
+        "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
+        "https://query2.finance.yahoo.com/v8/finance/chart/{ticker}",
+    ]:
+        url = base_url.format(ticker=ticker)
+        for attempt in range(2):
+            try:
+                r = session.get(url, params=params, timeout=20)
+                if r.status_code == 429:
+                    if attempt == 0:
+                        time.sleep(10)
+                        continue
+                    break   # try next base URL
+                if r.status_code != 200:
+                    log.debug("%s HTTP %d", symbol, r.status_code)
+                    break
 
-            data   = r.json()
-            result = data.get("chart", {}).get("result")
-            if not result:
-                return pd.DataFrame()
+                data   = r.json()
+                result = data.get("chart", {}).get("result")
+                if not result:
+                    break
 
-            meta       = result[0]
-            timestamps = meta.get("timestamp", [])
-            quote      = meta.get("indicators", {}).get("quote", [{}])[0]
-            adj_closes = (
-                meta.get("indicators", {}).get("adjclose", [{}])[0].get("adjclose")
-            )
-            closes = adj_closes or quote.get("close", [])
-            opens  = quote.get("open",   [])
-            highs  = quote.get("high",   [])
-            lows   = quote.get("low",    [])
-            vols   = quote.get("volume", [])
+                meta       = result[0]
+                timestamps = meta.get("timestamp", [])
+                quote      = meta.get("indicators", {}).get("quote", [{}])[0]
+                adj_closes = (
+                    meta.get("indicators", {}).get("adjclose", [{}])[0].get("adjclose")
+                )
+                closes = adj_closes or quote.get("close", [])
+                opens  = quote.get("open",   [])
+                highs  = quote.get("high",   [])
+                lows   = quote.get("low",    [])
+                vols   = quote.get("volume", [])
 
-            if not timestamps or not closes:
-                return pd.DataFrame()
+                if not timestamps or not closes:
+                    break
 
-            idx = pd.to_datetime(timestamps, unit="s").tz_localize(None)
-            df  = pd.DataFrame({
-                "open":   opens  if opens  else [None] * len(timestamps),
-                "high":   highs  if highs  else [None] * len(timestamps),
-                "low":    lows   if lows   else [None] * len(timestamps),
-                "close":  closes,
-                "volume": vols   if vols   else [None] * len(timestamps),
-            }, index=idx)
-            df = df.dropna(subset=["close"]).sort_index()
-            df = df[df["close"] > 0]
-            if not df.empty:
-                df.to_parquet(cache_file)
-            return df
+                idx = pd.to_datetime(timestamps, unit="s").tz_localize(None)
+                df  = pd.DataFrame({
+                    "open":   opens  if opens  else [None] * len(timestamps),
+                    "high":   highs  if highs  else [None] * len(timestamps),
+                    "low":    lows   if lows   else [None] * len(timestamps),
+                    "close":  closes,
+                    "volume": vols   if vols   else [None] * len(timestamps),
+                }, index=idx)
+                df = df.dropna(subset=["close"]).sort_index()
+                df = df[df["close"] > 0]
+                if not df.empty:
+                    df.to_parquet(cache_file)
+                time.sleep(1.5)   # polite inter-request delay
+                return df
 
-        except requests.exceptions.RequestException as e:
-            log.debug("%s fetch error (attempt %d): %s", symbol, attempt + 1, e)
-            time.sleep(4)
+            except requests.exceptions.RequestException as e:
+                log.debug("%s fetch error (attempt %d): %s", symbol, attempt + 1, e)
+                time.sleep(4)
 
+    log.debug("%s: all endpoints rate-limited or failed", symbol)
     return pd.DataFrame()
 
 
@@ -241,10 +248,13 @@ def fetch_fundamentals(symbol: str) -> dict[str, Any]:
     session = _get_session()
 
     try:
-        r = session.get(url, params=params, timeout=15)
-        if r.status_code == 429:
-            time.sleep(5)
+        for attempt in range(3):
             r = session.get(url, params=params, timeout=15)
+            if r.status_code != 429:
+                break
+            backoff = 30 * (2 ** attempt)
+            log.debug("%s fundamentals rate-limited — sleeping %ds", symbol, backoff)
+            time.sleep(backoff)
         if r.status_code != 200:
             return {}
 
@@ -698,6 +708,37 @@ def upsert_features(supabase, rows: list[dict[str, Any]], batch: int = 300) -> i
     return total
 
 
+# ─── Rate-limit guard ─────────────────────────────────────────────────────────
+
+def _wait_for_yahoo(probe_symbol: str = "TCS", max_wait_s: int = 1800) -> None:
+    """Block until Yahoo Finance stops returning 429 for the probe symbol."""
+    ticker = f"{probe_symbol}.NS"
+    probe_url = _YF_CHART_URL.format(ticker=ticker)
+    params = {"interval": "1d", "period1": 1640000000, "period2": 1748000000}
+    session = _get_session()
+    waited = 0
+    interval = 30
+    while waited < max_wait_s:
+        try:
+            r = session.get(probe_url, params=params, timeout=10)
+            if r.status_code == 200:
+                log.info("Yahoo Finance is accessible — proceeding.")
+                return
+            if r.status_code == 429:
+                log.info("Yahoo Finance rate-limited — waiting %ds (total waited: %ds)…",
+                         interval, waited)
+                time.sleep(interval)
+                waited += interval
+                interval = min(interval + 15, 60)  # back off up to 60s between probes
+            else:
+                log.warning("Yahoo probe returned HTTP %d — proceeding anyway.", r.status_code)
+                return
+        except Exception:
+            time.sleep(interval)
+            waited += interval
+    log.warning("Yahoo Finance still rate-limited after %ds — proceeding anyway (expect empties)", max_wait_s)
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def _process_stock(stock: Stock, ohlcv_map: dict, fund_map: dict, macro: dict,
@@ -715,13 +756,17 @@ def main():
                    help="N days to backfill (e.g. 730 for 2 years)")
     p.add_argument("--dry-run",  action="store_true",
                    help="Compute but don't write to Supabase")
-    p.add_argument("--workers",  type=int, default=4,
-                   help="Yahoo fetch threads for OHLCV (default 4)")
+    p.add_argument("--workers",  type=int, default=1,
+                   help="Yahoo fetch threads for OHLCV (default 1 — use 1 to avoid rate-limiting)")
     args = p.parse_args()
 
     stocks = load_universe()
     if not stocks:
         log.error("No stocks loaded"); sys.exit(1)
+
+    # ── Pre-flight: wait until Yahoo Finance is not rate-limiting ────────────
+    if not args.dry_run:
+        _wait_for_yahoo()
 
     as_of_end = pd.Timestamp(args.as_of) if args.as_of else pd.Timestamp.now().normalize()
 

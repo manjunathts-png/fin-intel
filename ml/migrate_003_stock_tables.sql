@@ -60,7 +60,6 @@ CREATE TABLE IF NOT EXISTS stock_features (
 
 CREATE INDEX IF NOT EXISTS idx_stock_features_date
   ON stock_features (as_of_date);
-
 CREATE INDEX IF NOT EXISTS idx_stock_features_sector
   ON stock_features (sector, as_of_date);
 
@@ -98,7 +97,19 @@ CREATE TABLE IF NOT EXISTS stock_model_runs (
   notes               TEXT
 );
 
--- Grant read access to anon role (for frontend)
-GRANT SELECT ON stock_predictions TO anon;
-GRANT SELECT ON stock_features     TO anon;
-GRANT SELECT ON stock_model_runs   TO anon;
+
+-- ── RLS (mirrors mf_features / mf_predictions / mf_model_runs setup) ──────────
+
+ALTER TABLE stock_features     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_predictions  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_model_runs   ENABLE ROW LEVEL SECURITY;
+
+-- Allow anyone (anon + authenticated) to SELECT — same as MF tables
+CREATE POLICY "Allow public read on stock_features"
+  ON stock_features FOR SELECT USING (true);
+
+CREATE POLICY "Allow public read on stock_predictions"
+  ON stock_predictions FOR SELECT USING (true);
+
+CREATE POLICY "Allow public read on stock_model_runs"
+  ON stock_model_runs FOR SELECT USING (true);
