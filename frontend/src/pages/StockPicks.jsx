@@ -650,7 +650,7 @@ export default function StockPicks() {
   const [stockAiRat,   setStockAiRat]   = useState({});
   const [stockShowCount, setStockShowCount] = useState(10);
   const [drawer,       setDrawer]       = useState(null);
-  const [filterMode,   setFilterMode]   = useState("core"); // "core" | "tactical" | "all"
+  const [filterMode,   setFilterMode]   = useState("tactical"); // "core" | "tactical" | "all"
 
   useEffect(() => {
     Promise.all([
