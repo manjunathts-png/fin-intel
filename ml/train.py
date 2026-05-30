@@ -415,9 +415,9 @@ def check_shap_stability(
     try:
         resp = (
             supabase.table("mf_model_runs")
-            .select("model_version,feature_importance,created_at")
+            .select("model_version,feature_importance,trained_at")
             .neq("model_version", model_version)
-            .order("created_at", desc=True)
+            .order("trained_at", desc=True)
             .limit(1)
             .execute()
         )
@@ -427,6 +427,13 @@ def check_shap_stability(
 
         prev = resp.data[0]
         prev_fi: list[dict] = prev.get("feature_importance") or []
+        if len(prev_fi) < 3:
+            log.info(
+                "SHAP stability: previous run (%s) has no feature importance stored — "
+                "comparison skipped (pre-SHAP run or empty)",
+                prev.get("model_version"),
+            )
+            return report
         prev_top5 = [x["feature"] for x in prev_fi[:5]]
         curr_top5 = [x["feature"] for x in current_fi[:5]]
 
@@ -486,7 +493,7 @@ def check_shap_stability(
 
         report["status"] = status
     except Exception as e:
-        log.debug("SHAP stability check failed: %s", e)
+        log.warning("SHAP stability check failed: %s", e)
 
     return report
 
