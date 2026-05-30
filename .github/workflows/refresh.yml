@@ -74,8 +74,17 @@ jobs:
         if: steps.target.outputs.target == 'all' || steps.target.outputs.target == 'sentiment'
         run: pip install -r ml/requirements.txt -q
 
+      - name: Check DB tables exist
+        if: steps.target.outputs.target == 'all' || steps.target.outputs.target == 'sentiment'
+        id: dbcheck
+        run: |
+          python ml/setup_db.py --check && echo "tables_ok=true" >> $GITHUB_OUTPUT || echo "tables_ok=false" >> $GITHUB_OUTPUT
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
       - name: Extract MF features (today)
-        if: steps.target.outputs.target == 'all'
+        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
         run: |
           python ml/extract_features.py
           python ml/macro_features.py --skip-regression
@@ -84,15 +93,15 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       - name: Backfill target labels
-        if: steps.target.outputs.target == 'all'
+        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
         run: python ml/label_targets.py
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       - name: Train model + generate predictions
-        if: steps.target.outputs.target == 'all'
-        # Only run if we have enough labeled data (train.py exits gracefully if not)
+        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
+        # Exits gracefully if < 50 labeled rows (needs 3m of backfill first)
         run: python ml/train.py --no-shap || echo "Training skipped (insufficient labeled data)"
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
@@ -100,7 +109,10 @@ jobs:
 
       # ── Sentiment: runs on Monday midnight IST (weekly) ───────────────────
       - name: Run news sentiment analysis (weekly)
-        if: steps.target.outputs.target == 'sentiment'
+        if: |
+          steps.target.outputs.target == 'sentiment' &&
+          steps.dbcheck.outputs.tables_ok == 'true' &&
+          secrets.ANTHROPIC_API_KEY != ''
         run: python ml/sentiment.py
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
