@@ -36,14 +36,6 @@ const CHIP_STYLE = {
   delivery:        "bg-teal-500/20 text-teal-300 border-teal-600/40",
 };
 
-// ML probability → label + style (mirrors MfPicks.jsx)
-function mlProbStyle(p) {
-  if (p == null) return null;
-  if (p >= 0.65) return { label: `🤖 ${Math.round(p * 100)}%`, cls: "bg-emerald-900/30 text-emerald-300 border-emerald-700/40", title: "ML: high probability of top-quartile sector return in 3 months" };
-  if (p >= 0.50) return { label: `🤖 ${Math.round(p * 100)}%`, cls: "bg-blue-900/30 text-blue-300 border-blue-700/40",    title: "ML: above-average probability of top-quartile sector return" };
-  if (p >= 0.35) return { label: `🤖 ${Math.round(p * 100)}%`, cls: "bg-gray-700/30 text-gray-400 border-gray-600/40",    title: "ML: average probability of top-quartile sector return" };
-  return           { label: `🤖 ${Math.round(p * 100)}%`, cls: "bg-red-900/20 text-red-400 border-red-700/30",          title: "ML: below-average probability of top-quartile sector return" };
-}
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -192,6 +184,28 @@ function ScoreBadge({ score }) {
   );
 }
 
+// ─── AI/ML prediction badge ───────────────────────────────────────────────────
+
+function MlBadge({ prob }) {
+  if (prob == null) return null;
+  const pct = Math.round(prob * 100);
+  const [gradient, ring, label] =
+    prob >= 0.65 ? ["from-emerald-700 to-emerald-500", "ring-emerald-500/40", "Strong"]  :
+    prob >= 0.50 ? ["from-blue-700 to-blue-500",       "ring-blue-500/40",    "Positive"] :
+    prob >= 0.35 ? ["from-gray-700 to-gray-500",       "ring-gray-500/30",    "Neutral"]  :
+                   ["from-red-900 to-red-700",          "ring-red-500/30",     "Weak"];
+  return (
+    <div
+      className={`rounded-lg bg-gradient-to-br ${gradient} ring-1 ${ring} px-2.5 py-1 text-center min-w-[58px]`}
+      title={`AI/ML model: ${pct}% probability of top-quartile sector return in 3 months`}
+    >
+      <div className="text-[10px] text-white/60 uppercase tracking-wider leading-none mb-0.5">🤖 AI/ML</div>
+      <div className="text-base font-bold text-white tabular-nums leading-none">{pct}%</div>
+      <div className="text-[8px] text-white/70 uppercase tracking-wider">{label}</div>
+    </div>
+  );
+}
+
 // ─── Technicals cell ──────────────────────────────────────────────────────────
 
 function Tech({ label, val, fmt, color }) {
@@ -292,7 +306,6 @@ function StockPickCard({ pick, rank, ruleBased, aiRationale, mlProb, onOpenDrawe
 
   const verdict   = ruleBased?.analysis?.verdict ?? aiRationale?.analysis?.verdict;
   const chips     = ruleBased?.analysis?.signal_chips ?? [];
-  const mlStyle   = mlProbStyle(mlProb);
   const changeCol = (pick.changePct ?? 0) >= 0 ? "text-green-400" : "text-red-400";
 
   // One-line "why" for Tier 1
@@ -339,14 +352,6 @@ function StockPickCard({ pick, rank, ruleBased, aiRationale, mlProb, onOpenDrawe
             )}
             <StabilityChip pick={pick} />
             <RankDeltaChip delta={pick.rankDelta} />
-            {mlStyle && (
-              <span
-                className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${mlStyle.cls}`}
-                title={mlStyle.title}
-              >
-                {mlStyle.label}
-              </span>
-            )}
           </div>
           {/* Price + brief summary */}
           <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -363,9 +368,12 @@ function StockPickCard({ pick, rank, ruleBased, aiRationale, mlProb, onOpenDrawe
           </div>
         </div>
 
-        {/* Score + expand toggle */}
+        {/* Score + AI/ML badge + expand toggle */}
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <ScoreBadge score={pick.compositeScore} />
+          <div className="flex gap-2">
+            <MlBadge prob={mlProb} />
+            <ScoreBadge score={pick.compositeScore} />
+          </div>
           <button
             onClick={() => setExpanded((e) => !e)}
             className="rounded-lg bg-gray-800 px-2.5 py-1 text-xs font-medium text-gray-400 transition hover:bg-gray-700 hover:text-gray-200"
