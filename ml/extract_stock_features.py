@@ -140,9 +140,9 @@ def load_universe() -> list[Stock]:
 
 def fetch_ohlcv(symbol: str, start: str = "2022-01-01") -> pd.DataFrame:
     """
-    Fetch daily OHLCV via the yfinance library (handles Yahoo Finance auth/crumb
-    internally — more reliable than raw API calls on shared IPs like GitHub Actions).
-    Returns DataFrame with columns: date (DatetimeIndex), open, high, low, close, volume.
+    Fetch daily OHLCV from Stooq (free, no auth, works on CI).
+    Falls back to Yahoo Finance raw API if Stooq fails.
+    Returns DataFrame with DatetimeIndex, columns: open, high, low, close, volume.
     Caches to .cache_stock/<SYMBOL>.parquet (24h TTL).
     """
     cache_file = CACHE_DIR / f"{symbol}.parquet"
@@ -153,39 +153,81 @@ def fetch_ohlcv(symbol: str, start: str = "2022-01-01") -> pd.DataFrame:
             df.index = pd.to_datetime(df.index)
             return df
 
-    import yfinance as yf
+    session = _get_session()
 
-    ticker = f"{symbol}.NS"
+    # ── Primary: Stooq (no auth, no rate-limit on CI) ───────────────────────
+    stooq_sym = symbol.lower()
+    d1 = start.replace("-", "")
+    d2 = (pd.Timestamp.now() + pd.Timedelta(days=1)).strftime("%Y%m%d")
+    stooq_url = f"https://stooq.com/q/d/l/?s={stooq_sym}.ns&d1={d1}&d2={d2}&i=d"
     try:
-        raw = yf.download(
-            ticker,
-            start=start,
-            auto_adjust=True,
-            progress=False,
-            threads=False,
-        )
-        if raw is None or raw.empty:
-            log.debug("%s: yfinance returned empty DataFrame", symbol)
-            return pd.DataFrame()
-
-        # Flatten MultiIndex columns (yfinance >= 0.2 returns MultiIndex)
-        if isinstance(raw.columns, pd.MultiIndex):
-            raw.columns = [c[0].lower() for c in raw.columns]
-        else:
+        r = session.get(stooq_url, timeout=30)
+        if r.status_code == 200 and len(r.content) > 100:
+            from io import StringIO
+            raw = pd.read_csv(StringIO(r.text))
             raw.columns = [c.lower() for c in raw.columns]
-
-        df = raw[["open", "high", "low", "close", "volume"]].copy()
-        df.index = pd.to_datetime(df.index).tz_localize(None)
-        df = df.dropna(subset=["close"])
-        df = df[df["close"] > 0].sort_index()
-
-        if not df.empty:
-            df.to_parquet(cache_file)
-        return df
-
+            if "date" in raw.columns and "close" in raw.columns:
+                raw["date"] = pd.to_datetime(raw["date"])
+                raw = raw.set_index("date").sort_index()
+                raw = raw.dropna(subset=["close"])
+                raw = raw[raw["close"] > 0]
+                # Stooq returns newest-first for some regions; ensure ascending
+                raw = raw.sort_index()
+                needed = [c for c in ["open", "high", "low", "close", "volume"] if c in raw.columns]
+                df = raw[needed].copy()
+                if not df.empty:
+                    df.to_parquet(cache_file)
+                    log.debug("%s: stooq OK (%d rows)", symbol, len(df))
+                    return df
     except Exception as e:
-        log.debug("%s: yfinance fetch failed: %s", symbol, e)
-        return pd.DataFrame()
+        log.debug("%s: stooq fetch error: %s", symbol, e)
+
+    # ── Fallback: Yahoo Finance v8 raw API ───────────────────────────────────
+    ticker = f"{symbol}.NS"
+    start_ts = int(pd.Timestamp(start).timestamp())
+    end_ts   = int(pd.Timestamp.now().timestamp()) + 86400
+    params   = {"interval": "1d", "period1": start_ts, "period2": end_ts,
+                 "events": "history", "includePrePost": "false"}
+    for base in [
+        "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
+        "https://query2.finance.yahoo.com/v8/finance/chart/{ticker}",
+    ]:
+        url = base.format(ticker=ticker)
+        try:
+            r = session.get(url, params=params, timeout=20)
+            if r.status_code == 429:
+                break
+            if r.status_code != 200:
+                continue
+            data   = r.json()
+            result = data.get("chart", {}).get("result")
+            if not result:
+                continue
+            meta       = result[0]
+            timestamps = meta.get("timestamp", [])
+            quote      = meta.get("indicators", {}).get("quote", [{}])[0]
+            adj_closes = (meta.get("indicators", {}).get("adjclose", [{}])[0].get("adjclose"))
+            closes = adj_closes or quote.get("close", [])
+            if not timestamps or not closes:
+                continue
+            idx = pd.to_datetime(timestamps, unit="s").tz_localize(None)
+            df = pd.DataFrame({
+                "open":   quote.get("open",   [None]*len(timestamps)),
+                "high":   quote.get("high",   [None]*len(timestamps)),
+                "low":    quote.get("low",     [None]*len(timestamps)),
+                "close":  closes,
+                "volume": quote.get("volume", [None]*len(timestamps)),
+            }, index=idx)
+            df = df.dropna(subset=["close"]).sort_index()
+            df = df[df["close"] > 0]
+            if not df.empty:
+                df.to_parquet(cache_file)
+                return df
+        except Exception as e:
+            log.debug("%s YF fallback error: %s", symbol, e)
+
+    log.debug("%s: all sources failed", symbol)
+    return pd.DataFrame()
 
 
 # ─── Fundamentals fetcher with disk cache ────────────────────────────────────
