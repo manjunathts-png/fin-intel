@@ -109,10 +109,9 @@ jobs:
 
       # ── Sentiment: runs on Monday midnight IST (weekly) ───────────────────
       - name: Run news sentiment analysis (weekly)
-        if: |
+        if: >-
           steps.target.outputs.target == 'sentiment' &&
-          steps.dbcheck.outputs.tables_ok == 'true' &&
-          secrets.ANTHROPIC_API_KEY != ''
+          steps.dbcheck.outputs.tables_ok == 'true'
         run: python ml/sentiment.py
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
