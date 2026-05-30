@@ -144,33 +144,42 @@ function findSchemeCode(amfiList, queryName) {
 
 async function fetchSchemeHistory(code) {
   const cached = cache.schemes[code];
-  if (cached && Date.now() - new Date(cached.fetchedAt).getTime() < SCHEME_TTL) {
-    return cached;
-  }
+  const isFresh = cached && Date.now() - new Date(cached.fetchedAt).getTime() < SCHEME_TTL;
+  if (isFresh) return cached;
 
-  const data = await httpsGet(MFAPI_URL(code), { json: true });
-  if (!data || !Array.isArray(data.data)) {
-    throw new Error(`bad mfapi response for ${code}`);
-  }
-  // mfapi: { data: [{ date: "DD-MM-YYYY", nav: "100.00" }, ...] } — newest first
-  const navs = data.data
-    .map((d) => {
-      const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(d.date);
-      if (!m) return null;
-      return { date: `${m[3]}-${m[2]}-${m[1]}`, nav: parseFloat(d.nav) };
-    })
-    .filter((n) => n && !isNaN(n.nav) && n.nav > 0)
-    .sort((a, b) => a.date.localeCompare(b.date)); // oldest first
+  try {
+    const data = await httpsGet(MFAPI_URL(code), { json: true });
+    if (!data || !Array.isArray(data.data)) {
+      throw new Error(`bad mfapi response for ${code}`);
+    }
+    // mfapi: { data: [{ date: "DD-MM-YYYY", nav: "100.00" }, ...] } — newest first
+    const navs = data.data
+      .map((d) => {
+        const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(d.date);
+        if (!m) return null;
+        return { date: `${m[3]}-${m[2]}-${m[1]}`, nav: parseFloat(d.nav) };
+      })
+      .filter((n) => n && !isNaN(n.nav) && n.nav > 0)
+      .sort((a, b) => a.date.localeCompare(b.date)); // oldest first
 
-  const trimmed = navs.slice(-NAV_HISTORY_DAYS);
-  const entry = {
-    fetchedAt: new Date().toISOString(),
-    name: data.meta && data.meta.scheme_name,
-    navs: trimmed,
-  };
-  cache.schemes[code] = entry;
-  saveCache();
-  return entry;
+    const trimmed = navs.slice(-NAV_HISTORY_DAYS);
+    const entry = {
+      fetchedAt: new Date().toISOString(),
+      name: data.meta && data.meta.scheme_name,
+      navs: trimmed,
+    };
+    cache.schemes[code] = entry;
+    saveCache();
+    return entry;
+  } catch (e) {
+    // Stale-on-error: if mfapi.in is down but we have any cached data (even expired),
+    // use it rather than dropping the fund entirely from the leaderboard.
+    if (cached && cached.navs?.length > 0) {
+      console.warn(`  [stale-ok] ${code}: fetch failed (${e.message}) — using cached data from ${cached.fetchedAt.slice(0, 10)}`);
+      return cached;
+    }
+    throw e; // No cache at all — caller logs the warning and skips this fund
+  }
 }
 
 // ─── Stats ────────────────────────────────────────────────────────────────────

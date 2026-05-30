@@ -58,20 +58,41 @@ async function main() {
 
     console.log("Building MF radar…");
     const mf = await getLeaderboard({ force: true, benchmarks });
-    await upsert("mf_radar", mf);
-    console.log(`  ${mf.categories.length} categories processed`);
-    if (mf.warnings?.length) console.warn("  warnings:", mf.warnings);
 
-    console.log("Generating rule-based rationales…");
-    const today      = new Date().toISOString().slice(0, 10);
-    const rationales = generateRationales(mf, 10);
-    for (const r of rationales) {
-      const { error } = await supabase
-        .from("pick_rationales")
-        .upsert({ ...r, generated_at: new Date().toISOString(), run_date: today },
-                { onConflict: "fund_code,run_date" });
-      if (error) console.warn(`  ✗ rationale for ${r.fund_name}: ${error.message}`);
-      else       console.log(`  ✓ #${r.rank} ${r.fund_name} → ${r.analysis.verdict}`);
+    // ── Partial-result guard ──────────────────────────────────────────────────
+    // If mfapi.in is down, most funds will fail with 502/timeout and we'd
+    // overwrite a good cache with a near-empty one (as happened 2026-05-30).
+    // Abort the upsert if fewer than 60% of funds loaded successfully.
+    const totalFunds   = mf.categories.reduce((s, c) => s + c.funds.length, 0);
+    const totalFailed  = mf.warnings?.length ?? 0;
+    const totalExpected = totalFunds + totalFailed;
+    const successRate  = totalExpected > 0 ? totalFunds / totalExpected : 1;
+    if (successRate < 0.60) {
+      console.error(
+        `  ✗ MF radar aborted — only ${totalFunds}/${totalExpected} funds loaded ` +
+        `(${(successRate * 100).toFixed(0)}% success rate < 60% threshold). ` +
+        `Keeping existing cache. mfapi.in may be down.`
+      );
+      console.error(`  First failures: ${mf.warnings?.slice(0, 3).join(" | ")}`);
+    } else {
+      await upsert("mf_radar", mf);
+      console.log(`  ${mf.categories.length} categories, ${totalFunds} funds (${totalFailed} failed)`);
+      if (mf.warnings?.length) console.warn("  warnings:", mf.warnings.slice(0, 5));
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    if (successRate >= 0.60) {
+      console.log("Generating rule-based rationales…");
+      const today      = new Date().toISOString().slice(0, 10);
+      const rationales = generateRationales(mf, 10);
+      for (const r of rationales) {
+        const { error } = await supabase
+          .from("pick_rationales")
+          .upsert({ ...r, generated_at: new Date().toISOString(), run_date: today },
+                  { onConflict: "fund_code,run_date" });
+        if (error) console.warn(`  ✗ rationale for ${r.fund_name}: ${error.message}`);
+        else       console.log(`  ✓ #${r.rank} ${r.fund_name} → ${r.analysis.verdict}`);
+      }
     }
   }
 
