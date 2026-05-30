@@ -755,6 +755,9 @@ def main():
                    help="Compute but don't write to Supabase")
     p.add_argument("--workers",  type=int, default=1,
                    help="Yahoo fetch threads for OHLCV (default 1 — use 1 to avoid rate-limiting)")
+    p.add_argument("--no-fundamentals", action="store_true",
+                   help="Skip fundamentals fetch (use for backfill to avoid forward-look bias — "
+                        "historical rows should not carry today's P/E, ROE etc.)")
     args = p.parse_args()
 
     stocks = load_universe()
@@ -788,17 +791,27 @@ def main():
     log.info("OHLCV ready: %d/%d stocks have data", ok, len(stocks))
 
     # ── Fetch fundamentals once ───────────────────────────────────────────────
-    log.info("Warming fundamentals cache…")
     fund_map: dict[str, dict] = {}
+    if args.no_fundamentals:
+        log.info("Skipping fundamentals (--no-fundamentals set — backfill mode, "
+                 "avoids forward-look bias in historical rows)")
+        fund_map = {s.symbol: {} for s in stocks}
+    else:
+        log.info("Warming fundamentals cache…")
 
-    def _fetch_fund(s: Stock) -> tuple[str, dict]:
-        return s.symbol, fetch_fundamentals(s.symbol)
+        def _fetch_fund(s: Stock) -> tuple[str, dict]:
+            return s.symbol, fetch_fundamentals(s.symbol)
 
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        for sym, fd in tqdm(
-            pool.map(_fetch_fund, stocks), total=len(stocks), desc="Fundamentals"
-        ):
-            fund_map[sym] = fd
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            for sym, fd in tqdm(
+                pool.map(_fetch_fund, stocks), total=len(stocks), desc="Fundamentals"
+            ):
+                fund_map[sym] = fd
+
+        # Persist today's fundamentals snapshot for point-in-time joins
+        if not args.dry_run and supabase is None:
+            pass  # supabase not connected yet at this point — snapshot written in date loop
+        _fund_snapshot_date = as_of_end.strftime("%Y-%m-%d")
 
     # ── Load macro cache once ─────────────────────────────────────────────────
     macro = load_macro_series()
@@ -812,6 +825,25 @@ def main():
     supabase = None
     if not args.dry_run:
         supabase = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+
+        # Persist today's fundamentals snapshot (point-in-time history)
+        if not args.no_fundamentals and fund_map:
+            _FUND_COLS = ["pe_ratio","pb_ratio","roe","revenue_growth",
+                          "earnings_growth","profit_margins","debt_to_equity","dividend_yield"]
+            snap_rows = []
+            today_str = as_of_end.strftime("%Y-%m-%d")
+            for sym, fd in fund_map.items():
+                if any(fd.get(c) is not None for c in _FUND_COLS):
+                    snap_rows.append({"symbol": sym, "snapshot_date": today_str, **{c: fd.get(c) for c in _FUND_COLS}})
+            if snap_rows:
+                try:
+                    for i in range(0, len(snap_rows), 200):
+                        supabase.table("stock_fundamentals_history").upsert(
+                            snap_rows[i:i+200], on_conflict="symbol,snapshot_date"
+                        ).execute()
+                    log.info("Saved %d fundamentals snapshots to stock_fundamentals_history", len(snap_rows))
+                except Exception as e:
+                    log.warning("Fundamentals history upsert failed (table may not exist yet): %s", e)
 
     # ── Iterate over dates ────────────────────────────────────────────────────
     total_written = 0

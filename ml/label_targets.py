@@ -44,9 +44,15 @@ log = logging.getLogger("label_targets")
 RISK_FREE_RATE = 0.07
 
 
-def load_unlabeled(supabase, cutoff: date) -> pd.DataFrame:
+def _col_names(fwd_days: int) -> tuple[str, str, str]:
+    if fwd_days <= 45:
+        return "fwd_ret_1m", "fwd_quartile_1m", "fwd_top_q_1m"
+    return "fwd_ret_3m", "fwd_quartile_3m", "fwd_top_q_3m"
+
+
+def load_unlabeled(supabase, cutoff: date, top_q_col: str = "fwd_top_q_3m") -> pd.DataFrame:
     """Load mf_features rows that need labels (old enough, not yet labeled)."""
-    log.info("Loading unlabeled rows with as_of_date <= %s", cutoff)
+    log.info("Loading unlabeled rows (%s IS NULL, as_of_date <= %s)", top_q_col, cutoff)
     rows: list[dict] = []
     page_size = 1000
     offset = 0
@@ -54,7 +60,7 @@ def load_unlabeled(supabase, cutoff: date) -> pd.DataFrame:
         resp = (
             supabase.table("mf_features")
             .select("scheme_code,as_of_date,category,ret1y")
-            .is_("fwd_top_q_3m", "null")
+            .is_(top_q_col, "null")
             .lte("as_of_date", str(cutoff))
             .order("as_of_date")
             .range(offset, offset + page_size - 1)
@@ -93,6 +99,9 @@ def compute_labels(
     supabase,
     fwd_days: int = 90,
     dry_run: bool = False,
+    ret_col: str = "fwd_ret_3m",
+    quartile_col: str = "fwd_quartile_3m",
+    top_q_col: str = "fwd_top_q_3m",
 ) -> int:
     """
     For each unlabeled row, find the feature row closest to (as_of_date + fwd_days)
@@ -209,11 +218,11 @@ def compute_labels(
                 continue  # No NAV data for forward date yet
 
             updates.append({
-                "scheme_code":        code,
-                "as_of_date":         str(as_of),
-                "fwd_ret_3m":         round(fwd_ret, 4),
-                "fwd_quartile_3m":    fwd_q,
-                "fwd_top_q_3m":       fwd_top,
+                "scheme_code":   code,
+                "as_of_date":    str(as_of),
+                ret_col:         round(fwd_ret, 4),
+                quartile_col:    fwd_q,
+                top_q_col:       fwd_top,
             })
 
     if not updates:
@@ -241,9 +250,14 @@ def compute_labels(
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--window", type=int, default=90, help="Forward window in days (default 90)")
+    p.add_argument("--window",  type=int, default=90,
+                   help="Forward window in days: 90=3M (default), 30=1M")
     p.add_argument("--dry-run", action="store_true", help="Compute but don't write")
     args = p.parse_args()
+
+    ret_col, quartile_col, top_q_col = _col_names(args.window)
+    log.info("Horizon: %dd  →  columns: %s / %s / %s",
+             args.window, ret_col, quartile_col, top_q_col)
 
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_SERVICE_KEY")
@@ -253,15 +267,21 @@ def main():
 
     supabase = create_client(url, key)
 
-    # Only label rows where the forward window has fully elapsed
     cutoff = date.today() - timedelta(days=args.window)
-    unlabeled = load_unlabeled(supabase, cutoff)
+    unlabeled = load_unlabeled(supabase, cutoff, top_q_col=top_q_col)
 
     if unlabeled.empty:
         log.info("Nothing to label — run extract_features.py --backfill 365 first")
         sys.exit(0)
 
-    n = compute_labels(unlabeled, supabase, fwd_days=args.window, dry_run=args.dry_run)
+    n = compute_labels(
+        unlabeled, supabase,
+        fwd_days=args.window,
+        dry_run=args.dry_run,
+        ret_col=ret_col,
+        quartile_col=quartile_col,
+        top_q_col=top_q_col,
+    )
     log.info("Done. Labeled %d rows.", n)
 
 

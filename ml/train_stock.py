@@ -71,14 +71,14 @@ DEFAULT_PARAMS = {
 
 # ─── Data loading ─────────────────────────────────────────────────────────────
 
-def load_labeled(supabase) -> pd.DataFrame:
-    log.info("Loading labeled training data from stock_features…")
+def load_labeled(supabase, target_col: str) -> pd.DataFrame:
+    log.info("Loading labeled training data from stock_features (target=%s)…", target_col)
     rows, page_size, offset = [], 1000, 0
     while True:
         resp = (
             supabase.table("stock_features")
             .select("*")
-            .not_.is_(STOCK_TARGET_COL, "null")
+            .not_.is_(target_col, "null")
             .order("as_of_date")
             .range(offset, offset + page_size - 1)
             .execute()
@@ -268,7 +268,8 @@ def get_feature_importance(model, feature_names) -> list[dict]:
 # ─── Writers ──────────────────────────────────────────────────────────────────
 
 def write_predictions(supabase, pred_df, probs, top_features_list,
-                      model_version, prediction_date, batch=500) -> int:
+                      model_version, prediction_date, prob_col: str = "p_top_quartile_3m",
+                      batch=500) -> int:
     rows   = []
     order  = np.argsort(probs)[::-1]
     g_rank = np.empty(len(probs), dtype=int)
@@ -286,13 +287,13 @@ def write_predictions(supabase, pred_df, probs, top_features_list,
 
     for i, (_, row) in enumerate(pred_df.iterrows()):
         rows.append({
-            "symbol":            row["symbol"],
-            "prediction_date":   str(prediction_date),
-            "model_version":     model_version,
-            "p_top_quartile_3m": round(float(probs[i]), 6),
-            "pred_rank":         int(g_rank[i]),
-            "pred_sector_rank":  int(sec_ranks[i]),
-            "top_features":      top_features_list[i],
+            "symbol":           row["symbol"],
+            "prediction_date":  str(prediction_date),
+            "model_version":    model_version,
+            prob_col:           round(float(probs[i]), 6),
+            "pred_rank":        int(g_rank[i]),
+            "pred_sector_rank": int(sec_ranks[i]),
+            "top_features":     top_features_list[i],
         })
 
     total = 0
@@ -327,12 +328,20 @@ def write_model_run(supabase, model_version, feature_count, training_samples,
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--prediction-date", type=str, default=None)
+    p.add_argument("--horizon",  type=str, default="3m", choices=["3m", "1m"],
+                   help="Prediction horizon: 3m (default) or 1m")
     p.add_argument("--tune",            action="store_true")
     p.add_argument("--n-trials",        type=int, default=50)
     p.add_argument("--no-calibrate",    action="store_true")
     p.add_argument("--no-shap",         action="store_true")
     p.add_argument("--dry-run",         action="store_true")
     args = p.parse_args()
+
+    # Resolve horizon-specific column names
+    target_col = "fwd_top_q_1m" if args.horizon == "1m" else "fwd_top_q_3m"
+    prob_col   = "p_top_quartile_1m" if args.horizon == "1m" else "p_top_quartile_3m"
+    horizon_tag = args.horizon
+    log.info("Horizon: %s  target=%s  output=%s", horizon_tag, target_col, prob_col)
 
     pred_date = date.fromisoformat(args.prediction_date) if args.prediction_date else date.today()
 
@@ -345,19 +354,21 @@ def main():
     supabase = create_client(url, key)
 
     # ── 1. Load training data ──────────────────────────────────────────────
-    train_df = load_labeled(supabase)
+    train_df = load_labeled(supabase, target_col)
     if len(train_df) < 50:
         log.error(
-            "Only %d labeled rows found. Run:\n"
-            "  python extract_stock_features.py --backfill 730\n"
-            "  python label_stock_targets.py\n"
-            "to build the training set (needs 90+ days of data).",
-            len(train_df),
+            "Only %d labeled rows found for %s. Run:\n"
+            "  python extract_stock_features.py --backfill 730 --no-fundamentals\n"
+            "  python label_stock_targets.py --window %s\n"
+            "to build the training set (needs %s+ days of data).",
+            len(train_df), target_col,
+            "30" if args.horizon == "1m" else "90",
+            "30" if args.horizon == "1m" else "90",
         )
         sys.exit(1)
 
     X_train, train_medians = prepare_X(train_df)
-    y_train = train_df[STOCK_TARGET_COL].astype(int)
+    y_train = train_df[target_col].astype(int)
     training_window = (
         f"{train_df['as_of_date'].min().date()} to {train_df['as_of_date'].max().date()}"
     )
@@ -419,7 +430,7 @@ def main():
 
     # ── 8. Model version ───────────────────────────────────────────────────
     feat_hash     = hashlib.md5(",".join(sorted(X_train.columns)).encode()).hexdigest()[:6]
-    model_version = f"stock_lgbm_v1.0_{pred_date}_{feat_hash}"
+    model_version = f"stock_lgbm_v1.0_{horizon_tag}_{pred_date}_{feat_hash}"
 
     # ── 9. Write ───────────────────────────────────────────────────────────
     if args.dry_run:
@@ -428,7 +439,8 @@ def main():
                  pred_df.iloc[0]["symbol"], float(probs[0]))
     else:
         write_predictions(supabase, pred_df, probs, top_features_list,
-                          model_version=model_version, prediction_date=pred_date)
+                          model_version=model_version, prediction_date=pred_date,
+                          prob_col=prob_col)
         write_model_run(
             supabase,
             model_version=model_version,

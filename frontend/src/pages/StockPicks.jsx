@@ -186,22 +186,49 @@ function ScoreBadge({ score }) {
 
 // ─── AI/ML prediction badge ───────────────────────────────────────────────────
 
-function MlBadge({ prob }) {
+function mlStyle(prob) {
   if (prob == null) return null;
-  const pct = Math.round(prob * 100);
-  const [gradient, ring, label] =
-    prob >= 0.65 ? ["from-emerald-700 to-emerald-500", "ring-emerald-500/40", "Strong"]  :
-    prob >= 0.50 ? ["from-blue-700 to-blue-500",       "ring-blue-500/40",    "Positive"] :
-    prob >= 0.35 ? ["from-gray-700 to-gray-500",       "ring-gray-500/30",    "Neutral"]  :
-                   ["from-red-900 to-red-700",          "ring-red-500/30",     "Weak"];
+  if (prob >= 0.65) return { gradient: "from-emerald-700 to-emerald-500", ring: "ring-emerald-500/40", label: "Strong"   };
+  if (prob >= 0.50) return { gradient: "from-blue-700 to-blue-500",       ring: "ring-blue-500/40",    label: "Positive" };
+  if (prob >= 0.35) return { gradient: "from-gray-700 to-gray-500",       ring: "ring-gray-500/30",    label: "Neutral"  };
+  return               { gradient: "from-red-900 to-red-700",          ring: "ring-red-500/30",     label: "Weak"     };
+}
+
+function MlBadge({ prob3m, prob1m }) {
+  const s3 = mlStyle(prob3m);
+  const s1 = mlStyle(prob1m);
+  if (!s3 && !s1) return null;
+
+  // If we have both, show a combined badge with two rows
+  if (s3 && s1) {
+    const pct3 = Math.round(prob3m * 100);
+    const pct1 = Math.round(prob1m * 100);
+    return (
+      <div
+        className={`rounded-lg bg-gradient-to-br ${s3.gradient} ring-1 ${s3.ring} px-2.5 py-1 text-center min-w-[58px]`}
+        title={`AI/ML — 3M: ${pct3}% · 1M: ${pct1}% probability of top-quartile return`}
+      >
+        <div className="text-[10px] text-white/60 uppercase tracking-wider leading-none mb-0.5">🤖 AI/ML</div>
+        <div className="text-base font-bold text-white tabular-nums leading-none">{pct3}%</div>
+        <div className="text-[8px] text-white/60 tabular-nums">1M: {pct1}%</div>
+        <div className="text-[8px] text-white/70 uppercase tracking-wider">{s3.label}</div>
+      </div>
+    );
+  }
+
+  // Single horizon
+  const s   = s3 ?? s1;
+  const prob = prob3m ?? prob1m;
+  const pct  = Math.round(prob * 100);
+  const tag  = prob3m != null ? "3M" : "1M";
   return (
     <div
-      className={`rounded-lg bg-gradient-to-br ${gradient} ring-1 ${ring} px-2.5 py-1 text-center min-w-[58px]`}
-      title={`AI/ML model: ${pct}% probability of top-quartile sector return in 3 months`}
+      className={`rounded-lg bg-gradient-to-br ${s.gradient} ring-1 ${s.ring} px-2.5 py-1 text-center min-w-[58px]`}
+      title={`AI/ML model: ${pct}% probability of top-quartile return (${tag})`}
     >
-      <div className="text-[10px] text-white/60 uppercase tracking-wider leading-none mb-0.5">🤖 AI/ML</div>
+      <div className="text-[10px] text-white/60 uppercase tracking-wider leading-none mb-0.5">🤖 {tag}</div>
       <div className="text-base font-bold text-white tabular-nums leading-none">{pct}%</div>
-      <div className="text-[8px] text-white/70 uppercase tracking-wider">{label}</div>
+      <div className="text-[8px] text-white/70 uppercase tracking-wider">{s.label}</div>
     </div>
   );
 }
@@ -301,7 +328,7 @@ function RankDeltaChip({ delta }) {
   );
 }
 
-function StockPickCard({ pick, rank, ruleBased, aiRationale, mlProb, onOpenDrawer }) {
+function StockPickCard({ pick, rank, ruleBased, aiRationale, mlProb3m, mlProb1m, onOpenDrawer }) {
   const [expanded, setExpanded] = useState(false);
 
   const verdict   = ruleBased?.analysis?.verdict ?? aiRationale?.analysis?.verdict;
@@ -371,7 +398,7 @@ function StockPickCard({ pick, rank, ruleBased, aiRationale, mlProb, onOpenDrawe
         {/* Score + AI/ML badge + expand toggle */}
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <div className="flex gap-2">
-            <MlBadge prob={mlProb} />
+            <MlBadge prob3m={mlProb3m} prob1m={mlProb1m} />
             <ScoreBadge score={pick.compositeScore} />
           </div>
           <button
@@ -684,9 +711,9 @@ export default function StockPicks() {
       supabase.from("stock_pick_rationales").select("*").order("run_date", { ascending: false }).order("rank").limit(50),
       supabase.from("stock_pick_ai_rationales").select("*").order("rank"),
       supabase.from("stock_predictions")
-        .select("symbol,p_top_quartile_3m,prediction_date")
+        .select("symbol,p_top_quartile_3m,p_top_quartile_1m,prediction_date,model_version")
         .order("prediction_date", { ascending: false })
-        .limit(300),
+        .limit(500),
     ]).then(([sRule, sAi, mlPred]) => {
       if (!sRule.error && sRule.data) {
         const bySymbol = {};
@@ -699,9 +726,16 @@ export default function StockPicks() {
         setStockAiRat(bySymbol);
       }
       if (!mlPred.error && mlPred.data && mlPred.data.length > 0) {
-        // Keep most recent prediction per symbol (already ordered by prediction_date desc)
+        // Merge most recent 3M and 1M predictions per symbol
         const bySymbol = {};
-        mlPred.data.forEach((r) => { if (!bySymbol[r.symbol]) bySymbol[r.symbol] = r; });
+        mlPred.data.forEach((r) => {
+          if (!bySymbol[r.symbol]) bySymbol[r.symbol] = {};
+          const s = bySymbol[r.symbol];
+          if (r.p_top_quartile_3m != null && s.p_top_quartile_3m == null)
+            s.p_top_quartile_3m = r.p_top_quartile_3m;
+          if (r.p_top_quartile_1m != null && s.p_top_quartile_1m == null)
+            s.p_top_quartile_1m = r.p_top_quartile_1m;
+        });
         setMlPredMap(bySymbol);
       }
     });
@@ -834,7 +868,8 @@ export default function StockPicks() {
               rank={pick.rank ?? "—"}
               ruleBased={stockRuleRat[pick.symbol] ?? null}
               aiRationale={stockAiRat[pick.symbol] ?? null}
-              mlProb={mlRec?.p_top_quartile_3m ?? null}
+              mlProb3m={mlRec?.p_top_quartile_3m ?? null}
+              mlProb1m={mlRec?.p_top_quartile_1m ?? null}
               onOpenDrawer={setDrawer}
             />
           );

@@ -349,6 +349,7 @@ def write_predictions(
     top_features_list: list[list[dict]],
     model_version: str,
     prediction_date: date,
+    prob_col: str = "p_top_quartile_3m",
     batch: int = 500,
 ) -> int:
     rows: list[dict] = []
@@ -371,13 +372,13 @@ def write_predictions(
 
     for i, (_, fund_row) in enumerate(pred_df.iterrows()):
         rows.append({
-            "scheme_code":       fund_row["scheme_code"],
-            "prediction_date":   str(prediction_date),
-            "model_version":     model_version,
-            "p_top_quartile_3m": round(float(probs[i]), 6),
-            "pred_rank":         int(global_ranks[i]),
-            "pred_cat_rank":     int(cat_ranks[i]),
-            "top_features":      top_features_list[i],
+            "scheme_code":     fund_row["scheme_code"],
+            "prediction_date": str(prediction_date),
+            "model_version":   model_version,
+            prob_col:          round(float(probs[i]), 6),
+            "pred_rank":       int(global_ranks[i]),
+            "pred_cat_rank":   int(cat_ranks[i]),
+            "top_features":    top_features_list[i],
         })
 
     total = 0
@@ -530,12 +531,19 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--prediction-date", type=str, default=None,
                    help="YYYY-MM-DD for predictions (default: today)")
+    p.add_argument("--horizon",  type=str, default="3m", choices=["3m", "1m"],
+                   help="Prediction horizon: 3m (default) or 1m")
     p.add_argument("--tune",          action="store_true", help="Run Optuna hyperparameter tuning")
     p.add_argument("--n-trials",      type=int, default=50, help="Optuna trial count (default 50)")
     p.add_argument("--no-calibrate",  action="store_true", help="Skip probability calibration")
     p.add_argument("--no-shap",       action="store_true", help="Skip SHAP computation (faster)")
     p.add_argument("--dry-run",       action="store_true", help="Train but don't write to Supabase")
     args = p.parse_args()
+
+    target_col   = "fwd_top_q_1m"      if args.horizon == "1m" else "fwd_top_q_3m"
+    prob_col     = "p_top_quartile_1m" if args.horizon == "1m" else "p_top_quartile_3m"
+    horizon_tag  = args.horizon
+    log.info("Horizon: %s  target=%s  output=%s", horizon_tag, target_col, prob_col)
 
     pred_date = date.fromisoformat(args.prediction_date) if args.prediction_date else date.today()
 
@@ -549,19 +557,22 @@ def main():
 
     # ── 1. Load training data ──────────────────────────────────────────────
     train_df = load_labeled(supabase)
+    # Filter to rows with the correct target column labeled
+    if target_col in train_df.columns:
+        train_df = train_df[train_df[target_col].notna()]
     if len(train_df) < 50:
         log.error(
-            "Only %d labeled rows found. Run:\n"
+            "Only %d labeled rows found for %s. Run:\n"
             "  python extract_features.py --backfill 365\n"
-            "  # wait 3 months, then:\n"
-            "  python label_targets.py\n"
+            "  python label_targets.py --window %s\n"
             "to build the training set.",
-            len(train_df),
+            len(train_df), target_col,
+            "30" if args.horizon == "1m" else "90",
         )
         sys.exit(1)
 
     X_train, train_medians = prepare_X(train_df)
-    y_train = train_df[TARGET_COL].astype(int)
+    y_train = train_df[target_col].astype(int)
 
     training_window = f"{train_df['as_of_date'].min().date()} to {train_df['as_of_date'].max().date()}"
     log.info("Training set: %d rows, %d features, window: %s",
@@ -637,7 +648,7 @@ def main():
     feat_hash = hashlib.md5(
         ",".join(sorted(X_train.columns)).encode()
     ).hexdigest()[:6]
-    model_version = f"lgbm_v1.0_{pred_date}_{feat_hash}"
+    model_version = f"lgbm_v1.0_{horizon_tag}_{pred_date}_{feat_hash}"
 
     # ── 9b. SHAP stability check ───────────────────────────────────────────
     # Compare top-5 features against the previous model run. Warn if <4/5
@@ -657,6 +668,7 @@ def main():
             supabase, pred_df, probs, top_features_list,
             model_version=model_version,
             prediction_date=pred_date,
+            prob_col=prob_col,
         )
         # Attach SHAP stability report to model-run notes for the audit log
         stability_note = (
