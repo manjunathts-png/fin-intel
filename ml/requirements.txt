@@ -1,0 +1,17 @@
+# Core data + ML
+pandas==2.2.2
+numpy==1.26.4
+scipy==1.13.1
+scikit-learn==1.5.1
+lightgbm==4.5.0
+
+# Supabase + HTTP
+supabase==2.5.0
+httpx==0.27.0
+python-dotenv==1.0.1
+
+# Parquet for fast feature snapshots (optional but useful)
+pyarrow==17.0.0
+
+# CLI niceties
+tqdm==4.66.4
