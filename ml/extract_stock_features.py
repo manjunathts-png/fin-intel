@@ -140,7 +140,8 @@ def load_universe() -> list[Stock]:
 
 def fetch_ohlcv(symbol: str, start: str = "2022-01-01") -> pd.DataFrame:
     """
-    Fetch daily OHLCV from Yahoo Finance chart API v8.
+    Fetch daily OHLCV via the yfinance library (handles Yahoo Finance auth/crumb
+    internally — more reliable than raw API calls on shared IPs like GitHub Actions).
     Returns DataFrame with columns: date (DatetimeIndex), open, high, low, close, volume.
     Caches to .cache_stock/<SYMBOL>.parquet (24h TTL).
     """
@@ -152,73 +153,39 @@ def fetch_ohlcv(symbol: str, start: str = "2022-01-01") -> pd.DataFrame:
             df.index = pd.to_datetime(df.index)
             return df
 
+    import yfinance as yf
+
     ticker = f"{symbol}.NS"
-    start_ts = int(pd.Timestamp(start).timestamp())
-    end_ts   = int(pd.Timestamp.now().timestamp()) + 86400
-    params   = {"interval": "1d", "period1": start_ts, "period2": end_ts,
-                 "events": "history", "includePrePost": "false"}
-    url      = _YF_CHART_URL.format(ticker=ticker)
-    session  = _get_session()
+    try:
+        raw = yf.download(
+            ticker,
+            start=start,
+            auto_adjust=True,
+            progress=False,
+            threads=False,
+        )
+        if raw is None or raw.empty:
+            log.debug("%s: yfinance returned empty DataFrame", symbol)
+            return pd.DataFrame()
 
-    # Try query1 then query2 as fallback
-    for base_url in [
-        "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
-        "https://query2.finance.yahoo.com/v8/finance/chart/{ticker}",
-    ]:
-        url = base_url.format(ticker=ticker)
-        for attempt in range(2):
-            try:
-                r = session.get(url, params=params, timeout=20)
-                if r.status_code == 429:
-                    if attempt == 0:
-                        time.sleep(10)
-                        continue
-                    break   # try next base URL
-                if r.status_code != 200:
-                    log.debug("%s HTTP %d", symbol, r.status_code)
-                    break
+        # Flatten MultiIndex columns (yfinance >= 0.2 returns MultiIndex)
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = [c[0].lower() for c in raw.columns]
+        else:
+            raw.columns = [c.lower() for c in raw.columns]
 
-                data   = r.json()
-                result = data.get("chart", {}).get("result")
-                if not result:
-                    break
+        df = raw[["open", "high", "low", "close", "volume"]].copy()
+        df.index = pd.to_datetime(df.index).tz_localize(None)
+        df = df.dropna(subset=["close"])
+        df = df[df["close"] > 0].sort_index()
 
-                meta       = result[0]
-                timestamps = meta.get("timestamp", [])
-                quote      = meta.get("indicators", {}).get("quote", [{}])[0]
-                adj_closes = (
-                    meta.get("indicators", {}).get("adjclose", [{}])[0].get("adjclose")
-                )
-                closes = adj_closes or quote.get("close", [])
-                opens  = quote.get("open",   [])
-                highs  = quote.get("high",   [])
-                lows   = quote.get("low",    [])
-                vols   = quote.get("volume", [])
+        if not df.empty:
+            df.to_parquet(cache_file)
+        return df
 
-                if not timestamps or not closes:
-                    break
-
-                idx = pd.to_datetime(timestamps, unit="s").tz_localize(None)
-                df  = pd.DataFrame({
-                    "open":   opens  if opens  else [None] * len(timestamps),
-                    "high":   highs  if highs  else [None] * len(timestamps),
-                    "low":    lows   if lows   else [None] * len(timestamps),
-                    "close":  closes,
-                    "volume": vols   if vols   else [None] * len(timestamps),
-                }, index=idx)
-                df = df.dropna(subset=["close"]).sort_index()
-                df = df[df["close"] > 0]
-                if not df.empty:
-                    df.to_parquet(cache_file)
-                time.sleep(1.0)   # polite inter-request delay
-                return df
-
-            except requests.exceptions.RequestException as e:
-                log.debug("%s fetch error (attempt %d): %s", symbol, attempt + 1, e)
-                time.sleep(4)
-
-    log.debug("%s: all endpoints rate-limited or failed", symbol)
-    return pd.DataFrame()
+    except Exception as e:
+        log.debug("%s: yfinance fetch failed: %s", symbol, e)
+        return pd.DataFrame()
 
 
 # ─── Fundamentals fetcher with disk cache ────────────────────────────────────
