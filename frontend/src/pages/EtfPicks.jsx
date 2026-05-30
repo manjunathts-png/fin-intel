@@ -252,6 +252,12 @@ export default function EtfPicks() {
         </div>
       )}
 
+      {/* Category Momentum Radar */}
+      <MomentumRadar types={types} />
+
+      {/* Signal Hotspots */}
+      <SignalHotspots allEtfs={scored.overallRanked} onOpenDrawer={setDrawer} />
+
       {/* Type filter chips */}
       <div className="flex flex-wrap gap-2">
         {allTypes.map((t) => (
@@ -319,6 +325,15 @@ export default function EtfPicks() {
             '<span class="text-purple-300">z-score</span> — fund\'s 1W return vs trailing 90d weekly distribution',
           ],
         },
+        {
+          title: "Momentum Radar & Hotspots",
+          items: [
+            '<span class="text-purple-300">Category Momentum Radar</span> — 6 ETF type cards sorted by 1W z-score; color intensity = heat level (orange=Hot → indigo=Cold)',
+            '<span class="text-green-300">⚡ Momentum Cluster</span> — ETFs with z1w ≥ 1.0 AND both 1W & 1M positive — multi-timeframe confirmation, not just noise',
+            '<span class="text-yellow-300">⚠️ Premium/Discount Alerts</span> — ETFs trading &gt;0.5% off NAV; buying at premium means paying above fair value on entry',
+            '<span class="text-blue-300">🔭 Contrarian Watch</span> — ETFs with z1w ≤ −1.0; statistically oversold vs recent history — watch for mean-reversion setups',
+          ],
+        },
       ]} note="ETF momentum can drift from underlying index — premium to NAV indicates exchange-side mispricing, not fund quality. Not financial advice." />
 
       <InstrumentDrawer
@@ -327,6 +342,200 @@ export default function EtfPicks() {
         id={drawer?.id}
         onClose={() => setDrawer(null)}
       />
+    </div>
+  );
+}
+
+// ─── Momentum Radar ───────────────────────────────────────────────────────────
+
+function MomentumRadar({ types }) {
+  const sorted = [...types].sort(
+    (a, b) => (b.median?.z1w ?? -Infinity) - (a.median?.z1w ?? -Infinity)
+  );
+
+  function cardStyle(z) {
+    if (z == null) return "border-gray-700/50 bg-gray-900/40";
+    if (z >= 1.5)  return "border-orange-500/50 bg-orange-500/10";
+    if (z >= 0.5)  return "border-yellow-500/40 bg-yellow-500/8";
+    if (z >= -0.5) return "border-gray-600/40 bg-gray-900/40";
+    if (z >= -1.5) return "border-blue-500/30 bg-blue-500/5";
+    return               "border-indigo-500/40 bg-indigo-500/10";
+  }
+
+  return (
+    <div className="rounded-2xl border border-purple-500/30 bg-purple-500/5 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-base">📡</span>
+          <h3 className="text-sm font-semibold text-purple-300">ETF Category Momentum Radar</h3>
+        </div>
+        <span className="text-[11px] text-purple-400/60">median z-score · sorted hottest first</span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        {sorted.map((tb) => {
+          const z = tb.median?.z1w;
+          const zl = zLabel(z);
+          const r1w = tb.median?.ret1w;
+          const r1m = tb.median?.ret1m;
+          const r1y = tb.median?.ret1y;
+          return (
+            <div key={tb.type} className={`rounded-xl border p-2.5 ${cardStyle(z)}`}>
+              <div className="text-[11px] font-semibold text-gray-200 leading-tight truncate" title={tb.type}>
+                {tb.type}
+              </div>
+              {zl && (
+                <span className={`mt-1 inline-block rounded-full border px-1.5 py-px text-[10px] font-bold ${zl.bg}`}>
+                  {zl.text}
+                </span>
+              )}
+              <div className="mt-2 space-y-px">
+                {[["1W", r1w], ["1M", r1m], ["1Y", r1y]].map(([lbl, val]) => (
+                  <div key={lbl} className="flex justify-between text-[10px]">
+                    <span className="text-gray-500">{lbl}</span>
+                    <span className={`font-semibold tabular-nums ${(val ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {fmtPct(val, 1)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-1.5 text-[9px] text-gray-600">
+                {tb.etfCount} ETFs · z {z != null ? z.toFixed(2) : "—"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Signal Hotspots ──────────────────────────────────────────────────────────
+
+function SignalHotspots({ allEtfs, onOpenDrawer }) {
+  const momentumLeaders = allEtfs
+    .filter((e) => (e.z1w ?? 0) >= 1.0 && (e.ret1w ?? 0) > 0 && (e.ret1m ?? 0) > 0)
+    .sort((a, b) => (b.z1w ?? 0) - (a.z1w ?? 0))
+    .slice(0, 5);
+
+  const premiumAlerts = allEtfs
+    .filter((e) => e.premiumPct != null && Math.abs(e.premiumPct) > 0.5)
+    .sort((a, b) => Math.abs(b.premiumPct) - Math.abs(a.premiumPct))
+    .slice(0, 5);
+
+  const contrarian = allEtfs
+    .filter((e) => (e.z1w ?? 0) <= -1.0)
+    .sort((a, b) => (a.z1w ?? 0) - (b.z1w ?? 0))
+    .slice(0, 5);
+
+  function HotspotCard({ etf, left, right }) {
+    return (
+      <button
+        onClick={() => onOpenDrawer({ type: "ETF", id: etf.ticker })}
+        className="w-full flex items-center justify-between rounded-lg bg-gray-900/60 px-2.5 py-2 hover:bg-gray-800/80 transition text-left"
+      >
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-gray-100">{etf.ticker}</div>
+          <div className="text-[10px] text-gray-500 truncate">{etf.type}</div>
+        </div>
+        <div className="text-right ml-2 shrink-0">{right}</div>
+      </button>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-base">💡</span>
+        <h3 className="text-sm font-semibold text-gray-200">Signal Hotspots</h3>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+        {/* Momentum Cluster */}
+        <div className="rounded-xl border border-green-500/30 bg-green-500/5 p-3">
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-sm">⚡</span>
+            <h4 className="text-xs font-semibold text-green-300">Momentum Cluster</h4>
+          </div>
+          <p className="text-[10px] text-gray-500 mb-2.5">z1w ≥ 1.0 confirmed across 1W + 1M</p>
+          {momentumLeaders.length === 0 ? (
+            <p className="text-xs text-gray-600 italic">No ETF in momentum cluster right now</p>
+          ) : (
+            <div className="space-y-1.5">
+              {momentumLeaders.map((etf) => (
+                <HotspotCard
+                  key={etf.ticker}
+                  etf={etf}
+                  right={
+                    <>
+                      <div className="text-xs font-bold text-green-400 tabular-nums">{fmtPct(etf.ret1w, 1)}</div>
+                      <div className="text-[10px] text-orange-400 tabular-nums">z {etf.z1w?.toFixed(2)}</div>
+                    </>
+                  }
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Premium / Discount Alerts */}
+        <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3">
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-sm">⚠️</span>
+            <h4 className="text-xs font-semibold text-yellow-300">Premium / Discount Alerts</h4>
+          </div>
+          <p className="text-[10px] text-gray-500 mb-2.5">ETFs trading &gt;0.5% off NAV · avoid paying price tax</p>
+          {premiumAlerts.length === 0 ? (
+            <p className="text-xs text-green-600 italic">All ETFs near NAV ✓</p>
+          ) : (
+            <div className="space-y-1.5">
+              {premiumAlerts.map((etf) => {
+                const chip = premiumChip(etf.premiumPct);
+                return (
+                  <HotspotCard
+                    key={etf.ticker}
+                    etf={etf}
+                    right={
+                      chip ? (
+                        <span className={`text-[10px] font-bold rounded border px-1.5 py-0.5 ${chip.cls}`}>
+                          {chip.text}
+                        </span>
+                      ) : null
+                    }
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Contrarian Watch */}
+        <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-3">
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-sm">🔭</span>
+            <h4 className="text-xs font-semibold text-blue-300">Contrarian Watch</h4>
+          </div>
+          <p className="text-[10px] text-gray-500 mb-2.5">z1w ≤ −1.0 — oversold, watch for mean-reversion</p>
+          {contrarian.length === 0 ? (
+            <p className="text-xs text-gray-600 italic">No oversold ETFs right now</p>
+          ) : (
+            <div className="space-y-1.5">
+              {contrarian.map((etf) => (
+                <HotspotCard
+                  key={etf.ticker}
+                  etf={etf}
+                  right={
+                    <>
+                      <div className="text-xs font-bold text-red-400 tabular-nums">{fmtPct(etf.ret1w, 1)}</div>
+                      <div className="text-[10px] text-blue-400 tabular-nums">z {etf.z1w?.toFixed(2)}</div>
+                    </>
+                  }
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+      </div>
     </div>
   );
 }
