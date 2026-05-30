@@ -50,16 +50,26 @@ logging.basicConfig(
 log = logging.getLogger("train")
 
 FEATURE_COLS = [
+    # Fund-level returns
     "ret1w", "ret1m", "ret3m", "ret6m", "ret1y", "ret3y", "ret5y",
     "cagr5y", "cagr10y",
+    # Volatility + risk
     "vol_30d", "vol_90d", "vol_1y",
     "max_dd_1y", "downside_dev_1y",
     "sharpe_1y", "sortino_1y",
+    # Momentum
     "z1w",
+    # Consistency
     "positive_months_12m",
+    # Cross-sectional ranks
     "cat_rank_1m", "cat_rank_3m", "cat_rank_1y",
     "univ_rank_1m", "univ_rank_3m", "univ_rank_1y",
     "cat_z",
+    # Style vs benchmark
+    "beta_nifty", "alpha_nifty", "corr_nifty",
+    # Macro context (same across funds on same date)
+    "nifty_ret1m", "nifty_ret3m",
+    "india_vix", "usd_inr", "us_10y_yield",
 ]
 
 TARGET_COL = "fwd_top_q_3m"

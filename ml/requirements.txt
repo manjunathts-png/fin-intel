@@ -10,6 +10,9 @@ supabase==2.5.0
 httpx==0.27.0
 python-dotenv==1.0.1
 
+# Market data (macro features: Nifty, VIX, USD/INR, US 10Y)
+yfinance==0.2.40
+
 # Parquet for fast feature snapshots (optional but useful)
 pyarrow==17.0.0
 

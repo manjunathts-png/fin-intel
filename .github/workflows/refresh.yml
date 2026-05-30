@@ -72,7 +72,9 @@ jobs:
 
       - name: Extract MF features (today)
         if: steps.target.outputs.target == 'all'
-        run: python ml/extract_features.py
+        run: |
+          python ml/extract_features.py
+          python ml/macro_features.py --skip-regression
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
