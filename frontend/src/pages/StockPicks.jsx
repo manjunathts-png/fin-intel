@@ -812,17 +812,15 @@ export default function StockPicks() {
           const bareSymbol = pick.symbol?.replace(/\.NS$/i, "");
           const mlRec      = mlPredMap[bareSymbol] ?? null;
           return (
-          <StockPickCard
-            key={pick.symbol}
-            pick={pick}
-            rank={pick.rank ?? "—"}
-            ruleBased={stockRuleRat[pick.symbol] ?? null}
-            aiRationale={stockAiRat[pick.symbol] ?? null}
-            mlProb={mlRec?.p_top_quartile_3m ?? null}
-            onOpenDrawer={setDrawer}
-          />
-        ))}
-
+            <StockPickCard
+              key={pick.symbol}
+              pick={pick}
+              rank={pick.rank ?? "—"}
+              ruleBased={stockRuleRat[pick.symbol] ?? null}
+              aiRationale={stockAiRat[pick.symbol] ?? null}
+              mlProb={mlRec?.p_top_quartile_3m ?? null}
+              onOpenDrawer={setDrawer}
+            />
           );
         })}
 
