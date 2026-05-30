@@ -30,7 +30,10 @@ load_dotenv(Path(__file__).parent.parent / "backend" / ".env", override=False)
 SETUP_SQL   = Path(__file__).parent / "setup.sql"
 MIGRATE_SQL = Path(__file__).parent / "migrate_001_sentiment.sql"
 
-REQUIRED_TABLES = ["mf_features", "mf_predictions", "mf_model_runs"]
+REQUIRED_TABLES = [
+    "mf_features", "mf_predictions", "mf_model_runs",
+    "stock_features", "stock_predictions", "stock_model_runs",
+]
 OPTIONAL_TABLES = ["mf_sentiment"]
 
 
@@ -67,12 +70,17 @@ def main():
 
     if not missing:
         print("\n✅ All required tables exist. You can run the ML pipeline.\n")
-        print("Next steps:")
-        print("  1. python extract_features.py --backfill 365   # ~30 min, builds training data")
-        print("  2. python macro_features.py --backfill 365 --skip-regression")
-        print("  3. python label_targets.py                     # needs 90+ days of data")
-        print("  4. python train.py --dry-run                   # test training pipeline")
-        print("  5. python train.py                             # train + write predictions\n")
+        print("MF pipeline:")
+        print("  python extract_features.py --backfill 365")
+        print("  python macro_features.py --backfill 365 --skip-regression")
+        print("  python label_targets.py")
+        print("  python train.py --dry-run")
+        print()
+        print("Stock pipeline:")
+        print("  python extract_stock_features.py --backfill 730")
+        print("  python label_stock_targets.py")
+        print("  python train_stock.py --dry-run")
+        print("  python train_stock.py\n")
         return
 
     print(f"\n⚠️  {len(missing)} required table(s) missing: {missing}\n")
@@ -85,7 +93,7 @@ def main():
     print(f"  Dashboard → {url} → SQL Editor → New Query → paste below → Run")
     print("─" * 70)
     print()
-    print("-- STEP 1: Create core ML tables")
+    print("-- STEP 1: Create all ML tables (MF + Stock)")
     print(SETUP_SQL.read_text())
     print()
     print("-- STEP 2: Add sentiment columns (run after Step 1 succeeds)")

@@ -107,6 +107,28 @@ jobs:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
+      # ── Stock ML pipeline: runs nightly after the MF pipeline ───────────────
+      - name: Extract stock features (today)
+        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: python ml/extract_stock_features.py
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      - name: Backfill stock target labels
+        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: python ml/label_stock_targets.py
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      - name: Train stock model + generate predictions
+        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: python ml/train_stock.py --no-shap || echo "Stock training skipped (insufficient labeled data)"
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
       # ── Sentiment: runs on Monday midnight IST (weekly) ───────────────────
       - name: Run news sentiment analysis (weekly)
         if: >-

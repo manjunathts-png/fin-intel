@@ -135,3 +135,136 @@ CREATE TABLE IF NOT EXISTS mf_model_runs (
   feature_importance JSONB,                    -- top 20 features ranked
   notes              TEXT
 );
+
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- Stock ML tables (mirrors the MF tables above but for NSE-listed stocks)
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- ─── stock_features ──────────────────────────────────────────────────────────
+-- One row per (symbol, as_of_date) holding the full ~40-dimensional feature
+-- vector for model training and daily inference.
+
+CREATE TABLE IF NOT EXISTS stock_features (
+  symbol              TEXT        NOT NULL,     -- NSE ticker without .NS, e.g. "TCS"
+  as_of_date          DATE        NOT NULL,
+
+  -- Identity
+  stock_name          TEXT,
+  sector              TEXT,
+
+  -- Returns (%)
+  ret1w               DOUBLE PRECISION,
+  ret1m               DOUBLE PRECISION,
+  ret3m               DOUBLE PRECISION,
+  ret6m               DOUBLE PRECISION,
+  ret1y               DOUBLE PRECISION,
+
+  -- Risk
+  vol_30d             DOUBLE PRECISION,
+  vol_90d             DOUBLE PRECISION,
+  vol_1y              DOUBLE PRECISION,
+  max_dd_1y           DOUBLE PRECISION,
+  downside_dev_1y     DOUBLE PRECISION,
+  sharpe_1y           DOUBLE PRECISION,
+  sortino_1y          DOUBLE PRECISION,
+
+  -- Technical indicators
+  rsi_14              DOUBLE PRECISION,   -- Wilder RSI(14); 0–100
+  macd_hist           DOUBLE PRECISION,   -- MACD histogram (MACD line − signal)
+  bb_pct              DOUBLE PRECISION,   -- Bollinger Band %B: 0=lower, 1=upper band
+  vol_ratio           DOUBLE PRECISION,   -- today volume / 20-day avg volume
+  high52w_pct         DOUBLE PRECISION,   -- % below 52-week high (negative means below)
+
+  -- Momentum
+  z1w                 DOUBLE PRECISION,   -- z-score of weekly return vs trailing 12 weeks
+  positive_months_12m INTEGER,
+
+  -- Cross-sectional (computed across full cohort on same date)
+  sector_rank_1m      DOUBLE PRECISION,   -- percentile rank within sector (0=worst, 1=best)
+  sector_rank_3m      DOUBLE PRECISION,
+  sector_rank_1y      DOUBLE PRECISION,
+  sector_z            DOUBLE PRECISION,   -- z-score of z1w within sector
+  univ_rank_1m        DOUBLE PRECISION,   -- percentile rank across all stocks
+  univ_rank_3m        DOUBLE PRECISION,
+  univ_rank_1y        DOUBLE PRECISION,
+
+  -- Style vs Nifty benchmark
+  beta_nifty          DOUBLE PRECISION,
+  alpha_nifty         DOUBLE PRECISION,   -- annualized excess return
+  corr_nifty          DOUBLE PRECISION,
+
+  -- Fundamentals snapshot (current values; historical rows approximate)
+  pe_ratio            DOUBLE PRECISION,
+  pb_ratio            DOUBLE PRECISION,
+  roe                 DOUBLE PRECISION,   -- return on equity (%)
+  revenue_growth      DOUBLE PRECISION,   -- YoY (%)
+  earnings_growth     DOUBLE PRECISION,   -- YoY (%)
+  profit_margins      DOUBLE PRECISION,   -- net profit margin (%)
+  debt_to_equity      DOUBLE PRECISION,
+  dividend_yield      DOUBLE PRECISION,   -- (%)
+
+  -- Macro context (same across stocks on same date)
+  nifty_ret1m         DOUBLE PRECISION,
+  nifty_ret3m         DOUBLE PRECISION,
+  india_vix           DOUBLE PRECISION,
+  usd_inr             DOUBLE PRECISION,
+  us_10y_yield        DOUBLE PRECISION,
+
+  -- Target labels (backfilled once forward window has elapsed)
+  fwd_ret_3m          DOUBLE PRECISION,   -- realized 3-month forward return (%)
+  fwd_quartile_3m     SMALLINT,           -- 1 (top) to 4 (bottom) within sector
+  fwd_top_q_3m        BOOLEAN,            -- binary target for classifier
+
+  -- Bookkeeping
+  computed_at         TIMESTAMPTZ DEFAULT NOW(),
+
+  PRIMARY KEY (symbol, as_of_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_features_date     ON stock_features (as_of_date);
+CREATE INDEX IF NOT EXISTS idx_stock_features_sector   ON stock_features (sector, as_of_date);
+
+
+-- ─── stock_predictions ───────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS stock_predictions (
+  symbol              TEXT        NOT NULL,
+  prediction_date     DATE        NOT NULL,
+  model_version       TEXT        NOT NULL,
+
+  p_top_quartile_3m   DOUBLE PRECISION,   -- calibrated probability [0, 1]
+  pred_rank           INTEGER,            -- overall rank by p_top_quartile_3m
+  pred_sector_rank    INTEGER,            -- rank within sector
+
+  top_features        JSONB,              -- [{name, value, shap}] top 5 contributors
+
+  computed_at         TIMESTAMPTZ DEFAULT NOW(),
+
+  PRIMARY KEY (symbol, prediction_date, model_version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_predictions_date ON stock_predictions (prediction_date);
+
+
+-- ─── stock_model_runs ────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS stock_model_runs (
+  id                  SERIAL PRIMARY KEY,
+  model_version       TEXT        NOT NULL,
+  trained_at          TIMESTAMPTZ DEFAULT NOW(),
+
+  feature_count       INTEGER,
+  training_samples    INTEGER,
+  training_window     TEXT,
+
+  cv_auc              DOUBLE PRECISION,
+  cv_precision_top_q  DOUBLE PRECISION,
+  backtest_ann_return DOUBLE PRECISION,
+  backtest_benchmark  DOUBLE PRECISION,
+  backtest_alpha      DOUBLE PRECISION,
+
+  hyperparams         JSONB,
+  feature_importance  JSONB,
+  notes               TEXT
+);

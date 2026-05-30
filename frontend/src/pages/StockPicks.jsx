@@ -36,6 +36,15 @@ const CHIP_STYLE = {
   delivery:        "bg-teal-500/20 text-teal-300 border-teal-600/40",
 };
 
+// ML probability → label + style (mirrors MfPicks.jsx)
+function mlProbStyle(p) {
+  if (p == null) return null;
+  if (p >= 0.65) return { label: `🤖 ${Math.round(p * 100)}%`, cls: "bg-emerald-900/30 text-emerald-300 border-emerald-700/40", title: "ML: high probability of top-quartile sector return in 3 months" };
+  if (p >= 0.50) return { label: `🤖 ${Math.round(p * 100)}%`, cls: "bg-blue-900/30 text-blue-300 border-blue-700/40",    title: "ML: above-average probability of top-quartile sector return" };
+  if (p >= 0.35) return { label: `🤖 ${Math.round(p * 100)}%`, cls: "bg-gray-700/30 text-gray-400 border-gray-600/40",    title: "ML: average probability of top-quartile sector return" };
+  return           { label: `🤖 ${Math.round(p * 100)}%`, cls: "bg-red-900/20 text-red-400 border-red-700/30",          title: "ML: below-average probability of top-quartile sector return" };
+}
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 function fmtDate(iso) {
@@ -278,11 +287,12 @@ function RankDeltaChip({ delta }) {
   );
 }
 
-function StockPickCard({ pick, rank, ruleBased, aiRationale, onOpenDrawer }) {
+function StockPickCard({ pick, rank, ruleBased, aiRationale, mlProb, onOpenDrawer }) {
   const [expanded, setExpanded] = useState(false);
 
   const verdict   = ruleBased?.analysis?.verdict ?? aiRationale?.analysis?.verdict;
   const chips     = ruleBased?.analysis?.signal_chips ?? [];
+  const mlStyle   = mlProbStyle(mlProb);
   const changeCol = (pick.changePct ?? 0) >= 0 ? "text-green-400" : "text-red-400";
 
   // One-line "why" for Tier 1
@@ -329,6 +339,14 @@ function StockPickCard({ pick, rank, ruleBased, aiRationale, onOpenDrawer }) {
             )}
             <StabilityChip pick={pick} />
             <RankDeltaChip delta={pick.rankDelta} />
+            {mlStyle && (
+              <span
+                className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${mlStyle.cls}`}
+                title={mlStyle.title}
+              >
+                {mlStyle.label}
+              </span>
+            )}
           </div>
           {/* Price + brief summary */}
           <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -646,17 +664,22 @@ export default function StockPicks() {
   const { user } = useAuth();
   const { data: stockPicksData, builtAt, loading: dataLoading, error: dataError } = useOutletContext();
 
-  const [stockRuleRat, setStockRuleRat] = useState({});
-  const [stockAiRat,   setStockAiRat]   = useState({});
-  const [stockShowCount, setStockShowCount] = useState(10);
-  const [drawer,       setDrawer]       = useState(null);
-  const [filterMode,   setFilterMode]   = useState("tactical"); // "core" | "tactical" | "all"
+  const [stockRuleRat,    setStockRuleRat]    = useState({});
+  const [stockAiRat,      setStockAiRat]      = useState({});
+  const [mlPredMap,       setMlPredMap]       = useState({});
+  const [stockShowCount,  setStockShowCount]  = useState(10);
+  const [drawer,          setDrawer]          = useState(null);
+  const [filterMode,      setFilterMode]      = useState("tactical"); // "core" | "tactical" | "all"
 
   useEffect(() => {
     Promise.all([
       supabase.from("stock_pick_rationales").select("*").order("run_date", { ascending: false }).order("rank").limit(50),
       supabase.from("stock_pick_ai_rationales").select("*").order("rank"),
-    ]).then(([sRule, sAi]) => {
+      supabase.from("stock_predictions")
+        .select("symbol,p_top_quartile_3m,prediction_date")
+        .order("prediction_date", { ascending: false })
+        .limit(300),
+    ]).then(([sRule, sAi, mlPred]) => {
       if (!sRule.error && sRule.data) {
         const bySymbol = {};
         sRule.data.forEach((r) => { if (!bySymbol[r.symbol]) bySymbol[r.symbol] = r; });
@@ -666,6 +689,12 @@ export default function StockPicks() {
         const bySymbol = {};
         sAi.data.forEach((r) => { bySymbol[r.symbol] = r; });
         setStockAiRat(bySymbol);
+      }
+      if (!mlPred.error && mlPred.data && mlPred.data.length > 0) {
+        // Keep most recent prediction per symbol (already ordered by prediction_date desc)
+        const bySymbol = {};
+        mlPred.data.forEach((r) => { if (!bySymbol[r.symbol]) bySymbol[r.symbol] = r; });
+        setMlPredMap(bySymbol);
       }
     });
   }, []);
@@ -703,6 +732,11 @@ export default function StockPicks() {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-bold">Stock Top Picks</h1>
+            {Object.keys(mlPredMap).length > 0 && (
+              <span className="inline-flex items-center gap-1 text-xs bg-emerald-500/15 text-emerald-400 border border-emerald-600/30 rounded px-2 py-0.5">
+                🤖 ML active
+              </span>
+            )}
             {isIntraday && (
               <span className="inline-flex items-center gap-1 text-xs bg-green-500/15 text-green-400 border border-green-600/30 rounded px-2 py-0.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
@@ -773,16 +807,24 @@ export default function StockPicks() {
 
       {/* Pick cards */}
       <div className="space-y-3">
-        {displayedPicks.slice(0, stockShowCount).map((pick) => (
+        {displayedPicks.slice(0, stockShowCount).map((pick) => {
+          // symbol in stock_predictions is stored without .NS (e.g. "CPPLUS")
+          const bareSymbol = pick.symbol?.replace(/\.NS$/i, "");
+          const mlRec      = mlPredMap[bareSymbol] ?? null;
+          return (
           <StockPickCard
             key={pick.symbol}
             pick={pick}
             rank={pick.rank ?? "—"}
             ruleBased={stockRuleRat[pick.symbol] ?? null}
             aiRationale={stockAiRat[pick.symbol] ?? null}
+            mlProb={mlRec?.p_top_quartile_3m ?? null}
             onOpenDrawer={setDrawer}
           />
         ))}
+
+          );
+        })}
 
         {displayedPicks.length === 0 && hasPersistenceData && (
           <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6 text-center text-sm text-gray-500">
