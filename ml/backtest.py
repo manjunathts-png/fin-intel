@@ -74,6 +74,8 @@ FEATURE_COLS = [
     # Macro context (same across funds on same date)
     "nifty_ret1m", "nifty_ret3m",
     "india_vix", "usd_inr", "us_10y_yield",
+    # News sentiment (-1.0 → +1.0; NULL imputed to 0.0)
+    "sentiment_score",
 ]
 
 TARGET_COL = "fwd_top_q_3m"           # binary: 1 = top quartile next 3m

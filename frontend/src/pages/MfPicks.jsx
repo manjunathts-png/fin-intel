@@ -297,6 +297,41 @@ function AnalysisBody({ analysis }) {
   );
 }
 
+// ─── Sentiment panel ─────────────────────────────────────────────────────────
+
+const SENTIMENT_ICON = { Positive: "📈", Neutral: "➡️", Negative: "📉" };
+const SENTIMENT_COLOR = {
+  Positive: "border-emerald-800/40 bg-emerald-900/10 text-emerald-300",
+  Neutral:  "border-gray-700/40 bg-gray-800/20 text-gray-400",
+  Negative: "border-red-800/40 bg-red-900/10 text-red-300",
+};
+
+function SentimentSection({ sentiment }) {
+  if (!sentiment) return null;
+  const { sentiment_label, sentiment_score, summary, key_themes } = sentiment;
+  const cls = SENTIMENT_COLOR[sentiment_label] ?? SENTIMENT_COLOR.Neutral;
+  const icon = SENTIMENT_ICON[sentiment_label] ?? "➡️";
+  return (
+    <div className={`rounded-xl border p-3 ${cls}`}>
+      <div className="mb-2 flex items-center gap-2">
+        <span>{icon}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider">News Sentiment</span>
+        <span className="ml-auto text-[11px] font-bold">{sentiment_label}</span>
+        <span className="text-[10px] opacity-60">({sentiment_score > 0 ? "+" : ""}{(sentiment_score * 100).toFixed(0)})</span>
+      </div>
+      {summary && <p className="text-xs leading-relaxed opacity-80 mb-2">{summary}</p>}
+      {key_themes?.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {key_themes.map((t, i) => (
+            <span key={i} className="rounded-full border border-current/20 bg-current/5 px-2 py-0.5 text-[10px] opacity-70">{t}</span>
+          ))}
+        </div>
+      )}
+      <div className="mt-2 text-[9px] opacity-40">ML-derived from news · refreshes weekly</div>
+    </div>
+  );
+}
+
 // ─── Rationale panels — always open inside Tier 2 ────────────────────────────
 
 function RationaleSection({ ruleBased, aiRationale }) {
@@ -350,7 +385,7 @@ function SectionDivider({ label, colorCls, lineCls, onClick }) {
 
 // ─── Pick card ────────────────────────────────────────────────────────────────
 
-function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence, mlProb, onOpenDrawer }) {
+function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence, mlProb, sentiment, onOpenDrawer }) {
   const [expanded, setExpanded] = useState(false);
   const detailsRef    = useRef(null);
   const zl            = zLabel(fund.catZ);
@@ -459,13 +494,14 @@ function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence, mlProb,
         </div>
       </div>
 
-      {/* ── Tier 2: risk + rationale ────────────────────────── */}
+      {/* ── Tier 2: risk + rationale + sentiment ──────────── */}
       {expanded && (
         <div ref={detailsRef} className="mt-3 space-y-3 border-t border-gray-800/60 pt-3">
           <div>
             <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Risk Metrics</div>
             <RiskStrip fund={fund} />
           </div>
+          <SentimentSection sentiment={sentiment} />
           <RationaleSection ruleBased={ruleBased} aiRationale={aiRationale} />
         </div>
       )}
@@ -501,6 +537,7 @@ export default function MfPicks() {
   const [ruleRationale, setRuleRationale] = useState({});
   const [aiRationale,   setAiRationale]   = useState({});
   const [mlPredMap,     setMlPredMap]     = useState({});   // scheme_code → p_top_quartile_3m
+  const [sentimentMap,  setSentimentMap]  = useState({});   // scheme_code → sentiment record
   const [ratLoading,    setRatLoading]    = useState(true);
   const [avoidOpen,     setAvoidOpen]     = useState(true);
   const [drawer,        setDrawer]        = useState(null);
@@ -516,7 +553,13 @@ export default function MfPicks() {
         .order("prediction_date", { ascending: false })
         .order("pred_rank")
         .limit(300),
-    ]).then(([rule, ai, mlPred]) => {
+      // Latest weekly sentiment
+      supabase
+        .from("mf_sentiment")
+        .select("scheme_code,sentiment_score,sentiment_label,summary,key_themes,week_start_date")
+        .order("week_start_date", { ascending: false })
+        .limit(300),
+    ]).then(([rule, ai, mlPred, sent]) => {
       if (!rule.error && rule.data) {
         const byCode = {};
         rule.data.forEach((r) => { if (!byCode[r.fund_code]) byCode[r.fund_code] = r; });
@@ -534,6 +577,14 @@ export default function MfPicks() {
           if (!byCode[r.scheme_code]) byCode[r.scheme_code] = r;
         });
         setMlPredMap(byCode);
+      }
+      if (!sent.error && sent.data && sent.data.length > 0) {
+        // Keep most recent week per scheme
+        const byCode = {};
+        sent.data.forEach((r) => {
+          if (!byCode[r.scheme_code]) byCode[r.scheme_code] = r;
+        });
+        setSentimentMap(byCode);
       }
     }).finally(() => setRatLoading(false));
   }, []);
@@ -570,7 +621,8 @@ export default function MfPicks() {
       const finalScore = mlScore != null
         ? Math.round(f.displayScore * 0.60 + verdictPart * 0.30 + mlScore * 0.10)
         : Math.round(f.displayScore * 0.65 + verdictPart * 0.35);
-      return { ...f, verdict, confidence, finalScore, mlProb };
+      const sentiment = sentimentMap[f.code] ?? null;
+      return { ...f, verdict, confidence, finalScore, mlProb, sentiment };
     });
     const byFinal = (a, b) => b.finalScore - a.finalScore;
     return {
@@ -666,6 +718,7 @@ export default function MfPicks() {
                   verdict={fund.verdict}
                   confidence={fund.confidence}
                   mlProb={fund.mlProb ?? null}
+                  sentiment={fund.sentiment ?? null}
                   onOpenDrawer={setDrawer}
                 />
               ))}
@@ -689,6 +742,7 @@ export default function MfPicks() {
                   verdict={fund.verdict ?? "Hold"}
                   confidence={fund.confidence}
                   mlProb={fund.mlProb ?? null}
+                  sentiment={fund.sentiment ?? null}
                   onOpenDrawer={setDrawer}
                 />
               ))}
@@ -713,6 +767,7 @@ export default function MfPicks() {
                   verdict="Avoid"
                   confidence={fund.confidence}
                   mlProb={fund.mlProb ?? null}
+                  sentiment={fund.sentiment ?? null}
                   onOpenDrawer={setDrawer}
                 />
               ))}
@@ -731,6 +786,7 @@ export default function MfPicks() {
                   verdict={null}
                   confidence={null}
                   mlProb={null}
+                  sentiment={null}
                   onOpenDrawer={setDrawer}
                 />
               ))}

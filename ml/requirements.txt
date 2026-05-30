@@ -22,5 +22,9 @@ optuna==3.6.1
 # SHAP explanations (optional — only needed for train.py)
 shap==0.45.1
 
+# News sentiment
+anthropic==0.25.8       # Claude API SDK
+feedparser==6.0.11      # Google News RSS parsing
+
 # CLI niceties
 tqdm==4.66.4

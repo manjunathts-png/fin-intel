@@ -9,6 +9,7 @@ on:
     - cron: '0 7 * * 1-5'       # 12:30 PM IST weekdays    — Stocks intraday
     - cron: '30 8 * * 1-5'      # 2:00 PM IST weekdays     — Stocks intraday
     - cron: '0 10 * * 1-5'      # 3:30 PM IST weekdays     — Stocks intraday (pre-close)
+    - cron: '30 18 * * 0'       # 12:00 AM IST Mondays     — Weekly sentiment refresh
   workflow_dispatch:
     inputs:
       target:
@@ -16,7 +17,7 @@ on:
         required: false
         default: 'all'
         type: choice
-        options: [all, mf, stocks, intraday]
+        options: [all, mf, stocks, intraday, sentiment]
 
 jobs:
   refresh:
@@ -42,11 +43,14 @@ jobs:
             echo "target=stocks" >> $GITHUB_OUTPUT
           elif [ "${{ github.event.schedule }}" = "30 23 * * *" ]; then
             echo "target=all" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "30 18 * * 0" ]; then
+            echo "target=sentiment" >> $GITHUB_OUTPUT
           else
             echo "target=intraday" >> $GITHUB_OUTPUT
           fi
 
       - name: Refresh cache
+        if: steps.target.outputs.target != 'sentiment'
         run: |
           if [ "${{ steps.target.outputs.target }}" = "intraday" ]; then
             node backend/refresh-intraday.js
@@ -59,7 +63,7 @@ jobs:
 
       # ── ML pipeline: runs only on the nightly full rebuild ────────────────
       - name: Set up Python (ML pipeline)
-        if: steps.target.outputs.target == 'all'
+        if: steps.target.outputs.target == 'all' || steps.target.outputs.target == 'sentiment'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -67,7 +71,7 @@ jobs:
           cache-dependency-path: 'ml/requirements.txt'
 
       - name: Install ML dependencies
-        if: steps.target.outputs.target == 'all'
+        if: steps.target.outputs.target == 'all' || steps.target.outputs.target == 'sentiment'
         run: pip install -r ml/requirements.txt -q
 
       - name: Extract MF features (today)
@@ -93,3 +97,12 @@ jobs:
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # ── Sentiment: runs on Monday midnight IST (weekly) ───────────────────
+      - name: Run news sentiment analysis (weekly)
+        if: steps.target.outputs.target == 'sentiment'
+        run: python ml/sentiment.py
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}

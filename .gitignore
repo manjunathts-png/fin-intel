@@ -31,3 +31,4 @@ ml/.venv/
 ml/*.pkl
 ml/*.joblib
 ml/backtest_results*.csv
+ml/.cache_macro/
