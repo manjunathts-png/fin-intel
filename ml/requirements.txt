@@ -13,5 +13,11 @@ python-dotenv==1.0.1
 # Parquet for fast feature snapshots (optional but useful)
 pyarrow==17.0.0
 
+# Hyperparameter tuning (optional — only needed for --tune)
+optuna==3.6.1
+
+# SHAP explanations (optional — only needed for train.py)
+shap==0.45.1
+
 # CLI niceties
 tqdm==4.66.4
