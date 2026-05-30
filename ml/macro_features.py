@@ -209,6 +209,34 @@ def _fetch_nifty_via_mfapi(start: str = "2018-01-01") -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _fetch_us10y_fred(start: str = "2018-01-01") -> pd.DataFrame:
+    """
+    Fetch US 10-Year Treasury Constant Maturity Rate (DGS10) from FRED.
+    Free, no API key required, no rate limits. Covers 1962–present.
+    https://fred.stlouisfed.org/series/DGS10
+    """
+    try:
+        session = _get_session()
+        url = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+        r = session.get(url, params={"id": "DGS10"}, timeout=45)
+        if r.status_code != 200:
+            log.warning("FRED DGS10 returned HTTP %d", r.status_code)
+            return pd.DataFrame()
+        from io import StringIO
+        df = pd.read_csv(StringIO(r.text), parse_dates=["observation_date"])
+        df = df.rename(columns={"observation_date": "date", "DGS10": "close"})
+        df = df.set_index("date").sort_index()
+        df["close"] = pd.to_numeric(df["close"], errors="coerce")
+        df = df.dropna()
+        df = df[df.index >= pd.Timestamp(start)]
+        log.info("Fetched US 10Y via FRED (DGS10): %d rows (%s → %s)",
+                 len(df), df.index.min().date(), df.index.max().date())
+        return df
+    except Exception as e:
+        log.warning("FRED DGS10 fallback failed: %s", e)
+        return pd.DataFrame()
+
+
 def _fetch_usdinr_frankfurter(start: str = "2018-01-01") -> pd.DataFrame:
     """
     Fetch USD/INR historical rates from frankfurter.app (ECB data, free, no key).
@@ -292,6 +320,13 @@ def fetch_yf(tickers, cache_file: Path, start: str = "2018-01-01") -> pd.DataFra
     if primary in ("USDINR=X", "INR=X"):
         log.info("Yahoo rate-limited for USD/INR — trying frankfurter.app fallback")
         df = _fetch_usdinr_frankfurter(start)
+        if not df.empty:
+            df.to_parquet(cache_file)
+            return df
+
+    if primary in ("^TNX", "TLT"):
+        log.info("Yahoo rate-limited for US 10Y — trying FRED (DGS10) fallback")
+        df = _fetch_us10y_fred(start)
         if not df.empty:
             df.to_parquet(cache_file)
             return df
