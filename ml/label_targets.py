@@ -50,6 +50,24 @@ def _col_names(fwd_days: int) -> tuple[str, str, str]:
     return "fwd_ret_3m", "fwd_quartile_3m", "fwd_top_q_3m"
 
 
+def _fwd_sharpe(nav_df: pd.DataFrame, as_of: "date", target_date: "date") -> float | None:
+    """Realized Sharpe ratio over the forward window using daily NAV returns."""
+    window = nav_df[
+        (nav_df["date"] > pd.Timestamp(as_of)) &
+        (nav_df["date"] <= pd.Timestamp(target_date))
+    ]
+    if len(window) < 5:
+        return None
+    daily_rets = window["nav"].pct_change().dropna()
+    if len(daily_rets) < 5 or daily_rets.std(ddof=1) == 0:
+        return None
+    fwd_days = (target_date - as_of).days
+    total_ret_pct = (window["nav"].iloc[-1] / nav_df[nav_df["date"] <= pd.Timestamp(as_of)].iloc[-1]["nav"] - 1) * 100
+    rf_period_pct = RISK_FREE_RATE * (fwd_days / 365) * 100
+    ann_vol_pct = float(daily_rets.std(ddof=1) * np.sqrt(252) * 100)
+    return (total_ret_pct - rf_period_pct) / ann_vol_pct
+
+
 def load_unlabeled(supabase, cutoff: date, top_q_col: str = "fwd_top_q_3m") -> pd.DataFrame:
     """Load mf_features rows that need labels (old enough, not yet labeled)."""
     log.info("Loading unlabeled rows (%s IS NULL, as_of_date <= %s)", top_q_col, cutoff)
@@ -130,12 +148,14 @@ def compute_labels(
         target_date = as_of + timedelta(days=fwd_days)
 
         fund_fwd_rets: dict[str, float] = {}
+        fund_fwd_sharpes: dict[str, float | None] = {}
 
         for _, row in group.iterrows():
             code = row["scheme_code"]
             cache_file = cache_dir / f"{code}.parquet"
 
             fwd_ret = None
+            fwd_sharpe = None
             if cache_file.exists():
                 try:
                     nav_df = pd.read_parquet(cache_file)
@@ -162,50 +182,55 @@ def compute_labels(
                             # Leave fwd_ret as None — row won't be labeled
                         elif nav_past > 0:
                             fwd_ret = (nav_fut - nav_past) / nav_past * 100.0
+                            fwd_sharpe = _fwd_sharpe(nav_df, as_of, target_date)
                 except Exception as e:
                     log.debug("NAV cache read failed for %s: %s", code, e)
 
             fund_fwd_rets[code] = fwd_ret
+            fund_fwd_sharpes[code] = fwd_sharpe
 
-        # Compute per-category quartile rankings
-        # group all funds with valid fwd_rets by category
-        cat_map: dict[str, list[tuple[str, float]]] = {}
+        # Compute per-category quartile rankings for both return and Sharpe
+        cat_ret_map: dict[str, list[tuple[str, float]]] = {}
+        cat_sharpe_map: dict[str, list[tuple[str, float]]] = {}
         for _, row in group.iterrows():
             code = row["scheme_code"]
             cat  = row.get("category", "Unknown")
             ret  = fund_fwd_rets.get(code)
+            sharpe = fund_fwd_sharpes.get(code)
             if ret is not None:
-                cat_map.setdefault(cat, []).append((code, ret))
+                cat_ret_map.setdefault(cat, []).append((code, ret))
+            if sharpe is not None:
+                cat_sharpe_map.setdefault(cat, []).append((code, sharpe))
 
-        # Assign quartiles within each category
-        quartile_map: dict[str, int] = {}
-        top_q_map: dict[str, bool] = {}
-        for cat, items in cat_map.items():
-            if len(items) < 2:
-                # Not enough peers for quartile — mark as top if positive
-                for code, ret in items:
-                    quartile_map[code] = 1 if ret > 0 else 4
-                    top_q_map[code] = ret > 0
-                continue
-            codes_arr = [x[0] for x in items]
-            rets_arr  = np.array([x[1] for x in items])
-            # quartile: 1=top 25%, 4=bottom 25%
-            # pd.qcut with labels 4→1 (descending)
-            try:
-                labels = pd.qcut(rets_arr, q=4, labels=[4, 3, 2, 1], duplicates="drop")
-                for code, lbl in zip(codes_arr, labels):
-                    q = int(lbl) if not pd.isna(lbl) else None
-                    quartile_map[code] = q
-                    top_q_map[code] = (q == 1) if q is not None else None
-            except Exception:
-                # fallback: rank-based
-                order = np.argsort(rets_arr)[::-1]  # descending
-                n = len(order)
-                for rank, idx in enumerate(order):
-                    code = codes_arr[idx]
-                    q = min(4, int(rank / n * 4) + 1)
-                    quartile_map[code] = q
-                    top_q_map[code] = q == 1
+        def _assign_quartiles(cat_map: dict) -> tuple[dict[str, int], dict[str, bool]]:
+            q_map: dict[str, int] = {}
+            top_map: dict[str, bool] = {}
+            for cat, items in cat_map.items():
+                if len(items) < 2:
+                    for code, val in items:
+                        q_map[code] = 1 if val > 0 else 4
+                        top_map[code] = val > 0
+                    continue
+                codes_arr = [x[0] for x in items]
+                vals_arr  = np.array([x[1] for x in items])
+                try:
+                    labels = pd.qcut(vals_arr, q=4, labels=[4, 3, 2, 1], duplicates="drop")
+                    for code, lbl in zip(codes_arr, labels):
+                        q = int(lbl) if not pd.isna(lbl) else None
+                        q_map[code] = q
+                        top_map[code] = (q == 1) if q is not None else None
+                except Exception:
+                    order = np.argsort(vals_arr)[::-1]
+                    n = len(order)
+                    for rank, idx in enumerate(order):
+                        code = codes_arr[idx]
+                        q = min(4, int(rank / n * 4) + 1)
+                        q_map[code] = q
+                        top_map[code] = q == 1
+            return q_map, top_map
+
+        quartile_map, top_q_map = _assign_quartiles(cat_ret_map)
+        sharpe_q_map, top_sharpe_q_map = _assign_quartiles(cat_sharpe_map)
 
         # Build update rows
         for _, row in group.iterrows():
@@ -217,13 +242,21 @@ def compute_labels(
             if fwd_ret is None:
                 continue  # No NAV data for forward date yet
 
-            updates.append({
+            update: dict[str, Any] = {
                 "scheme_code":   code,
                 "as_of_date":    str(as_of),
                 ret_col:         round(fwd_ret, 4),
                 quartile_col:    fwd_q,
                 top_q_col:       fwd_top,
-            })
+            }
+            # Sharpe-based labels (may be None if vol is zero or insufficient data)
+            sharpe_val = fund_fwd_sharpes.get(code)
+            if sharpe_val is not None:
+                update["fwd_sharpe_3m"] = round(sharpe_val, 4)
+            update["fwd_sharpe_q_3m"]     = sharpe_q_map.get(code)
+            update["fwd_top_sharpe_q_3m"] = top_sharpe_q_map.get(code)
+
+            updates.append(update)
 
     if not updates:
         log.info("No rows ready to label")

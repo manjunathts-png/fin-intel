@@ -295,7 +295,7 @@ def build_fund_features(fund: Fund, df: pd.DataFrame, as_of: pd.Timestamp) -> di
 # ─── Cross-sectional features (need full cohort) ─────────────────────────────
 
 def add_cross_sectional(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Add category_rank_*, universe_rank_*, cat_z based on full cohort."""
+    """Add category_rank_*, universe_rank_*, cat_z, and category momentum features."""
     if not rows:
         return rows
     df = pd.DataFrame(rows)
@@ -315,6 +315,21 @@ def add_cross_sectional(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         df["cat_z"] = df.groupby("category")["z1w"].transform(
             lambda x: (x - x.mean()) / (x.std(ddof=1) if x.std(ddof=1) > 0 else 1.0)
         )
+
+    # Cross-category momentum: how is this category doing vs all other categories?
+    # cat_momentum_3m = median ret3m of all funds in the same category (shared signal)
+    # cat_vs_univ_3m  = percentile rank of that category median vs all category medians
+    if "ret3m" in df.columns:
+        cat_median = df.groupby("category")["ret3m"].transform("median")
+        df["cat_momentum_3m"] = cat_median
+        # Per-category medians (one value per category)
+        cat_medians = df.groupby("category")["ret3m"].median()
+        n_cats = len(cat_medians)
+        if n_cats > 1:
+            cat_pct = cat_medians.rank(pct=True)
+            df["cat_vs_univ_3m"] = df["category"].map(cat_pct)
+        else:
+            df["cat_vs_univ_3m"] = 0.5
 
     return df.to_dict("records")
 

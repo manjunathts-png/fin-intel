@@ -21,6 +21,9 @@ FEATURE_COLS = [
     "cat_rank_1m", "cat_rank_3m", "cat_rank_1y",
     "univ_rank_1m", "univ_rank_3m", "univ_rank_1y",
     "cat_z",
+    # Category-level momentum vs universe (cross-category signal)
+    "cat_momentum_3m",   # median ret3m of this fund's category
+    "cat_vs_univ_3m",    # percentile of cat_momentum_3m vs all categories
     # Style vs benchmark
     "beta_nifty", "alpha_nifty", "corr_nifty",
     # Macro context (same across funds on same date)
@@ -32,6 +35,54 @@ FEATURE_COLS = [
 
 TARGET_COL = "fwd_top_q_3m"
 RETURN_COL = "fwd_ret_3m"
+
+# Risk-adjusted target — Sharpe-quartile within category (preferred over raw return)
+SHARPE_TARGET_COL = "fwd_top_sharpe_q_3m"
+
+# Maps each MF category to a broad model group.
+# All unknown categories fall back to "other".
+CATEGORY_GROUPS: dict[str, str] = {
+    # Broad equity
+    "Large Cap":       "equity",
+    "Mid Cap":         "equity",
+    "Small Cap":       "equity",
+    "Flexi Cap":       "equity",
+    "Large & Mid Cap": "equity",
+    "Micro Cap":       "equity",
+    "Multi Cap":       "equity",
+    "Value":           "equity",
+    "ELSS":            "equity",
+    # Thematic / sector equity
+    "Defence":                "sector",
+    "PSU":                    "sector",
+    "Technology":             "sector",
+    "Pharma & Healthcare":    "sector",
+    "Banking & Financial":    "sector",
+    "Infrastructure":         "sector",
+    "Manufacturing":          "sector",
+    "Consumption":            "sector",
+    "Energy":                 "sector",
+    # Fixed income
+    "Liquid":              "fixed_income",
+    "Ultra Short Duration": "fixed_income",
+    "Low Duration":        "fixed_income",
+    "Short Duration":      "fixed_income",
+    "Medium Duration":     "fixed_income",
+    "Long Duration":       "fixed_income",
+    "Gilt":                "fixed_income",
+    "Credit Risk":         "fixed_income",
+    "Money Market":        "fixed_income",
+    "Corporate Bond":      "fixed_income",
+    # Hybrid
+    "Balanced":              "hybrid",
+    "Aggressive Hybrid":     "hybrid",
+    "Conservative Hybrid":   "hybrid",
+    "Multi Asset":           "hybrid",
+    # Commodities
+    "Gold": "commodity",
+    "Silver": "commodity",
+    "Gold & Silver": "commodity",
+}
 
 # ─── Stock model ──────────────────────────────────────────────────────────────
 

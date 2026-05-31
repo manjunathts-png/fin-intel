@@ -27,8 +27,9 @@ from supabase import create_client
 load_dotenv()
 load_dotenv(Path(__file__).parent.parent / "backend" / ".env", override=False)
 
-SETUP_SQL   = Path(__file__).parent / "setup.sql"
-MIGRATE_SQL = Path(__file__).parent / "migrate_001_sentiment.sql"
+SETUP_SQL    = Path(__file__).parent / "setup.sql"
+MIGRATE_SQL  = Path(__file__).parent / "migrate_001_sentiment.sql"
+MIGRATE_006  = Path(__file__).parent / "migrate_006_category_groups.sql"
 
 REQUIRED_TABLES = [
     "mf_features", "mf_predictions", "mf_model_runs",
@@ -98,6 +99,9 @@ def main():
     print()
     print("-- STEP 2: Add sentiment columns (run after Step 1 succeeds)")
     print(MIGRATE_SQL.read_text())
+    print()
+    print("-- STEP 3: Add category-group columns (migration 006)")
+    print(MIGRATE_006.read_text())
     print("─" * 70)
     print()
     print("After running the SQL, re-run this script to verify:")
