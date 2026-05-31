@@ -200,9 +200,6 @@ jobs:
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        env:
-          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       - name: Label stock targets after backfill — 3M and 1M
         if: steps.target.outputs.target == 'stock_backfill' && steps.dbcheck.outputs.tables_ok == 'true'
