@@ -574,10 +574,13 @@ export default function MfPicks() {
     Promise.all([
       supabase.from("pick_rationales").select("*").order("run_date", { ascending: false }).order("rank").limit(50),
       supabase.from("pick_ai_rationales").select("*").order("rank"),
-      // Latest ML predictions — fetch most recent prediction_date rows
+      // Latest ML predictions — 3m model only (1m rows have null p_top_quartile_3m
+      // and their pred_rank scale is independent, causing wrong fund to be picked
+      // when 1m rank < 3m rank for the same scheme_code on the same date)
       supabase
         .from("mf_predictions")
         .select("scheme_code,p_top_quartile_3m,pred_rank,top_features,prediction_date")
+        .not("p_top_quartile_3m", "is", null)
         .order("prediction_date", { ascending: false })
         .order("pred_rank")
         .limit(300),
