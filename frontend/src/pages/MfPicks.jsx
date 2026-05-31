@@ -32,7 +32,7 @@ function MlBadge({ prob }) {
   return (
     <div
       className={`shrink-0 rounded-xl border ${bg} ${border} px-2.5 py-1.5 text-center`}
-      title={`AI/ML model: ${pct}% probability of top-quartile 3-month return`}
+      title={`ML Score: ${pct}% probability of top-quartile 3-month return`}
     >
       <div className="text-[9px] text-white/35 uppercase tracking-widest leading-none mb-1 font-medium">ML Score</div>
       <div className={`text-lg font-bold tabular-nums leading-none ${numColor}`}>{pct}%</div>

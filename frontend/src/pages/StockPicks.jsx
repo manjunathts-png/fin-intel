@@ -206,9 +206,9 @@ function MlBadge({ prob3m, prob1m }) {
     return (
       <div
         className={`rounded-lg bg-gradient-to-br ${s3.gradient} ring-1 ${s3.ring} px-2.5 py-1 text-center min-w-[58px]`}
-        title={`AI/ML — 3M: ${pct3}% · 1M: ${pct1}% probability of top-quartile return`}
+        title={`ML Score — 3M: ${pct3}% · 1M: ${pct1}% probability of top-quartile return`}
       >
-        <div className="text-[10px] text-white/60 uppercase tracking-wider leading-none mb-0.5">🤖 AI/ML</div>
+        <div className="text-[10px] text-white/60 uppercase tracking-wider leading-none mb-0.5">ML Score</div>
         <div className="text-base font-bold text-white tabular-nums leading-none">{pct3}%</div>
         <div className="text-[8px] text-white/60 tabular-nums">1M: {pct1}%</div>
         <div className="text-[8px] text-white/70 uppercase tracking-wider">{s3.label}</div>
@@ -224,9 +224,9 @@ function MlBadge({ prob3m, prob1m }) {
   return (
     <div
       className={`rounded-lg bg-gradient-to-br ${s.gradient} ring-1 ${s.ring} px-2.5 py-1 text-center min-w-[58px]`}
-      title={`AI/ML model: ${pct}% probability of top-quartile return (${tag})`}
+      title={`ML Score: ${pct}% probability of top-quartile return (${tag})`}
     >
-      <div className="text-[10px] text-white/60 uppercase tracking-wider leading-none mb-0.5">🤖 {tag}</div>
+      <div className="text-[10px] text-white/60 uppercase tracking-wider leading-none mb-0.5">ML Score</div>
       <div className="text-base font-bold text-white tabular-nums leading-none">{pct}%</div>
       <div className="text-[8px] text-white/70 uppercase tracking-wider">{s.label}</div>
     </div>
