@@ -184,6 +184,9 @@ jobs:
           --workers 1
           --no-fundamentals
         timeout-minutes: 180
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # Second half: older 365–730 days.
       - name: Backfill stock OHLCV + features — older 365-730 days
@@ -194,6 +197,9 @@ jobs:
           --workers 1
           --no-fundamentals
         timeout-minutes: 180
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
