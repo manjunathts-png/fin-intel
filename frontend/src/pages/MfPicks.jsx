@@ -24,19 +24,19 @@ const CONFIDENCE_STYLE = {
 function MlBadge({ prob }) {
   if (prob == null) return null;
   const pct = Math.round(prob * 100);
-  const [gradient, ring, label] =
-    prob >= 0.65 ? ["from-emerald-700 to-emerald-500", "ring-emerald-500/40", "Strong"]  :
-    prob >= 0.50 ? ["from-blue-700 to-blue-500",       "ring-blue-500/40",    "Positive"] :
-    prob >= 0.35 ? ["from-gray-700 to-gray-500",       "ring-gray-500/30",    "Neutral"]  :
-                   ["from-red-900 to-red-700",          "ring-red-500/30",     "Weak"];
+  const [bg, border, numColor, label] =
+    prob >= 0.65 ? ["bg-emerald-950", "border-emerald-600/50", "text-emerald-400", "Strong"]   :
+    prob >= 0.50 ? ["bg-blue-950",    "border-blue-600/50",    "text-blue-400",    "Positive"] :
+    prob >= 0.35 ? ["bg-slate-800",   "border-slate-600/40",   "text-slate-300",   "Neutral"]  :
+                   ["bg-red-950",     "border-red-700/50",     "text-red-400",     "Weak"];
   return (
     <div
-      className={`shrink-0 rounded-xl bg-gradient-to-br ${gradient} ring-1 ${ring} px-2.5 py-1.5 text-center shadow-sm`}
-      title={`AI/ML model: ${pct}% probability of top-quartile 3m return`}
+      className={`shrink-0 rounded-xl border ${bg} ${border} px-2.5 py-1.5 text-center`}
+      title={`AI/ML model: ${pct}% probability of top-quartile 3-month return`}
     >
-      <div className="text-[10px] text-white/60 uppercase tracking-wider leading-none mb-0.5">🤖 AI/ML</div>
-      <div className="text-lg font-bold tabular-nums leading-none text-white">{pct}%</div>
-      <div className="text-[9px] font-semibold uppercase tracking-wider text-white/75">{label}</div>
+      <div className="text-[9px] text-white/35 uppercase tracking-widest leading-none mb-1 font-medium">AI / ML</div>
+      <div className={`text-lg font-bold tabular-nums leading-none ${numColor}`}>{pct}%</div>
+      <div className={`text-[9px] font-semibold uppercase tracking-wider mt-0.5 ${numColor} opacity-70`}>{label}</div>
     </div>
   );
 }
@@ -208,17 +208,17 @@ function buildMfPicks(mfData) {
 
 function MfScoreBadge({ score, momentumScore, hasVerdict }) {
   let gradient;
-  if      (score >= 75) gradient = "from-green-600 to-emerald-500";
-  else if (score >= 55) gradient = "from-yellow-600 to-amber-500";
-  else if (score >= 35) gradient = "from-orange-600 to-orange-500";
-  else                  gradient = "from-red-700 to-red-600";
+  if      (score >= 75) gradient = "from-emerald-600 to-teal-500";
+  else if (score >= 55) gradient = "from-amber-600 to-yellow-500";
+  else if (score >= 35) gradient = "from-orange-600 to-amber-500";
+  else                  gradient = "from-rose-700 to-red-600";
   return (
     <div
-      className={`shrink-0 rounded-xl bg-gradient-to-br ${gradient} px-2.5 py-1.5 text-center shadow-sm`}
+      className={`shrink-0 rounded-xl bg-gradient-to-br ${gradient} px-3 py-1.5 text-center shadow-md`}
       title={hasVerdict ? `Composite: ${score} (momentum ${momentumScore} × 65% + verdict × 35%)` : `Momentum score: ${score}`}
     >
       <div className="text-lg font-bold tabular-nums leading-none text-white">{score}</div>
-      <div className="text-[9px] font-semibold uppercase tracking-wider text-white/75">
+      <div className="text-[9px] font-semibold uppercase tracking-wider text-white/70">
         {hasVerdict ? "composite" : "momentum"}
       </div>
     </div>
@@ -235,7 +235,7 @@ function ReturnGrid({ fund }) {
         const isCagr = key.startsWith("cagr");
         const color  = v != null ? (isCagr ? cagrColor(v) : retColor(v)) : "text-gray-600";
         return (
-          <div key={key} className="min-w-[44px] shrink-0 rounded-lg bg-gray-800/60 px-2 py-1.5 text-center">
+          <div key={key} className="min-w-[44px] shrink-0 rounded-lg bg-gray-800/80 border border-gray-700/40 px-2 py-1.5 text-center">
             <div className="mb-0.5 text-[9px] font-medium text-gray-500 leading-none">{label}</div>
             <div className={`text-xs tabular-nums leading-none ${color}`}>{fmt(v)}</div>
           </div>
@@ -420,7 +420,7 @@ function MfPickCard({ fund, ruleBased, aiRationale, verdict, confidence, mlProb,
   }
 
   return (
-    <div className={`rounded-2xl border border-gray-800 bg-gray-900 p-4 ${verdictBorder(verdict, confidence)} ${isAvoid ? "opacity-80" : ""}`}>
+    <div className={`rounded-2xl border border-gray-700/60 bg-gray-900 p-4 transition-colors ${verdictBorder(verdict, confidence)} ${isAvoid ? "opacity-75" : ""}`}>
       {/* Avoid warning banner */}
       {isAvoid && (
         <div className="mb-3 flex items-center gap-2 rounded-lg border border-red-800/30 bg-red-900/20 px-3 py-1.5">
@@ -730,7 +730,7 @@ export default function MfPicks() {
               {mlAvailable && (
                 <span className="rounded-full border border-emerald-800/40 bg-emerald-900/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-400"
                       title="ML model predictions are active and blended into the composite score">
-                  🤖 ML active
+                  ◈ ML active
                 </span>
               )}
             </div>
