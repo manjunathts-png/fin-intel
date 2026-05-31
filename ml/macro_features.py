@@ -209,6 +209,40 @@ def _fetch_nifty_via_mfapi(start: str = "2018-01-01") -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _fetch_vix_nse(start: str = "2018-01-01") -> pd.DataFrame:
+    """
+    Fetch India VIX history from NSE archives (public CSV, no auth required).
+    URL: https://nsearchives.nseindia.com/content/vix/VIX_History.csv
+    Columns: Date, Open, High, Low, Close, Prev Close, Change, %Change
+    """
+    try:
+        session = _get_session()
+        r = session.get(
+            "https://nsearchives.nseindia.com/content/vix/VIX_History.csv",
+            timeout=30,
+        )
+        if r.status_code != 200 or len(r.content) < 200:
+            log.warning("NSE VIX archive returned HTTP %d", r.status_code)
+            return pd.DataFrame()
+        from io import StringIO
+        df = pd.read_csv(StringIO(r.text))
+        df.columns = [c.strip().lower() for c in df.columns]
+        if "date" not in df.columns or "close" not in df.columns:
+            log.warning("NSE VIX CSV has unexpected columns: %s", list(df.columns))
+            return pd.DataFrame()
+        df["date"] = pd.to_datetime(df["date"], dayfirst=True, errors="coerce")
+        df = df.dropna(subset=["date"])
+        df["close"] = pd.to_numeric(df["close"], errors="coerce")
+        df = df.set_index("date")[["close"]].dropna().sort_index()
+        df = df[df.index >= pd.Timestamp(start)]
+        log.info("Fetched India VIX via NSE archive: %d rows (%s → %s)",
+                 len(df), df.index.min().date(), df.index.max().date())
+        return df
+    except Exception as e:
+        log.warning("NSE VIX archive failed: %s", e)
+        return pd.DataFrame()
+
+
 def _fetch_us10y_fred(start: str = "2018-01-01") -> pd.DataFrame:
     """
     Fetch US 10-Year Treasury Constant Maturity Rate (DGS10) from FRED.
@@ -278,8 +312,10 @@ def _fetch_usdinr_frankfurter(start: str = "2018-01-01") -> pd.DataFrame:
 
 def fetch_yf(tickers, cache_file: Path, start: str = "2018-01-01") -> pd.DataFrame:
     """
-    Fetch daily close from Yahoo Finance with fallback to alternative sources.
-    tickers: str or list[str] — tried in order until one succeeds.
+    Fetch daily close for a macro series.
+    Reliable non-Yahoo sources are tried FIRST; Yahoo Finance is the last resort
+    (Yahoo blocks shared datacenter IPs like GitHub Actions runners).
+    tickers: str or list[str] — first ticker determines which series this is.
     Caches result to parquet (12h TTL).
     """
     if isinstance(tickers, str):
@@ -293,46 +329,47 @@ def fetch_yf(tickers, cache_file: Path, start: str = "2018-01-01") -> pd.DataFra
             log.debug("Loaded %s from cache (%d rows)", tickers[0], len(df))
             return df
 
-    # ── Try Yahoo Finance first ──────────────────────────────────────────────
-    for ticker in tickers:
-        try:
-            df = _fetch_yahoo_direct(ticker, start)
-            if not df.empty:
-                df.to_parquet(cache_file)
-                log.info("Fetched %s (via %s): %d rows (%s → %s)",
-                         tickers[0], ticker, len(df),
-                         df.index.min().date(), df.index.max().date())
-                return df
-            log.warning("%s returned no data — trying next fallback", ticker)
-        except Exception as e:
-            log.warning("%s failed (%s) — trying next fallback", ticker, e)
-
-    # ── Non-Yahoo fallbacks ──────────────────────────────────────────────────
     primary = tickers[0]
+    df = pd.DataFrame()
 
+    # ── Reliable sources first (work on CI without auth) ────────────────────
     if primary in ("^NSEI", "NIFTYBEES.NS"):
-        log.info("Yahoo rate-limited for Nifty — trying mfapi.in fallback")
+        log.info("Fetching Nifty via mfapi.in…")
         df = _fetch_nifty_via_mfapi(start)
-        if not df.empty:
-            df.to_parquet(cache_file)
-            return df
 
-    if primary in ("USDINR=X", "INR=X"):
-        log.info("Yahoo rate-limited for USD/INR — trying frankfurter.app fallback")
+    elif primary == "^INDIAVIX":
+        log.info("Fetching India VIX via NSE archive…")
+        df = _fetch_vix_nse(start)
+
+    elif primary in ("USDINR=X", "INR=X"):
+        log.info("Fetching USD/INR via frankfurter.app…")
         df = _fetch_usdinr_frankfurter(start)
-        if not df.empty:
-            df.to_parquet(cache_file)
-            return df
 
-    if primary in ("^TNX", "TLT"):
-        log.info("Yahoo rate-limited for US 10Y — trying FRED (DGS10) fallback")
+    elif primary in ("^TNX", "TLT"):
+        log.info("Fetching US 10Y via FRED…")
         df = _fetch_us10y_fred(start)
-        if not df.empty:
-            df.to_parquet(cache_file)
-            return df
 
-    log.error("All sources failed for %s: %s", primary, tickers)
-    return pd.DataFrame()
+    # ── Yahoo Finance as last-resort fallback ────────────────────────────────
+    if df.empty:
+        log.info("Primary source failed for %s — trying Yahoo Finance fallback…", primary)
+        for ticker in tickers:
+            try:
+                df = _fetch_yahoo_direct(ticker, start)
+                if not df.empty:
+                    log.info("Yahoo fallback succeeded for %s via %s", primary, ticker)
+                    break
+                log.warning("Yahoo %s returned empty", ticker)
+            except Exception as e:
+                log.warning("Yahoo %s failed: %s", ticker, e)
+
+    if not df.empty:
+        df.to_parquet(cache_file)
+        log.info("Cached %s: %d rows (%s → %s)",
+                 primary, len(df), df.index.min().date(), df.index.max().date())
+    else:
+        log.error("All sources failed for %s", primary)
+
+    return df
 
 
 def value_at_or_before(df: pd.DataFrame, target: pd.Timestamp) -> float | None:
@@ -486,7 +523,7 @@ def main():
     supabase = create_client(url, key)
 
     # ── 1. Fetch all market data upfront ──────────────────────────────────
-    log.info("Fetching macro data from Yahoo Finance…")
+    log.info("Fetching macro series (mfapi/frankfurter/FRED primary, Yahoo fallback)…")
     nifty_df  = fetch_yf(TICKERS["nifty"],   NIFTY_CACHE)
     vix_df    = fetch_yf(TICKERS["vix"],     VIX_CACHE)
     usdinr_df = fetch_yf(TICKERS["usd_inr"], USDINR_CACHE)

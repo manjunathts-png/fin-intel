@@ -138,10 +138,28 @@ def load_universe() -> list[Stock]:
 
 # ─── OHLCV fetcher with disk cache ───────────────────────────────────────────
 
+def _parse_stooq_csv(text: str, symbol: str) -> pd.DataFrame:
+    """Parse a Stooq CSV response into a clean OHLCV DataFrame."""
+    from io import StringIO
+    raw = pd.read_csv(StringIO(text))
+    raw.columns = [c.lower() for c in raw.columns]
+    if "date" not in raw.columns or "close" not in raw.columns:
+        log.warning("%s: stooq CSV missing expected columns: %s", symbol, list(raw.columns))
+        return pd.DataFrame()
+    raw["date"] = pd.to_datetime(raw["date"])
+    raw = raw.set_index("date").sort_index()
+    raw = raw.dropna(subset=["close"])
+    raw = raw[raw["close"] > 0]
+    needed = [c for c in ["open", "high", "low", "close", "volume"] if c in raw.columns]
+    return raw[needed].copy()
+
+
 def fetch_ohlcv(symbol: str, start: str = "2022-01-01") -> pd.DataFrame:
     """
-    Fetch daily OHLCV from Stooq (free, no auth, works on CI).
-    Falls back to Yahoo Finance raw API if Stooq fails.
+    Fetch daily OHLCV for an NSE stock. Source priority:
+      1. Stooq  — free CSV, no auth (works on residential IPs)
+      2. NSE bhavcopy archive — official NSE daily EOD CSV, no auth (works on CI)
+      3. Yahoo Finance v8 — last resort (blocked on most shared IPs)
     Returns DataFrame with DatetimeIndex, columns: open, high, low, close, volume.
     Caches to .cache_stock/<SYMBOL>.parquet (24h TTL).
     """
@@ -155,34 +173,43 @@ def fetch_ohlcv(symbol: str, start: str = "2022-01-01") -> pd.DataFrame:
 
     session = _get_session()
 
-    # ── Primary: Stooq (no auth, no rate-limit on CI) ───────────────────────
+    # ── 1. Stooq ─────────────────────────────────────────────────────────────
     stooq_sym = symbol.lower()
     d1 = start.replace("-", "")
     d2 = (pd.Timestamp.now() + pd.Timedelta(days=1)).strftime("%Y%m%d")
     stooq_url = f"https://stooq.com/q/d/l/?s={stooq_sym}.ns&d1={d1}&d2={d2}&i=d"
     try:
         r = session.get(stooq_url, timeout=30)
-        if r.status_code == 200 and len(r.content) > 100:
-            from io import StringIO
-            raw = pd.read_csv(StringIO(r.text))
-            raw.columns = [c.lower() for c in raw.columns]
-            if "date" in raw.columns and "close" in raw.columns:
-                raw["date"] = pd.to_datetime(raw["date"])
-                raw = raw.set_index("date").sort_index()
-                raw = raw.dropna(subset=["close"])
-                raw = raw[raw["close"] > 0]
-                # Stooq returns newest-first for some regions; ensure ascending
-                raw = raw.sort_index()
-                needed = [c for c in ["open", "high", "low", "close", "volume"] if c in raw.columns]
-                df = raw[needed].copy()
-                if not df.empty:
-                    df.to_parquet(cache_file)
-                    log.debug("%s: stooq OK (%d rows)", symbol, len(df))
-                    return df
+        body = r.text if r.status_code == 200 else ""
+        if r.status_code == 200 and len(body) > 100 and "apikey" not in body.lower():
+            df = _parse_stooq_csv(body, symbol)
+            if not df.empty:
+                df.to_parquet(cache_file)
+                log.info("%s: stooq OK (%d rows)", symbol, len(df))
+                return df
+            log.warning("%s: stooq CSV parsed empty", symbol)
+        else:
+            log.warning("%s: stooq HTTP %d or API-key wall (len=%d)",
+                        symbol, r.status_code, len(body))
     except Exception as e:
-        log.debug("%s: stooq fetch error: %s", symbol, e)
+        log.warning("%s: stooq error: %s", symbol, e)
 
-    # ── Fallback: Yahoo Finance v8 raw API ───────────────────────────────────
+    # ── 2. NSE bhavcopy archive ───────────────────────────────────────────────
+    # Download one CSV per trading day and filter to this symbol.
+    # Official NSE data — no auth, works on GitHub Actions runners.
+    log.info("%s: falling back to NSE bhavcopy archive…", symbol)
+    try:
+        df = _fetch_ohlcv_bhavcopy(symbol, start)
+        if not df.empty:
+            df.to_parquet(cache_file)
+            log.info("%s: bhavcopy OK (%d rows)", symbol, len(df))
+            return df
+        log.warning("%s: bhavcopy returned empty", symbol)
+    except Exception as e:
+        log.warning("%s: bhavcopy error: %s", symbol, e)
+
+    # ── 3. Yahoo Finance v8 raw API ──────────────────────────────────────────
+    log.warning("%s: trying Yahoo Finance fallback (likely blocked on CI)…", symbol)
     ticker = f"{symbol}.NS"
     start_ts = int(pd.Timestamp(start).timestamp())
     end_ts   = int(pd.Timestamp.now().timestamp()) + 86400
@@ -196,6 +223,7 @@ def fetch_ohlcv(symbol: str, start: str = "2022-01-01") -> pd.DataFrame:
         try:
             r = session.get(url, params=params, timeout=20)
             if r.status_code == 429:
+                log.warning("%s: Yahoo 429 on %s", symbol, base.split("/")[2])
                 break
             if r.status_code != 200:
                 continue
@@ -224,10 +252,64 @@ def fetch_ohlcv(symbol: str, start: str = "2022-01-01") -> pd.DataFrame:
                 df.to_parquet(cache_file)
                 return df
         except Exception as e:
-            log.debug("%s YF fallback error: %s", symbol, e)
+            log.warning("%s YF error: %s", symbol, e)
 
-    log.debug("%s: all sources failed", symbol)
+    log.error("%s: all OHLCV sources failed", symbol)
     return pd.DataFrame()
+
+
+def _fetch_ohlcv_bhavcopy(symbol: str, start: str = "2022-01-01") -> pd.DataFrame:
+    """
+    Build a full OHLCV series from NSE's daily bhavcopy CSV archive.
+    Each file covers all CM-segment stocks for one trading day.
+    URL: https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_DDMMYYYY.csv
+    No authentication required.
+    """
+    from io import StringIO
+
+    session = _get_session()
+    start_dt = pd.Timestamp(start)
+    end_dt   = pd.Timestamp.now().normalize()
+
+    # Generate trading days in the range (Mon–Fri)
+    all_dates = pd.date_range(start=start_dt, end=end_dt, freq="B")  # business days
+    rows: list[dict] = []
+
+    for dt in all_dates:
+        date_str = dt.strftime("%d%m%Y")   # DDMMYYYY
+        url = f"https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_{date_str}.csv"
+        try:
+            r = session.get(url, timeout=15)
+            if r.status_code != 200 or len(r.content) < 200:
+                continue   # holiday or weekend — skip silently
+            raw = pd.read_csv(StringIO(r.text))
+            raw.columns = [c.strip().upper() for c in raw.columns]
+            # Filter to EQ series and our symbol
+            if "SYMBOL" not in raw.columns:
+                continue
+            row = raw[(raw["SYMBOL"].str.strip() == symbol) &
+                      (raw.get("SERIES", pd.Series(["EQ"]*len(raw))).str.strip() == "EQ")]
+            if row.empty:
+                continue
+            r0 = row.iloc[0]
+            rows.append({
+                "date":   dt,
+                "open":   pd.to_numeric(r0.get("OPEN_PRICE",  r0.get("OPEN",  None)), errors="coerce"),
+                "high":   pd.to_numeric(r0.get("HIGH_PRICE",  r0.get("HIGH",  None)), errors="coerce"),
+                "low":    pd.to_numeric(r0.get("LOW_PRICE",   r0.get("LOW",   None)), errors="coerce"),
+                "close":  pd.to_numeric(r0.get("CLOSE_PRICE", r0.get("CLOSE", None)), errors="coerce"),
+                "volume": pd.to_numeric(r0.get("TTL_TRD_QNTY", r0.get("VOLUME", None)), errors="coerce"),
+            })
+        except Exception:
+            continue   # individual day failure is non-fatal
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows).set_index("date").sort_index()
+    df = df.dropna(subset=["close"])
+    df = df[df["close"] > 0]
+    return df
 
 
 # ─── Fundamentals fetcher with disk cache ────────────────────────────────────
