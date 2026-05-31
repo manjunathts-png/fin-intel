@@ -3,6 +3,27 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import { trackEvent } from "../lib/analytics";
 
+// ─── ML Score badge ────────────────────────────────────────────────────────────
+function MlBadge({ prob }) {
+  if (prob == null) return null;
+  const pct = Math.round(prob * 100);
+  const [bg, border, numColor, label] =
+    prob >= 0.65 ? ["bg-emerald-950", "border-emerald-600/50", "text-emerald-400", "Strong"]   :
+    prob >= 0.50 ? ["bg-blue-950",    "border-blue-600/50",    "text-blue-400",    "Positive"] :
+    prob >= 0.35 ? ["bg-slate-800",   "border-slate-600/40",   "text-slate-300",   "Neutral"]  :
+                   ["bg-red-950",     "border-red-700/50",     "text-red-400",     "Weak"];
+  return (
+    <div
+      className={`shrink-0 rounded-xl border ${bg} ${border} px-2.5 py-1.5 text-center`}
+      title={`ML Score: ${pct}% probability of top-quartile 3-month return`}
+    >
+      <div className="text-[9px] text-white/35 uppercase tracking-widest leading-none mb-1 font-medium">ML Score</div>
+      <div className={`text-lg font-bold tabular-nums leading-none ${numColor}`}>{pct}%</div>
+      <div className={`text-[9px] font-semibold uppercase tracking-wider mt-0.5 ${numColor} opacity-70`}>{label}</div>
+    </div>
+  );
+}
+
 const VERDICT_STYLE = {
   "Strong Buy": "bg-green-500/20 text-green-300 border-green-600/40",
   "Buy":        "bg-green-800/30 text-green-400 border-green-700/40",
@@ -227,7 +248,7 @@ function ScoreBadge({ score }) {
   );
 }
 
-function StockPickCard({ pick, rank, ruleBased, aiRationale }) {
+function StockPickCard({ pick, rank, ruleBased, aiRationale, mlProb }) {
   const verdict   = ruleBased?.analysis?.verdict ?? aiRationale?.analysis?.verdict;
   const chips     = ruleBased?.analysis?.signal_chips ?? [];
   const changeCol = (pick.changePct ?? 0) >= 0 ? "text-green-400" : "text-red-400";
@@ -271,6 +292,7 @@ function StockPickCard({ pick, rank, ruleBased, aiRationale }) {
               </div>
             </div>
           )}
+          <MlBadge prob={mlProb} />
           <ScoreBadge score={pick.compositeScore} />
         </div>
       </div>
@@ -652,6 +674,7 @@ export default function Picks() {
   const [error,            setError]            = useState(null);
   const [tab,              setTab]              = useState("mf");
   const [stockShowCount,   setStockShowCount]   = useState(10);
+  const [mlPredMap,        setMlPredMap]        = useState({});
 
   function switchTab(key) {
     setTab(key);
@@ -667,7 +690,11 @@ export default function Picks() {
       supabase.from("pick_ai_rationales").select("*").order("rank"),
       supabase.from("stock_pick_rationales").select("*").order("run_date", { ascending: false }).order("rank").limit(50),
       supabase.from("stock_pick_ai_rationales").select("*").order("rank"),
-    ]).then(([mf, st, sp, rule, ai, sRule, sAi]) => {
+      supabase.from("stock_predictions")
+        .select("symbol,p_top_quartile_3m,prediction_date")
+        .order("prediction_date", { ascending: false })
+        .limit(500),
+    ]).then(([mf, st, sp, rule, ai, sRule, sAi, mlPred]) => {
       if (mf.error) { setError(mf.error.message); return; }
       if (st.error) { setError(st.error.message); return; }
       setMfData(mf.data.data);
@@ -696,6 +723,15 @@ export default function Picks() {
         const bySymbol = {};
         sAi.data.forEach((r) => { bySymbol[r.symbol] = r; });
         setStockAiRat(bySymbol);
+      }
+      if (!mlPred.error && mlPred.data && mlPred.data.length > 0) {
+        const bySymbol = {};
+        mlPred.data.forEach((r) => {
+          const bare = r.symbol?.replace(/\.NS$/i, "");
+          if (bare && !bySymbol[bare] && r.p_top_quartile_3m != null)
+            bySymbol[bare] = r.p_top_quartile_3m;
+        });
+        setMlPredMap(bySymbol);
       }
     }).finally(() => setLoading(false));
   }, []);
@@ -768,15 +804,19 @@ export default function Picks() {
                 scannedPicks={stockPicksData?.all ?? signalsPicks}
               />
 
-              {signalsPicks.slice(0, stockShowCount).map((pick, i) => (
-                <StockPickCard
-                  key={pick.symbol}
-                  pick={pick}
-                  rank={i + 1}
-                  ruleBased={stockRuleRat[pick.symbol] ?? null}
-                  aiRationale={stockAiRat[pick.symbol] ?? null}
-                />
-              ))}
+              {signalsPicks.slice(0, stockShowCount).map((pick, i) => {
+                const bare = pick.symbol?.replace(/\.NS$/i, "");
+                return (
+                  <StockPickCard
+                    key={pick.symbol}
+                    pick={pick}
+                    rank={i + 1}
+                    ruleBased={stockRuleRat[pick.symbol] ?? null}
+                    aiRationale={stockAiRat[pick.symbol] ?? null}
+                    mlProb={mlPredMap[bare] ?? null}
+                  />
+                );
+              })}
 
               {/* Show more / show less controls */}
               {signalsPicks.length > 10 && (
