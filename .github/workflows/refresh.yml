@@ -174,14 +174,26 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # ── Stock historical backfill (one-shot) ──────────────────────────────────
-      - name: Backfill stock OHLCV + features (${{ github.event.inputs.backfill_days || '730' }} days)
+      # Split into two halves to stay within GitHub's per-step limits.
+      # First half: recent 365 days (faster — more cache hits).
+      - name: Backfill stock OHLCV + features — recent 365 days
+        if: steps.target.outputs.target == 'stock_backfill' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: >
+          python ml/extract_stock_features.py
+          --backfill 365
+          --workers 1
+          --no-fundamentals
+        timeout-minutes: 180
+
+      # Second half: older 365–730 days.
+      - name: Backfill stock OHLCV + features — older 365-730 days
         if: steps.target.outputs.target == 'stock_backfill' && steps.dbcheck.outputs.tables_ok == 'true'
         run: >
           python ml/extract_stock_features.py
           --backfill ${{ github.event.inputs.backfill_days || '730' }}
           --workers 1
           --no-fundamentals
-        timeout-minutes: 90
+        timeout-minutes: 180
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
