@@ -39,6 +39,20 @@ jobs:
       - name: Install dependencies
         run: cd backend && npm ci
 
+      # Cache OHLCV + fundamentals parquet files across runs (7-day TTL on GH cache)
+      # Without this, every nightly run re-fetches 400 days × 84 stocks from scratch.
+      - name: Restore OHLCV + macro cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ml/.cache_stock
+            ml/.cache_fundamentals
+            ml/.cache_macro
+            ml/.cache_nav
+          key: ml-data-cache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            ml-data-cache-${{ runner.os }}-
+
       - name: Determine target
         id: target
         run: |
