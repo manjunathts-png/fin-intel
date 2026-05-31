@@ -38,7 +38,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from supabase import create_client
 
-from config import STOCK_FEATURE_COLS, STOCK_TARGET_COL
+from config import STOCK_FEATURE_COLS, STOCK_SHARPE_TARGET_COL, STOCK_TARGET_COL
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -328,20 +328,30 @@ def write_model_run(supabase, model_version, feature_count, training_samples,
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--prediction-date", type=str, default=None)
-    p.add_argument("--horizon",  type=str, default="3m", choices=["3m", "1m"],
+    p.add_argument("--horizon",       type=str, default="3m", choices=["3m", "1m"],
                    help="Prediction horizon: 3m (default) or 1m")
-    p.add_argument("--tune",            action="store_true")
-    p.add_argument("--n-trials",        type=int, default=50)
-    p.add_argument("--no-calibrate",    action="store_true")
-    p.add_argument("--no-shap",         action="store_true")
-    p.add_argument("--dry-run",         action="store_true")
+    p.add_argument("--tune",          action="store_true")
+    p.add_argument("--n-trials",      type=int, default=50)
+    p.add_argument("--no-calibrate",  action="store_true")
+    p.add_argument("--no-shap",       action="store_true")
+    p.add_argument("--dry-run",       action="store_true")
+    p.add_argument("--sharpe-target", action="store_true",
+                   help="Use risk-adjusted (Sharpe-quartile) label instead of raw-return quartile")
     args = p.parse_args()
 
     # Resolve horizon-specific column names
-    target_col = "fwd_top_q_1m" if args.horizon == "1m" else "fwd_top_q_3m"
-    prob_col   = "p_top_quartile_1m" if args.horizon == "1m" else "p_top_quartile_3m"
+    if args.horizon == "1m":
+        target_col = "fwd_top_q_1m"
+        prob_col   = "p_top_quartile_1m"
+    elif args.sharpe_target:
+        target_col = STOCK_SHARPE_TARGET_COL   # fwd_top_sharpe_q_3m
+        prob_col   = "p_top_sharpe_q_3m"
+    else:
+        target_col = STOCK_TARGET_COL           # fwd_top_q_3m
+        prob_col   = "p_top_quartile_3m"
     horizon_tag = args.horizon
-    log.info("Horizon: %s  target=%s  output=%s", horizon_tag, target_col, prob_col)
+    log.info("Horizon: %s  target=%s  output=%s  sharpe=%s",
+             horizon_tag, target_col, prob_col, args.sharpe_target)
 
     pred_date = date.fromisoformat(args.prediction_date) if args.prediction_date else date.today()
 

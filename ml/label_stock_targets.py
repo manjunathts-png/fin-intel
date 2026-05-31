@@ -49,6 +49,7 @@ logging.basicConfig(
 log = logging.getLogger("label_stock_targets")
 
 CACHE_DIR = Path(__file__).parent / ".cache_stock"
+RISK_FREE_RATE = 0.07
 
 
 def _col_names(fwd_days: int) -> tuple[str, str, str]:
@@ -56,6 +57,33 @@ def _col_names(fwd_days: int) -> tuple[str, str, str]:
     if fwd_days <= 45:
         return "fwd_ret_1m", "fwd_quartile_1m", "fwd_top_q_1m"
     return "fwd_ret_3m", "fwd_quartile_3m", "fwd_top_q_3m"
+
+
+def _fwd_sharpe_stock(
+    ohlcv_df: pd.DataFrame,
+    as_of: date,
+    target_date: date,
+    fwd_days: int,
+) -> float | None:
+    """Realized Sharpe over the forward window using daily OHLCV close returns."""
+    window = ohlcv_df[
+        (ohlcv_df.index > pd.Timestamp(as_of)) &
+        (ohlcv_df.index <= pd.Timestamp(target_date))
+    ]
+    if len(window) < 5:
+        return None
+    daily_rets = window["close"].pct_change().dropna()
+    if len(daily_rets) < 5 or daily_rets.std(ddof=1) == 0:
+        return None
+    past_sub = ohlcv_df[ohlcv_df.index <= pd.Timestamp(as_of)]
+    if past_sub.empty:
+        return None
+    price_past = float(past_sub["close"].iloc[-1])
+    price_fut  = float(window["close"].iloc[-1])
+    total_ret_pct  = (price_fut / price_past - 1) * 100
+    rf_period_pct  = RISK_FREE_RATE * (fwd_days / 365) * 100
+    ann_vol_pct    = float(daily_rets.std(ddof=1) * np.sqrt(252) * 100)
+    return (total_ret_pct - rf_period_pct) / ann_vol_pct
 
 
 def load_unlabeled(supabase, cutoff: date, top_q_col: str) -> pd.DataFrame:
@@ -116,12 +144,14 @@ def compute_labels(
         as_of = as_of_ts.date()
         target_date = as_of + timedelta(days=fwd_days)
 
-        # ── Fetch forward return for each symbol ──────────────────────────
-        fund_fwd_rets: dict[str, float | None] = {}
+        # ── Fetch forward return + Sharpe for each symbol ─────────────────
+        fund_fwd_rets:    dict[str, float | None] = {}
+        fund_fwd_sharpes: dict[str, float | None] = {}
         for _, row in group.iterrows():
             sym = row["symbol"]
             cache_file = CACHE_DIR / f"{sym}.parquet"
             fwd_ret = None
+            fwd_sharpe = None
             if cache_file.exists():
                 try:
                     df = pd.read_parquet(cache_file)
@@ -139,42 +169,47 @@ def compute_labels(
                                 sym, as_of, actual_fut.date(), gap_days,
                             )
                         elif price_past > 0:
-                            fwd_ret = (price_fut - price_past) / price_past * 100.0
+                            fwd_ret    = (price_fut - price_past) / price_past * 100.0
+                            fwd_sharpe = _fwd_sharpe_stock(df, as_of, target_date, fwd_days)
                 except Exception as e:
                     log.debug("OHLCV cache read failed for %s: %s", sym, e)
-            fund_fwd_rets[sym] = fwd_ret
+            fund_fwd_rets[sym]    = fwd_ret
+            fund_fwd_sharpes[sym] = fwd_sharpe
 
-        # ── Universe-wide quartile ranking ────────────────────────────────
-        valid_syms = [(sym, ret) for sym, ret in fund_fwd_rets.items() if ret is not None]
-        quartile_map: dict[str, int | None] = {}
-        top_q_map: dict[str, bool | None]   = {}
+        def _assign_univ_quartiles(valid_pairs: list[tuple[str, float]]) -> tuple[dict, dict]:
+            q_map: dict[str, int | None]  = {}
+            top_map: dict[str, bool | None] = {}
+            if len(valid_pairs) >= 4:
+                syms_arr = [x[0] for x in valid_pairs]
+                vals_arr = np.array([x[1] for x in valid_pairs])
+                try:
+                    labels = pd.qcut(vals_arr, q=4, labels=[4, 3, 2, 1], duplicates="drop")
+                    for sym, lbl in zip(syms_arr, labels):
+                        q = int(lbl) if not pd.isna(lbl) else None
+                        q_map[sym]   = q
+                        top_map[sym] = (q == 1) if q is not None else None
+                except Exception:
+                    order = np.argsort(vals_arr)[::-1]
+                    n = len(order)
+                    for rank, idx in enumerate(order):
+                        sym = syms_arr[idx]
+                        q = min(4, int(rank / n * 4) + 1)
+                        q_map[sym]   = q
+                        top_map[sym] = (q == 1)
+            elif len(valid_pairs) >= 2:
+                syms_arr  = [x[0] for x in valid_pairs]
+                vals_arr  = np.array([x[1] for x in valid_pairs])
+                median_val = float(np.median(vals_arr))
+                for sym, val in valid_pairs:
+                    q_map[sym]   = 1 if val >= median_val else 4
+                    top_map[sym] = (val >= median_val)
+            return q_map, top_map
 
-        if len(valid_syms) >= 4:
-            codes_arr = [x[0] for x in valid_syms]
-            rets_arr  = np.array([x[1] for x in valid_syms])
-            try:
-                labels = pd.qcut(rets_arr, q=4, labels=[4, 3, 2, 1], duplicates="drop")
-                for sym, lbl in zip(codes_arr, labels):
-                    q = int(lbl) if not pd.isna(lbl) else None
-                    quartile_map[sym] = q
-                    top_q_map[sym]    = (q == 1) if q is not None else None
-            except Exception:
-                # Fallback: rank-based assignment
-                order = np.argsort(rets_arr)[::-1]
-                n = len(order)
-                for rank, idx in enumerate(order):
-                    sym = codes_arr[idx]
-                    q = min(4, int(rank / n * 4) + 1)
-                    quartile_map[sym] = q
-                    top_q_map[sym]    = (q == 1)
-        elif len(valid_syms) >= 2:
-            # Too few for quartile — split top/bottom half
-            codes_arr = [x[0] for x in valid_syms]
-            rets_arr  = np.array([x[1] for x in valid_syms])
-            median_ret = float(np.median(rets_arr))
-            for sym, ret in valid_syms:
-                quartile_map[sym] = 1 if ret >= median_ret else 4
-                top_q_map[sym]    = (ret >= median_ret)
+        # Universe-wide quartiles for return
+        valid_rets    = [(s, r) for s, r in fund_fwd_rets.items()    if r is not None]
+        valid_sharpes = [(s, v) for s, v in fund_fwd_sharpes.items() if v is not None]
+        quartile_map, top_q_map       = _assign_univ_quartiles(valid_rets)
+        sharpe_q_map, top_sharpe_q_map = _assign_univ_quartiles(valid_sharpes)
 
         # ── Build update rows ─────────────────────────────────────────────
         for _, row in group.iterrows():
@@ -182,13 +217,19 @@ def compute_labels(
             fwd_ret = fund_fwd_rets.get(sym)
             if fwd_ret is None:
                 continue
-            updates.append({
+            update: dict[str, Any] = {
                 "symbol":       sym,
                 "as_of_date":   str(as_of),
                 ret_col:        round(fwd_ret, 4),
                 quartile_col:   quartile_map.get(sym),
                 top_q_col:      top_q_map.get(sym),
-            })
+            }
+            sharpe_val = fund_fwd_sharpes.get(sym)
+            if sharpe_val is not None:
+                update["fwd_sharpe_3m"] = round(sharpe_val, 4)
+            update["fwd_sharpe_q_3m"]     = sharpe_q_map.get(sym)
+            update["fwd_top_sharpe_q_3m"] = top_sharpe_q_map.get(sym)
+            updates.append(update)
 
     if not updates:
         log.info("No rows ready to label")

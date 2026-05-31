@@ -763,6 +763,19 @@ def add_cross_sectional(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             lambda x: (x - x.mean()) / (x.std(ddof=1) if x.std(ddof=1) > 0 else 1.0)
         )
 
+    # Cross-sector momentum: how is this sector doing vs all other sectors?
+    # sector_momentum_3m = median ret3m of all stocks in the same sector
+    # sector_vs_univ_3m  = percentile rank of that sector median vs all sectors
+    if "ret3m" in df.columns:
+        df["sector_momentum_3m"] = df.groupby("sector")["ret3m"].transform("median")
+        sec_medians = df.groupby("sector")["ret3m"].median()
+        n_secs = len(sec_medians)
+        if n_secs > 1:
+            sec_pct = sec_medians.rank(pct=True)
+            df["sector_vs_univ_3m"] = df["sector"].map(sec_pct)
+        else:
+            df["sector_vs_univ_3m"] = 0.5
+
     return df.to_dict("records")
 
 

@@ -166,8 +166,9 @@ jobs:
       - name: Train stock models — 3M and 1M horizons
         if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
         run: |
-          python ml/train_stock.py --no-shap --horizon 3m || echo "Stock 3M training skipped"
-          python ml/train_stock.py --no-shap --horizon 1m || echo "Stock 1M training skipped"
+          python ml/train_stock.py --horizon 3m || echo "Stock 3M training skipped"
+          python ml/train_stock.py --horizon 3m --sharpe-target || echo "Stock 3M sharpe skipped"
+          python ml/train_stock.py --horizon 1m || echo "Stock 1M training skipped"
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -197,8 +198,9 @@ jobs:
       - name: Train stock models after backfill — 3M and 1M
         if: steps.target.outputs.target == 'stock_backfill' && steps.dbcheck.outputs.tables_ok == 'true'
         run: |
-          python ml/train_stock.py --no-shap --horizon 3m || echo "Stock 3M skipped (insufficient data)"
-          python ml/train_stock.py --no-shap --horizon 1m || echo "Stock 1M skipped (insufficient data)"
+          python ml/train_stock.py --horizon 3m || echo "Stock 3M skipped (insufficient data)"
+          python ml/train_stock.py --horizon 3m --sharpe-target || echo "Stock 3M sharpe skipped"
+          python ml/train_stock.py --horizon 1m || echo "Stock 1M skipped (insufficient data)"
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

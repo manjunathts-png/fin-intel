@@ -101,6 +101,9 @@ STOCK_FEATURE_COLS = [
     "sector_rank_1m", "sector_rank_3m", "sector_rank_1y",
     "univ_rank_1m", "univ_rank_3m", "univ_rank_1y",
     "sector_z",
+    # Sector-level momentum vs universe (cross-sector signal)
+    "sector_momentum_3m",   # median ret3m of all stocks in this sector
+    "sector_vs_univ_3m",    # percentile rank of that sector median vs all sectors
     # Style vs Nifty
     "beta_nifty", "alpha_nifty", "corr_nifty",
     # Fundamentals snapshot
@@ -112,8 +115,9 @@ STOCK_FEATURE_COLS = [
     "india_vix", "usd_inr", "us_10y_yield",
 ]
 
-STOCK_TARGET_COL = "fwd_top_q_3m"
-STOCK_RETURN_COL = "fwd_ret_3m"
+STOCK_TARGET_COL  = "fwd_top_q_3m"
+STOCK_RETURN_COL  = "fwd_ret_3m"
+STOCK_SHARPE_TARGET_COL = "fwd_top_sharpe_q_3m"
 
 # ─── Shared constants ─────────────────────────────────────────────────────────
 
