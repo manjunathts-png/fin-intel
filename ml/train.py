@@ -40,7 +40,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from supabase import create_client
 
-from config import FEATURE_COLS, TARGET_COL
+from config import CATEGORY_GROUPS, FEATURE_COLS, SHARPE_TARGET_COL, TARGET_COL
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -350,6 +350,7 @@ def write_predictions(
     model_version: str,
     prediction_date: date,
     prob_col: str = "p_top_quartile_3m",
+    category_group: str | None = None,
     batch: int = 500,
 ) -> int:
     rows: list[dict] = []
@@ -371,7 +372,7 @@ def write_predictions(
         cat_ranks[mask] = ranks
 
     for i, (_, fund_row) in enumerate(pred_df.iterrows()):
-        rows.append({
+        row: dict = {
             "scheme_code":     fund_row["scheme_code"],
             "prediction_date": str(prediction_date),
             "model_version":   model_version,
@@ -379,7 +380,10 @@ def write_predictions(
             "pred_rank":       int(global_ranks[i]),
             "pred_cat_rank":   int(cat_ranks[i]),
             "top_features":    top_features_list[i],
-        })
+        }
+        if category_group is not None:
+            row["category_group"] = category_group
+        rows.append(row)
 
     total = 0
     for i in range(0, len(rows), batch):
@@ -393,14 +397,113 @@ def write_predictions(
     return total
 
 
+def run_category_group_pipeline(
+    supabase,
+    train_df: pd.DataFrame,
+    pred_df: pd.DataFrame,
+    params: dict,
+    pred_date: date,
+    target_col: str,
+    prob_col: str,
+    horizon_tag: str,
+    args,
+) -> None:
+    """Train one model per category group and write group-specific predictions."""
+    import hashlib
+
+    cats = pred_df["category"].fillna("Unknown")
+    groups_in_pred = cats.map(lambda c: CATEGORY_GROUPS.get(c, "other")).unique()
+
+    for group in sorted(groups_in_pred):
+        # Filter training and inference data to this group
+        train_cats = train_df["category"].fillna("Unknown")
+        train_mask = train_cats.map(lambda c: CATEGORY_GROUPS.get(c, "other")) == group
+        group_train = train_df[train_mask].copy()
+
+        pred_cats = pred_df["category"].fillna("Unknown")
+        pred_mask = pred_cats.map(lambda c: CATEGORY_GROUPS.get(c, "other")) == group
+        group_pred = pred_df[pred_mask].copy()
+
+        n_train = group_train[target_col].notna().sum() if target_col in group_train else 0
+        log.info("Group '%s': %d training samples, %d inference funds", group, n_train, len(group_pred))
+
+        if n_train < 30:
+            log.warning("Skipping group '%s' — too few labeled samples (%d < 30)", group, n_train)
+            continue
+        if group_pred.empty:
+            log.warning("Skipping group '%s' — no funds to predict", group)
+            continue
+
+        X_tr, medians = prepare_X(group_train)
+        y_tr = group_train[target_col].astype(int)
+
+        cv_metrics = cross_val_metrics(X_tr, y_tr, params)
+        log.info("[%s] CV AUC=%.4f  Precision@Q1=%.4f", group,
+                 cv_metrics.get("cv_auc") or 0, cv_metrics.get("cv_precision_top_q") or 0)
+
+        model = train_model(X_tr, y_tr, params, calibrate=not args.no_calibrate)
+
+        fi = get_feature_importance(model, X_tr.columns.tolist())
+        if fi:
+            log.info("[%s] Top 5 features: %s", group, [x["feature"] for x in fi[:5]])
+
+        X_pr, _ = prepare_X(group_pred, fit_medians=medians)
+        for col in X_tr.columns:
+            if col not in X_pr.columns:
+                X_pr[col] = medians.get(col, 0.0)
+        X_pr = X_pr[X_tr.columns]
+
+        probs = model.predict_proba(X_pr)[:, 1]
+
+        if args.no_shap:
+            top_features_list = [[] for _ in range(len(X_pr))]
+        else:
+            top_features_list = compute_shap_top5(model, X_pr)
+
+        feat_hash = hashlib.md5(",".join(sorted(X_tr.columns)).encode()).hexdigest()[:6]
+        model_version = f"lgbm_v1.0_{horizon_tag}_{group}_{pred_date}_{feat_hash}"
+
+        shap_stability = check_shap_stability(supabase, fi, model_version, horizon_tag=horizon_tag)
+
+        if args.dry_run:
+            log.info("[%s] dry-run: skipping writes (sample p=%.4f)", group, float(probs[0]))
+        else:
+            write_predictions(
+                supabase, group_pred, probs, top_features_list,
+                model_version=model_version,
+                prediction_date=pred_date,
+                prob_col=prob_col,
+                category_group=group,
+            )
+            stability_note = (
+                f"group={group} shap_stability={shap_stability.get('status', 'unknown')} "
+                f"overlap={shap_stability.get('overlap')}/5 "
+                f"vs {shap_stability.get('prev_version', 'n/a')}"
+            ) if shap_stability.get("checked") else f"group={group}"
+            training_window = f"{group_train['as_of_date'].min().date()} to {group_train['as_of_date'].max().date()}"
+            write_model_run(
+                supabase,
+                model_version=model_version,
+                feature_count=len(X_tr.columns),
+                training_samples=len(X_tr),
+                training_window=training_window,
+                cv_metrics=cv_metrics,
+                params={k: v for k, v in params.items() if k not in ("verbose", "random_state")},
+                feature_importance=fi,
+                notes=stability_note,
+            )
+
+
 def check_shap_stability(
     supabase,
     current_fi: list[dict],
     model_version: str,
+    horizon_tag: str = "",
 ) -> dict[str, Any]:
     """
     Compare the current run's top-5 features against the most recent previous
-    model run stored in mf_model_runs.
+    model run stored in mf_model_runs — filtered to the SAME horizon (1m/3m)
+    so cross-horizon comparisons don't generate spurious drift alerts.
 
     Returns a stability report dict that is attached to the model-run notes.
 
@@ -414,14 +517,15 @@ def check_shap_stability(
     if not current_fi:
         return report
     try:
-        resp = (
+        query = (
             supabase.table("mf_model_runs")
             .select("model_version,feature_importance,trained_at")
             .neq("model_version", model_version)
-            .order("trained_at", desc=True)
-            .limit(1)
-            .execute()
         )
+        # Filter to same horizon so 3m models only compare against 3m baselines
+        if horizon_tag:
+            query = query.like("model_version", f"lgbm_v1.0_{horizon_tag}_%")
+        resp = query.order("trained_at", desc=True).limit(1).execute()
         if not resp.data:
             log.info("SHAP stability: no previous model run found — first run, skipping")
             return report
@@ -533,17 +637,29 @@ def main():
                    help="YYYY-MM-DD for predictions (default: today)")
     p.add_argument("--horizon",  type=str, default="3m", choices=["3m", "1m"],
                    help="Prediction horizon: 3m (default) or 1m")
-    p.add_argument("--tune",          action="store_true", help="Run Optuna hyperparameter tuning")
-    p.add_argument("--n-trials",      type=int, default=50, help="Optuna trial count (default 50)")
-    p.add_argument("--no-calibrate",  action="store_true", help="Skip probability calibration")
-    p.add_argument("--no-shap",       action="store_true", help="Skip SHAP computation (faster)")
-    p.add_argument("--dry-run",       action="store_true", help="Train but don't write to Supabase")
+    p.add_argument("--tune",             action="store_true", help="Run Optuna hyperparameter tuning")
+    p.add_argument("--n-trials",         type=int, default=50, help="Optuna trial count (default 50)")
+    p.add_argument("--no-calibrate",     action="store_true", help="Skip probability calibration")
+    p.add_argument("--no-shap",          action="store_true", help="Skip SHAP computation (faster)")
+    p.add_argument("--dry-run",          action="store_true", help="Train but don't write to Supabase")
+    p.add_argument("--category-groups",  action="store_true",
+                   help="Train a separate model per category group (equity/sector/fixed_income/…)")
+    p.add_argument("--sharpe-target",    action="store_true",
+                   help="Use risk-adjusted (Sharpe-quartile) label instead of raw-return quartile")
     args = p.parse_args()
 
-    target_col   = "fwd_top_q_1m"      if args.horizon == "1m" else "fwd_top_q_3m"
-    prob_col     = "p_top_quartile_1m" if args.horizon == "1m" else "p_top_quartile_3m"
-    horizon_tag  = args.horizon
-    log.info("Horizon: %s  target=%s  output=%s", horizon_tag, target_col, prob_col)
+    if args.horizon == "1m":
+        target_col = "fwd_top_q_1m"
+        prob_col   = "p_top_quartile_1m"
+    elif args.sharpe_target:
+        target_col = SHARPE_TARGET_COL      # fwd_top_sharpe_q_3m
+        prob_col   = "p_top_sharpe_q_3m"
+    else:
+        target_col = TARGET_COL             # fwd_top_q_3m
+        prob_col   = "p_top_quartile_3m"
+    horizon_tag = args.horizon
+    log.info("Horizon: %s  target=%s  output=%s  category_groups=%s",
+             horizon_tag, target_col, prob_col, args.category_groups)
 
     pred_date = date.fromisoformat(args.prediction_date) if args.prediction_date else date.today()
 
@@ -591,6 +707,24 @@ def main():
     else:
         params = DEFAULT_PARAMS
         log.info("Using default hyperparameters")
+
+    # ── 3. Category-groups mode: train one model per group and exit ────────
+    if args.category_groups:
+        pred_df = load_latest_features(supabase, pred_date)
+        if pred_df.empty:
+            log.error("No features available for prediction. Exiting.")
+            sys.exit(1)
+        run_category_group_pipeline(
+            supabase, train_df, pred_df,
+            params=params,
+            pred_date=pred_date,
+            target_col=target_col,
+            prob_col=prob_col,
+            horizon_tag=horizon_tag,
+            args=args,
+        )
+        log.info("Category-groups pipeline complete.")
+        return
 
     # ── 3. Cross-validation metrics ────────────────────────────────────────
     log.info("Running 5-fold CV for metric estimation…")
@@ -654,7 +788,7 @@ def main():
     # Compare top-5 features against the previous model run. Warn if <4/5
     # features overlap — signals feature drift, data gap, or regime shift.
     # Runs even in dry-run mode (read-only query).
-    shap_stability = check_shap_stability(supabase, fi, model_version)
+    shap_stability = check_shap_stability(supabase, fi, model_version, horizon_tag=horizon_tag)
 
     # ── 10. Write to Supabase ──────────────────────────────────────────────
     if args.dry_run:
