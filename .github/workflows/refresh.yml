@@ -73,13 +73,6 @@ jobs:
           else
             echo "target=intraday" >> $GITHUB_OUTPUT
           fi
-          # Training day = Sunday (DOW=7) or manual dispatch
-          DOW=$(date +%u)
-          if [ "$DOW" = "7" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "train=true" >> $GITHUB_OUTPUT
-          else
-            echo "train=false" >> $GITHUB_OUTPUT
-          fi
 
       - name: Refresh cache
         if: >-
@@ -162,12 +155,10 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       - name: Train MF models — 3M Sharpe-target (primary) + 1M raw-return
-        # Retrain weekly (Sunday nights) — 1 day of new data barely shifts model weights.
-        # Mon–Sat: predictions are refreshed by train.py using the existing saved model.
-        if: >-
-          steps.target.outputs.target == 'all' &&
-          steps.dbcheck.outputs.tables_ok == 'true' &&
-          steps.target.outputs.train == 'true'
+        # Retrain daily — train.py both retrains the model AND writes fresh predictions.
+        # Without this step predictions go stale. Fixes 1+2 (smart cache + workers=4)
+        # already cut nightly to ~31 min, well within the 2,000 min/month free tier.
+        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
         run: |
           python ml/train.py --no-shap --horizon 3m --sharpe-target || echo "MF 3M Sharpe training skipped"
           python ml/train.py --no-shap --horizon 3m || echo "MF 3M raw-return training skipped"
@@ -203,11 +194,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       - name: Train stock models — 3M and 1M horizons
-        # Retrain weekly (Sunday nights) — same rationale as MF models above.
-        if: >-
-          steps.target.outputs.target == 'all' &&
-          steps.dbcheck.outputs.tables_ok == 'true' &&
-          steps.target.outputs.train == 'true'
+        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
         run: |
           python ml/train_stock.py --horizon 3m || echo "Stock 3M training skipped"
           python ml/train_stock.py --horizon 3m --sharpe-target || echo "Stock 3M sharpe skipped"
