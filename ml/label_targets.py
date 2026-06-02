@@ -157,6 +157,38 @@ def compute_labels(
             code = row["scheme_code"]
             cache_file = cache_dir / f"{code}.parquet"
 
+            # If no cache file, attempt to fetch NAV from mfapi.in directly.
+            # This handles scheme_codes not in the current extract_features.py universe
+            # (e.g. funds added/removed from the curated list) without requiring a
+            # full feature backfill just to unblock labeling.
+            if not cache_file.exists():
+                try:
+                    import re as _re, httpx as _httpx
+                    MFAPI = "https://api.mfapi.in/mf/{code}"
+                    r = _httpx.get(MFAPI.format(code=code), timeout=20.0, verify=False)
+                    r.raise_for_status()
+                    data = r.json().get("data", [])
+                    rows_nav = []
+                    for d in data:
+                        m = _re.match(r"^(\d{2})-(\d{2})-(\d{4})$", d.get("date", ""))
+                        if not m:
+                            continue
+                        try:
+                            nav_v = float(d["nav"])
+                        except (TypeError, ValueError):
+                            continue
+                        if nav_v > 0:
+                            rows_nav.append({"date": f"{m.group(3)}-{m.group(2)}-{m.group(1)}", "nav": nav_v})
+                    if rows_nav:
+                        nav_frame = pd.DataFrame(rows_nav)
+                        nav_frame["date"] = pd.to_datetime(nav_frame["date"])
+                        nav_frame = nav_frame.sort_values("date").reset_index(drop=True)
+                        cache_dir.mkdir(exist_ok=True)
+                        nav_frame.to_parquet(cache_file, index=False)
+                        log.info("Fetched NAV for %s (%d rows) — cached for future runs", code, len(nav_frame))
+                except Exception as _e:
+                    log.debug("On-demand NAV fetch failed for %s: %s", code, _e)
+
             fwd_ret = None
             fwd_sharpe = None
             if cache_file.exists():
