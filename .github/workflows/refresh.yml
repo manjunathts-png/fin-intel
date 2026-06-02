@@ -69,10 +69,16 @@ jobs:
           elif [ "${{ github.event.schedule }}" = "30 23 * * *" ]; then
             echo "target=all" >> $GITHUB_OUTPUT
           elif [ "${{ github.event.schedule }}" = "30 18 * * 0" ]; then
-            # Monday midnight: run both legacy sentiment + GDELT sentiment
             echo "target=gdelt_sentiment" >> $GITHUB_OUTPUT
           else
             echo "target=intraday" >> $GITHUB_OUTPUT
+          fi
+          # Training day = Sunday (DOW=7) or manual dispatch
+          DOW=$(date +%u)
+          if [ "$DOW" = "7" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "train=true" >> $GITHUB_OUTPUT
+          else
+            echo "train=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Refresh cache
@@ -156,14 +162,16 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       - name: Train MF models — 3M Sharpe-target (primary) + 1M raw-return
-        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
+        # Retrain weekly (Sunday nights) — 1 day of new data barely shifts model weights.
+        # Mon–Sat: predictions are refreshed by train.py using the existing saved model.
+        if: >-
+          steps.target.outputs.target == 'all' &&
+          steps.dbcheck.outputs.tables_ok == 'true' &&
+          steps.target.outputs.train == 'true'
         run: |
-          # Primary 3M model: Sharpe-quartile target (risk-adjusted outperformance)
-          # Reduces high-beta bias vs raw-return target. Requires fwd_top_sharpe_q_3m labels.
-          python ml/train.py --no-shap --horizon 3m --sharpe-target || echo "MF 3M Sharpe training skipped (insufficient Sharpe labels — run label_targets.py --fix-sharpe first)"
-          # Fallback: raw-return 3M (runs in parallel so predictions always written)
+          python ml/train.py --no-shap --horizon 3m --sharpe-target || echo "MF 3M Sharpe training skipped"
           python ml/train.py --no-shap --horizon 3m || echo "MF 3M raw-return training skipped"
-          python ml/train.py --no-shap --horizon 1m || echo "MF 1M training skipped (insufficient labeled data)"
+          python ml/train.py --no-shap --horizon 1m || echo "MF 1M training skipped"
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -176,9 +184,11 @@ jobs:
       - name: Extract stock features (today) — Nifty 500 universe
         if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
         # Non-blocking: stock extraction failure must not abort MF pipeline
-        # Timeout 45 min — 504 stocks × ~5s/stock = ~42 min with 1 worker
-        run: python ml/extract_stock_features.py --nifty500 || echo "Stock feature extraction failed — check logs"
-        timeout-minutes: 45
+        # --workers 4: parallel fetch across 4 threads (safe: each stock is independent)
+        # Smart cache: stocks whose parquet already has yesterday's close are skipped instantly
+        # Typical nightly time: ~3 min (cache hits) vs 45 min cold
+        run: python ml/extract_stock_features.py --nifty500 --workers 4 || echo "Stock feature extraction failed — check logs"
+        timeout-minutes: 20
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -193,7 +203,11 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       - name: Train stock models — 3M and 1M horizons
-        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
+        # Retrain weekly (Sunday nights) — same rationale as MF models above.
+        if: >-
+          steps.target.outputs.target == 'all' &&
+          steps.dbcheck.outputs.tables_ok == 'true' &&
+          steps.target.outputs.train == 'true'
         run: |
           python ml/train_stock.py --horizon 3m || echo "Stock 3M training skipped"
           python ml/train_stock.py --horizon 3m --sharpe-target || echo "Stock 3M sharpe skipped"

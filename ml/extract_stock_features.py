@@ -187,6 +187,18 @@ def _parse_stooq_csv(text: str, symbol: str) -> pd.DataFrame:
     return raw[needed].copy()
 
 
+def _last_trading_day() -> date:
+    """Return the most recent weekday on or before yesterday (IST).
+    The nightly job runs at 5 AM IST — market closed at 3:30 PM IST yesterday,
+    so yesterday's close is always the freshest available data.
+    We skip back over weekends (NSE holidays are treated as missing rows, not stale).
+    """
+    d = datetime.now().date() - timedelta(days=1)
+    while d.weekday() >= 5:   # 5=Saturday, 6=Sunday
+        d -= timedelta(days=1)
+    return d
+
+
 def fetch_ohlcv(symbol: str, start: str = "2022-01-01") -> pd.DataFrame:
     """
     Fetch daily OHLCV for an NSE stock. Source priority:
@@ -194,15 +206,19 @@ def fetch_ohlcv(symbol: str, start: str = "2022-01-01") -> pd.DataFrame:
       2. NSE bhavcopy archive — official NSE daily EOD CSV, no auth (works on CI)
       3. Yahoo Finance v8 — last resort (blocked on most shared IPs)
     Returns DataFrame with DatetimeIndex, columns: open, high, low, close, volume.
-    Caches to .cache_stock/<SYMBOL>.parquet (24h TTL).
+    Cache: .cache_stock/<SYMBOL>.parquet — invalidated by data freshness, not wall-clock age.
+    If the parquet already contains the latest trading day's close, it is returned
+    immediately without any HTTP request (saves ~30 min on nightly runs).
     """
     cache_file = CACHE_DIR / f"{symbol}.parquet"
     if cache_file.exists():
-        age_h = (datetime.now().timestamp() - cache_file.stat().st_mtime) / 3600
-        if age_h < STOCK_CACHE_HOURS:
+        try:
             df = pd.read_parquet(cache_file)
             df.index = pd.to_datetime(df.index)
-            return df
+            if not df.empty and df.index.max().date() >= _last_trading_day():
+                return df   # already have the latest close — skip download
+        except Exception:
+            cache_file.unlink(missing_ok=True)
 
     session = _get_session()
 
