@@ -385,18 +385,43 @@ def _clean_val(k: str, v) -> Any:
 
 
 def upsert_features(supabase, rows: list[dict[str, Any]], batch: int = 500) -> int:
+    """Upsert feature rows with retry logic for transient Supabase/Cloudflare errors.
+
+    Supabase occasionally returns HTTP 500 / Cloudflare 1101 'Worker threw exception'
+    under load. Retrying with exponential back-off recovers from these without losing
+    the whole batch.
+    """
     if not rows:
         return 0
     total = 0
-    # Convert NaN to None and fix numpy/float types so Postgres accepts them
-    cleaned = []
-    for row in rows:
-        cleaned.append({k: _clean_val(k, v) for k, v in row.items()})
+    cleaned = [
+        {k: _clean_val(k, v) for k, v in row.items()}
+        for row in rows
+    ]
 
     for i in range(0, len(cleaned), batch):
         chunk = cleaned[i : i + batch]
-        supabase.table("mf_features").upsert(chunk, on_conflict="scheme_code,as_of_date").execute()
-        total += len(chunk)
+        last_exc: Exception | None = None
+        for attempt in range(4):          # up to 4 attempts: 0, 5, 15, 45 s
+            try:
+                supabase.table("mf_features").upsert(
+                    chunk, on_conflict="scheme_code,as_of_date"
+                ).execute()
+                total += len(chunk)
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                wait = 5 * (3 ** attempt)   # 5, 15, 45 s
+                log.warning(
+                    "Supabase upsert failed (attempt %d/4): %s — retrying in %ds",
+                    attempt + 1, str(exc)[:120], wait,
+                )
+                import time as _time; _time.sleep(wait)
+        if last_exc is not None:
+            raise RuntimeError(
+                f"Supabase upsert failed after 4 attempts: {last_exc}"
+            ) from last_exc
     return total
 
 

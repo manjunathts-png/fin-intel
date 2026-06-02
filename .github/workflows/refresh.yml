@@ -174,7 +174,10 @@ jobs:
 
       - name: Extract stock features (today) — Nifty 500 universe
         if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
-        run: python ml/extract_stock_features.py --nifty500   # 504 Nifty 500 stocks, today's features
+        # Non-blocking: stock extraction failure must not abort MF pipeline
+        # Timeout 45 min — 504 stocks × ~5s/stock = ~42 min with 1 worker
+        run: python ml/extract_stock_features.py --nifty500 || echo "Stock feature extraction failed — check logs"
+        timeout-minutes: 45
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
