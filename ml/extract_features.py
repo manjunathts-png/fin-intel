@@ -331,6 +331,37 @@ def add_cross_sectional(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         else:
             df["cat_vs_univ_3m"] = 0.5
 
+    # ── Category-relative risk z-scores ──────────────────────────────────────
+    # A -25% max drawdown in Small Cap is normal; in Large Cap it's extreme.
+    # Absolute risk features give the model the same value for both.
+    # Within-category z-scores fix this: the model now sees "how much riskier
+    # than category peers" rather than raw numbers, directly reducing high-beta
+    # bias (where the model was rewarding drawdown-recovery regardless of category).
+    #
+    # cat_rel_max_dd_1y  < 0 = safer than category peers (positive signal)
+    # cat_rel_vol_1y     < 0 = less volatile than peers  (positive signal)
+    # cat_rel_sharpe_1y  > 0 = better risk-adj return than peers (positive)
+    def _cat_zscore(series: pd.Series) -> pd.Series:
+        """Within-category z-score. NaN members use 0.0 (neutral)."""
+        def _zscore_group(x: pd.Series) -> pd.Series:
+            valid = x.dropna()
+            if len(valid) < 2:
+                return pd.Series(0.0, index=x.index)
+            std = valid.std(ddof=1)
+            if std == 0:
+                return pd.Series(0.0, index=x.index)
+            return (x - valid.mean()) / std
+        return df.groupby("category")[series.name].transform(_zscore_group).fillna(0.0)
+
+    for raw_col, rel_col in [
+        ("max_dd_1y",       "cat_rel_max_dd_1y"),
+        ("vol_1y",          "cat_rel_vol_1y"),
+        ("sharpe_1y",       "cat_rel_sharpe_1y"),
+        ("downside_dev_1y", "cat_rel_downside_dev"),
+    ]:
+        if raw_col in df.columns:
+            df[rel_col] = _cat_zscore(df[raw_col])
+
     return df.to_dict("records")
 
 

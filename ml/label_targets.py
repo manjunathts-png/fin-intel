@@ -9,9 +9,12 @@ quartile, then upsert those labels back into the table.
 Run this daily (or after extract_features.py) so the training dataset stays fresh.
 
 Usage:
-    python label_targets.py                # label all unlabeled rows older than 90d
-    python label_targets.py --dry-run      # show what would be labeled
-    python label_targets.py --window 60    # use 60-day forward window instead of 90
+    python label_targets.py                     # label all unlabeled rows older than 90d
+    python label_targets.py --dry-run           # show what would be labeled
+    python label_targets.py --window 60         # use 60-day forward window instead of 90
+    python label_targets.py --fix-sharpe        # backfill Sharpe labels for rows that
+                                                #   already have fwd_top_q_3m but are
+                                                #   missing fwd_top_sharpe_q_3m
 
 Env:
     SUPABASE_URL
@@ -202,33 +205,6 @@ def compute_labels(
             if sharpe is not None:
                 cat_sharpe_map.setdefault(cat, []).append((code, sharpe))
 
-        def _assign_quartiles(cat_map: dict) -> tuple[dict[str, int], dict[str, bool]]:
-            q_map: dict[str, int] = {}
-            top_map: dict[str, bool] = {}
-            for cat, items in cat_map.items():
-                if len(items) < 2:
-                    for code, val in items:
-                        q_map[code] = 1 if val > 0 else 4
-                        top_map[code] = val > 0
-                    continue
-                codes_arr = [x[0] for x in items]
-                vals_arr  = np.array([x[1] for x in items])
-                try:
-                    labels = pd.qcut(vals_arr, q=4, labels=[4, 3, 2, 1], duplicates="drop")
-                    for code, lbl in zip(codes_arr, labels):
-                        q = int(lbl) if not pd.isna(lbl) else None
-                        q_map[code] = q
-                        top_map[code] = (q == 1) if q is not None else None
-                except Exception:
-                    order = np.argsort(vals_arr)[::-1]
-                    n = len(order)
-                    for rank, idx in enumerate(order):
-                        code = codes_arr[idx]
-                        q = min(4, int(rank / n * 4) + 1)
-                        q_map[code] = q
-                        top_map[code] = q == 1
-            return q_map, top_map
-
         quartile_map, top_q_map = _assign_quartiles(cat_ret_map)
         sharpe_q_map, top_sharpe_q_map = _assign_quartiles(cat_sharpe_map)
 
@@ -281,11 +257,153 @@ def compute_labels(
     return total_labeled
 
 
+def _assign_quartiles(cat_map: dict) -> tuple[dict, dict]:
+    """Assign within-category quartile ranks. Returns (quartile_map, top_q_map).
+    Quartile 1 = best, 4 = worst. Handles categories with <4 members gracefully.
+    Module-level so both compute_labels and backfill_sharpe_labels can use it.
+    """
+    q_map: dict[str, int] = {}
+    top_map: dict[str, bool] = {}
+    for cat, items in cat_map.items():
+        if len(items) < 2:
+            for code, val in items:
+                q_map[code] = 1 if val > 0 else 4
+                top_map[code] = val > 0
+            continue
+        codes_arr = [x[0] for x in items]
+        vals_arr  = np.array([x[1] for x in items])
+        try:
+            labels = pd.qcut(vals_arr, q=4, labels=[4, 3, 2, 1], duplicates="drop")
+            for code, lbl in zip(codes_arr, labels):
+                q = int(lbl) if not pd.isna(lbl) else None
+                q_map[code] = q
+                top_map[code] = (q == 1) if q is not None else None
+        except Exception:
+            order = np.argsort(vals_arr)[::-1]
+            n = len(order)
+            for rank, idx in enumerate(order):
+                c = codes_arr[idx]
+                q = min(4, int(rank / n * 4) + 1)
+                q_map[c] = q
+                top_map[c] = q == 1
+    return q_map, top_map
+
+
+def load_sharpe_unlabeled(supabase, cutoff: date) -> pd.DataFrame:
+    """Load rows that have a return label but are missing the Sharpe label.
+
+    This happens because load_unlabeled() filters on fwd_top_q_3m IS NULL —
+    once the return quartile is written, those rows are never revisited for
+    the Sharpe calculation even when it returned None on first pass.
+    """
+    log.info("Loading rows with fwd_top_q_3m set but fwd_top_sharpe_q_3m IS NULL (as_of_date <= %s)", cutoff)
+    rows: list[dict] = []
+    page_size = 1000
+    offset = 0
+    while True:
+        resp = (
+            supabase.table("mf_features")
+            .select("scheme_code,as_of_date,category,ret1y")
+            .not_.is_("fwd_top_q_3m", "null")      # return label exists
+            .is_("fwd_top_sharpe_q_3m", "null")     # but Sharpe label missing
+            .lte("as_of_date", str(cutoff))
+            .order("as_of_date")
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
+        batch = resp.data or []
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df["as_of_date"] = pd.to_datetime(df["as_of_date"])
+    log.info("Found %d rows needing Sharpe backfill", len(df))
+    return df
+
+
+def backfill_sharpe_labels(df: pd.DataFrame, supabase, fwd_days: int = 90, dry_run: bool = False) -> int:
+    """Compute and write ONLY the Sharpe-based columns for rows that already have
+    fwd_top_q_3m set. Does not touch return labels."""
+    from pathlib import Path
+
+    cache_dir = Path(__file__).parent / ".cache_nav"
+    total = 0
+    updates: list[dict] = []
+
+    for as_of_ts, group in df.groupby("as_of_date"):
+        as_of = as_of_ts.date()
+        target_date = as_of + timedelta(days=fwd_days)
+
+        fund_fwd_sharpes: dict[str, float | None] = {}
+        for _, row in group.iterrows():
+            code = row["scheme_code"]
+            cache_file = cache_dir / f"{code}.parquet"
+            fwd_sharpe = None
+            if cache_file.exists():
+                try:
+                    nav_df = pd.read_parquet(cache_file)
+                    nav_df["date"] = pd.to_datetime(nav_df["date"])
+                    fwd_sharpe = _fwd_sharpe(nav_df, as_of, target_date)
+                except Exception as e:
+                    log.debug("NAV cache read failed for %s: %s", code, e)
+            fund_fwd_sharpes[code] = fwd_sharpe
+
+        # Rank within category
+        cat_sharpe_map: dict[str, list[tuple[str, float]]] = {}
+        for _, row in group.iterrows():
+            code = row["scheme_code"]
+            cat  = row.get("category", "Unknown")
+            sharpe = fund_fwd_sharpes.get(code)
+            if sharpe is not None:
+                cat_sharpe_map.setdefault(cat, []).append((code, sharpe))
+
+        sharpe_q_map, top_sharpe_q_map = _assign_quartiles(cat_sharpe_map)
+
+        for _, row in group.iterrows():
+            code = row["scheme_code"]
+            as_of_str = str(as_of)
+            sharpe_val = fund_fwd_sharpes.get(code)
+            if sharpe_val is None and code not in top_sharpe_q_map:
+                continue  # Nothing to write for this row
+            upd: dict[str, Any] = {
+                "scheme_code": code,
+                "as_of_date":  as_of_str,
+            }
+            if sharpe_val is not None:
+                upd["fwd_sharpe_3m"] = round(sharpe_val, 4)
+            if code in sharpe_q_map:
+                upd["fwd_sharpe_q_3m"]     = sharpe_q_map[code]
+                upd["fwd_top_sharpe_q_3m"] = top_sharpe_q_map.get(code, False)
+            updates.append(upd)
+
+    if dry_run:
+        computed = sum(1 for u in updates if u.get("fwd_top_sharpe_q_3m") is not None)
+        log.info("dry-run: would write Sharpe labels for %d rows (%d with quartile)", len(updates), computed)
+        return len(updates)
+
+    batch_size = 500
+    for i in range(0, len(updates), batch_size):
+        chunk = updates[i : i + batch_size]
+        supabase.table("mf_features").upsert(
+            chunk, on_conflict="scheme_code,as_of_date"
+        ).execute()
+        total += len(chunk)
+        log.info("Sharpe backfill: upserted %d/%d", min(i + batch_size, len(updates)), len(updates))
+
+    return total
+
+
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--window",  type=int, default=90,
+    p.add_argument("--window",     type=int,  default=90,
                    help="Forward window in days: 90=3M (default), 30=1M")
-    p.add_argument("--dry-run", action="store_true", help="Compute but don't write")
+    p.add_argument("--dry-run",    action="store_true", help="Compute but don't write")
+    p.add_argument("--fix-sharpe", action="store_true",
+                   help="Backfill fwd_top_sharpe_q_3m for rows that already have "
+                        "fwd_top_q_3m but are missing the Sharpe label. "
+                        "Run once after initial deployment to fix historical gap.")
     args = p.parse_args()
 
     ret_col, quartile_col, top_q_col = _col_names(args.window)
@@ -299,8 +417,19 @@ def main():
         sys.exit(1)
 
     supabase = create_client(url, key)
-
     cutoff = date.today() - timedelta(days=args.window)
+
+    # ── Fix-sharpe mode: backfill Sharpe labels on rows that already have return labels
+    if args.fix_sharpe:
+        df = load_sharpe_unlabeled(supabase, cutoff)
+        if df.empty:
+            log.info("All labeled rows already have Sharpe labels — nothing to do.")
+            sys.exit(0)
+        n = backfill_sharpe_labels(df, supabase, fwd_days=args.window, dry_run=args.dry_run)
+        log.info("Done. Sharpe backfill: %d rows processed.", n)
+        return
+
+    # ── Normal mode: label rows missing fwd_top_q_3m
     unlabeled = load_unlabeled(supabase, cutoff, top_q_col=top_q_col)
 
     if unlabeled.empty:

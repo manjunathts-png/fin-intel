@@ -24,6 +24,7 @@ import httpx
 MIGRATIONS = [
     "migrate_006_category_groups.sql",
     "migrate_007_stock_improvements.sql",
+    "migrate_008_cat_rel_risk.sql",
 ]
 
 ML_DIR = Path(__file__).parent

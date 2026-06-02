@@ -31,6 +31,15 @@ FEATURE_COLS = [
     "india_vix", "usd_inr", "us_10y_yield",
     # News sentiment (-1.0 → +1.0; NULL imputed to 0.0)
     "sentiment_score",
+    # Category-relative risk z-scores — within-peer normalization
+    # A -25% max drawdown in Small Cap is normal; in Large Cap it's severe.
+    # Absolute features give the model the same number for both cases.
+    # These z-scores give the model "how much riskier than category peers"
+    # and directly reduce the high-beta bias (top feature: max_dd_1y).
+    "cat_rel_max_dd_1y",    # within-category z-score of max drawdown (negative = safer)
+    "cat_rel_vol_1y",       # within-category z-score of 1yr volatility (negative = steadier)
+    "cat_rel_sharpe_1y",    # within-category z-score of Sharpe ratio (positive = better)
+    "cat_rel_downside_dev", # within-category z-score of downside deviation
 ]
 
 TARGET_COL = "fwd_top_q_3m"

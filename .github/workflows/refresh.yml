@@ -128,19 +128,26 @@ jobs:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      - name: Label MF targets — 3M and 1M
+      - name: Label MF targets — 3M and 1M + Sharpe backfill
         if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
         run: |
           python ml/label_targets.py --window 90
           python ml/label_targets.py --window 30
+          # Backfill Sharpe labels for rows that have fwd_top_q_3m but missing
+          # fwd_top_sharpe_q_3m (idempotent — exits fast once all rows are filled)
+          python ml/label_targets.py --window 90 --fix-sharpe || echo "Sharpe backfill skipped"
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      - name: Train MF models — 3M and 1M horizons
+      - name: Train MF models — 3M Sharpe-target (primary) + 1M raw-return
         if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
         run: |
-          python ml/train.py --no-shap --horizon 3m --category-groups || echo "MF 3M training skipped (insufficient labeled data)"
+          # Primary 3M model: Sharpe-quartile target (risk-adjusted outperformance)
+          # Reduces high-beta bias vs raw-return target. Requires fwd_top_sharpe_q_3m labels.
+          python ml/train.py --no-shap --horizon 3m --sharpe-target || echo "MF 3M Sharpe training skipped (insufficient Sharpe labels — run label_targets.py --fix-sharpe first)"
+          # Fallback: raw-return 3M (runs in parallel so predictions always written)
+          python ml/train.py --no-shap --horizon 3m || echo "MF 3M raw-return training skipped"
           python ml/train.py --no-shap --horizon 1m || echo "MF 1M training skipped (insufficient labeled data)"
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
