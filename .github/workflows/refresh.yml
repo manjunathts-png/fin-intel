@@ -17,11 +17,16 @@ on:
         required: false
         default: 'all'
         type: choice
-        options: [all, mf, stocks, intraday, sentiment, stock_backfill, mf_backfill, mf_train, migrate]
+        options: [all, mf, stocks, intraday, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, migrate]
       backfill_days:
-        description: 'Days to backfill for stock_backfill target (default 730)'
+        description: 'Days to backfill for stock_backfill/nifty500_backfill (default 365)'
         required: false
-        default: '730'
+        default: '365'
+        type: string
+      gdelt_weeks:
+        description: 'Weeks to backfill for gdelt_sentiment (default 52 = 1 year)'
+        required: false
+        default: '52'
         type: string
 
 jobs:
@@ -63,7 +68,8 @@ jobs:
           elif [ "${{ github.event.schedule }}" = "30 23 * * *" ]; then
             echo "target=all" >> $GITHUB_OUTPUT
           elif [ "${{ github.event.schedule }}" = "30 18 * * 0" ]; then
-            echo "target=sentiment" >> $GITHUB_OUTPUT
+            # Monday midnight: run both legacy sentiment + GDELT sentiment
+            echo "target=gdelt_sentiment" >> $GITHUB_OUTPUT
           else
             echo "target=intraday" >> $GITHUB_OUTPUT
           fi
@@ -71,7 +77,9 @@ jobs:
       - name: Refresh cache
         if: >-
           steps.target.outputs.target != 'sentiment' &&
-          steps.target.outputs.target != 'stock_backfill'
+          steps.target.outputs.target != 'gdelt_sentiment' &&
+          steps.target.outputs.target != 'stock_backfill' &&
+          steps.target.outputs.target != 'nifty500_backfill'
         run: |
           if [ "${{ steps.target.outputs.target }}" = "intraday" ]; then
             node backend/refresh-intraday.js
@@ -82,12 +90,14 @@ jobs:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      # ── ML pipeline: runs on nightly rebuild, sentiment, or stock_backfill ──
+      # ── ML pipeline: runs on nightly rebuild, sentiment, backfills ──────────
       - name: Set up Python (ML pipeline)
         if: >-
           steps.target.outputs.target == 'all' ||
           steps.target.outputs.target == 'sentiment' ||
+          steps.target.outputs.target == 'gdelt_sentiment' ||
           steps.target.outputs.target == 'stock_backfill' ||
+          steps.target.outputs.target == 'nifty500_backfill' ||
           steps.target.outputs.target == 'mf_backfill' ||
           steps.target.outputs.target == 'mf_train'
         uses: actions/setup-python@v5
@@ -100,7 +110,9 @@ jobs:
         if: >-
           steps.target.outputs.target == 'all' ||
           steps.target.outputs.target == 'sentiment' ||
+          steps.target.outputs.target == 'gdelt_sentiment' ||
           steps.target.outputs.target == 'stock_backfill' ||
+          steps.target.outputs.target == 'nifty500_backfill' ||
           steps.target.outputs.target == 'mf_backfill' ||
           steps.target.outputs.target == 'mf_train'
         run: pip install -r ml/requirements.txt -q
@@ -109,7 +121,9 @@ jobs:
         if: >-
           steps.target.outputs.target == 'all' ||
           steps.target.outputs.target == 'sentiment' ||
+          steps.target.outputs.target == 'gdelt_sentiment' ||
           steps.target.outputs.target == 'stock_backfill' ||
+          steps.target.outputs.target == 'nifty500_backfill' ||
           steps.target.outputs.target == 'mf_backfill' ||
           steps.target.outputs.target == 'mf_train'
         id: dbcheck
@@ -154,9 +168,13 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # ── Stock ML pipeline: nightly ───────────────────────────────────────────
-      - name: Extract stock features (today)
+      - name: Build Nifty 500 universe (daily refresh of constituent list)
         if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
-        run: python ml/extract_stock_features.py   # live fundamentals for today's row
+        run: python ml/nifty500_universe.py || echo "Nifty 500 universe refresh failed (NSE may be down) — using cached file"
+
+      - name: Extract stock features (today) — Nifty 500 universe
+        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: python ml/extract_stock_features.py --nifty500   # 504 Nifty 500 stocks, today's features
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -285,16 +303,67 @@ jobs:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      # ── Sentiment: runs on Monday midnight IST (weekly) ───────────────────
-      - name: Run news sentiment analysis (weekly)
+      # ── GDELT sentiment: runs Monday midnight IST (replaces legacy sentiment) ─
+      - name: GDELT sentiment — MF funds (this week)
         if: >-
-          steps.target.outputs.target == 'sentiment' &&
+          (steps.target.outputs.target == 'gdelt_sentiment' ||
+           steps.target.outputs.target == 'sentiment') &&
           steps.dbcheck.outputs.tables_ok == 'true'
-        run: python ml/sentiment.py
+        run: python ml/gdelt_sentiment.py --mode mf --backfill 1
+        timeout-minutes: 90
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: GDELT sentiment — Nifty 500 stocks (this week)
+        if: >-
+          (steps.target.outputs.target == 'gdelt_sentiment' ||
+           steps.target.outputs.target == 'sentiment') &&
+          steps.dbcheck.outputs.tables_ok == 'true'
+        run: python ml/gdelt_sentiment.py --mode stocks --backfill 1
+        timeout-minutes: 180
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # ── Nifty 500 historical backfill (one-shot, trigger manually) ─────────
+      - name: Build Nifty 500 universe file
+        if: steps.target.outputs.target == 'nifty500_backfill' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: python ml/nifty500_universe.py
+
+      - name: Backfill Nifty 500 OHLCV + features (${{ github.event.inputs.backfill_days || '365' }} days)
+        if: steps.target.outputs.target == 'nifty500_backfill' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: >
+          python ml/extract_stock_features.py
+          --nifty500
+          --backfill ${{ github.event.inputs.backfill_days || '365' }}
+          --workers 1
+          --no-fundamentals
+        timeout-minutes: 350
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      - name: Label stock targets after Nifty 500 backfill — 3M and 1M
+        if: steps.target.outputs.target == 'nifty500_backfill' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: |
+          python ml/label_stock_targets.py --window 90
+          python ml/label_stock_targets.py --window 30
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      - name: Train stock models after Nifty 500 backfill — 3M Sharpe + 1M
+        if: steps.target.outputs.target == 'nifty500_backfill' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: |
+          python ml/train_stock.py --horizon 3m --sharpe-target || echo "Stock 3M Sharpe skipped"
+          python ml/train_stock.py --horizon 3m || echo "Stock 3M skipped"
+          python ml/train_stock.py --horizon 1m || echo "Stock 1M skipped"
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # ── DB migrations (DDL) — run once when new columns are needed ────────
       - name: Set up Python (migrate)

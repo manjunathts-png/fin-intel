@@ -122,6 +122,12 @@ STOCK_FEATURE_COLS = [
     # Macro context
     "nifty_ret1m", "nifty_ret3m",
     "india_vix", "usd_inr", "us_10y_yield",
+    # News sentiment (GDELT + Claude Haiku, weekly)
+    "sentiment_score",
+    # Sector-relative risk z-scores (mirrors MF model approach)
+    "sector_rel_max_dd_1y",
+    "sector_rel_vol_1y",
+    "sector_rel_sharpe_1y",
 ]
 
 STOCK_TARGET_COL  = "fwd_top_q_3m"
