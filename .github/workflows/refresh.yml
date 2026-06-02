@@ -251,7 +251,7 @@ jobs:
         run: |
           python ml/extract_features.py --backfill ${{ github.event.inputs.backfill_days || '730' }}
           python ml/macro_features.py --skip-regression
-        timeout-minutes: 60
+        timeout-minutes: 110
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -265,11 +265,15 @@ jobs:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      - name: Train MF models after backfill — 3M and 1M
+      - name: Train MF models after backfill — Sharpe + raw-return + 1M
         if: steps.target.outputs.target == 'mf_backfill' && steps.dbcheck.outputs.tables_ok == 'true'
         run: |
-          python ml/train.py --no-shap --horizon 3m --category-groups || echo "MF 3M training skipped (insufficient labeled data)"
-          python ml/train.py --no-shap --horizon 1m || echo "MF 1M training skipped (insufficient labeled data)"
+          python ml/train.py --no-shap --horizon 3m --sharpe-target || echo "MF 3M Sharpe skipped"
+          python ml/train.py --no-shap --horizon 3m || echo "MF 3M raw-return skipped"
+          python ml/train.py --no-shap --horizon 1m || echo "MF 1M skipped"
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # ── MF complete pipeline (no stock work) — fully server-side ─────────────
       # Seeds .cache_nav on the runner so label_targets.py can compute forward
