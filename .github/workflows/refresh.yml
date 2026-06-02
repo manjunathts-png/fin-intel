@@ -9,7 +9,7 @@ on:
     - cron: '0 7 * * 1-5'       # 12:30 PM IST weekdays    — Stocks intraday
     - cron: '30 8 * * 1-5'      # 2:00 PM IST weekdays     — Stocks intraday
     - cron: '0 10 * * 1-5'      # 3:30 PM IST weekdays     — Stocks intraday (pre-close)
-    - cron: '30 18 * * 0'       # 12:00 AM IST Mondays     — Weekly sentiment refresh
+    # - cron: '30 18 * * 0'     # 12:00 AM IST Mondays — Weekly GDELT sentiment (disabled: needs ANTHROPIC_API_KEY secret)
   workflow_dispatch:
     inputs:
       target:
