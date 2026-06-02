@@ -372,10 +372,12 @@ def backfill_sharpe_labels(df: pd.DataFrame, supabase, fwd_days: int = 90, dry_r
                 "as_of_date":  as_of_str,
             }
             if sharpe_val is not None:
-                upd["fwd_sharpe_3m"] = round(sharpe_val, 4)
+                upd["fwd_sharpe_3m"] = float(round(sharpe_val, 4))
             if code in sharpe_q_map:
-                upd["fwd_sharpe_q_3m"]     = sharpe_q_map[code]
-                upd["fwd_top_sharpe_q_3m"] = top_sharpe_q_map.get(code, False)
+                q_val = sharpe_q_map[code]
+                t_val = top_sharpe_q_map.get(code, False)
+                upd["fwd_sharpe_q_3m"]     = int(q_val)   if q_val is not None else None
+                upd["fwd_top_sharpe_q_3m"] = bool(t_val)  if t_val is not None else None
             updates.append(upd)
 
     if dry_run:
