@@ -284,21 +284,30 @@ jobs:
         if: steps.target.outputs.target == 'mf_train' && steps.dbcheck.outputs.tables_ok == 'true'
         run: pip install -r ml/requirements.txt -q
 
-      - name: Label MF targets (mf_train)
+      - name: Label MF targets (mf_train) — return + Sharpe quartiles
         if: steps.target.outputs.target == 'mf_train' && steps.dbcheck.outputs.tables_ok == 'true'
         run: |
           python ml/label_targets.py --window 90
           python ml/label_targets.py --window 30
+          python ml/label_targets.py --window 90 --fix-sharpe || echo "Sharpe backfill skipped"
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      - name: Train MF models (mf_train) — category-groups + standard
+      - name: Train MF models (mf_train) — Sharpe-target + raw-return + 1M
         if: steps.target.outputs.target == 'mf_train' && steps.dbcheck.outputs.tables_ok == 'true'
         run: |
-          python ml/train.py --no-shap --horizon 3m --category-groups || echo "MF 3M category-groups skipped"
-          python ml/train.py --no-shap --horizon 3m --category-groups --sharpe-target || echo "MF 3M sharpe skipped"
-          python ml/train.py --no-shap --horizon 1m || echo "MF 1M skipped"
+          # Primary: Sharpe-quartile target (risk-adjusted — reduces high-beta bias)
+          python ml/train.py --no-shap --horizon 3m --sharpe-target \
+            || echo "MF 3M Sharpe skipped (check labeled data)"
+
+          # Baseline: raw-return 3M (compare AUC vs Sharpe model)
+          python ml/train.py --no-shap --horizon 3m \
+            || echo "MF 3M raw-return skipped"
+
+          # Short-horizon: 1M raw-return
+          python ml/train.py --no-shap --horizon 1m \
+            || echo "MF 1M skipped"
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
