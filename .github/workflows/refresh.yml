@@ -271,7 +271,9 @@ jobs:
           python ml/train.py --no-shap --horizon 3m --category-groups || echo "MF 3M training skipped (insufficient labeled data)"
           python ml/train.py --no-shap --horizon 1m || echo "MF 1M training skipped (insufficient labeled data)"
 
-      # ── MF label + train only (no feature backfill) ──────────────────────────
+      # ── MF complete pipeline (no stock work) — fully server-side ─────────────
+      # Seeds .cache_nav on the runner so label_targets.py can compute forward
+      # returns and Sharpe ratios without any local machine dependency.
       - name: Set up Python (mf_train)
         if: steps.target.outputs.target == 'mf_train' && steps.dbcheck.outputs.tables_ok == 'true'
         uses: actions/setup-python@v5
@@ -284,12 +286,25 @@ jobs:
         if: steps.target.outputs.target == 'mf_train' && steps.dbcheck.outputs.tables_ok == 'true'
         run: pip install -r ml/requirements.txt -q
 
+      - name: Extract MF features today + macro (mf_train)
+        # Seeds .cache_nav/<code>.parquet for all 75 funds so label_targets.py
+        # can compute forward returns and Sharpe ratios server-side.
+        # Uses 4 workers — fast enough (~3 min) and won't hit mfapi.in rate limits.
+        if: steps.target.outputs.target == 'mf_train' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: |
+          python ml/extract_features.py --workers 4
+          python ml/macro_features.py --skip-regression
+        timeout-minutes: 15
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
       - name: Label MF targets (mf_train) — return + Sharpe quartiles
         if: steps.target.outputs.target == 'mf_train' && steps.dbcheck.outputs.tables_ok == 'true'
         run: |
           python ml/label_targets.py --window 90
           python ml/label_targets.py --window 30
-          python ml/label_targets.py --window 90 --fix-sharpe || echo "Sharpe backfill skipped"
+          python ml/label_targets.py --window 90 --fix-sharpe || echo "Sharpe backfill: all rows already labelled"
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -299,7 +314,7 @@ jobs:
         run: |
           # Primary: Sharpe-quartile target (risk-adjusted — reduces high-beta bias)
           python ml/train.py --no-shap --horizon 3m --sharpe-target \
-            || echo "MF 3M Sharpe skipped (check labeled data)"
+            || echo "MF 3M Sharpe skipped (insufficient Sharpe labels)"
 
           # Baseline: raw-return 3M (compare AUC vs Sharpe model)
           python ml/train.py --no-shap --horizon 3m \
