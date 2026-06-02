@@ -54,6 +54,7 @@ jobs:
             ml/.cache_fundamentals
             ml/.cache_macro
             ml/.cache_nav
+            ml/.cache_bhavcopy
           key: ml-data-cache-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             ml-data-cache-${{ runner.os }}-
