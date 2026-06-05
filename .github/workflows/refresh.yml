@@ -90,6 +90,26 @@ jobs:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
+      - name: Data health check
+        # Always run after refresh — reports source connectivity and data freshness.
+        # Uses --fix to auto-retry with alternative sources if data is stale.
+        # 'continue-on-error: true' so a failed health check never blocks the ML pipeline.
+        if: >-
+          steps.target.outputs.target != 'sentiment' &&
+          steps.target.outputs.target != 'gdelt_sentiment' &&
+          steps.target.outputs.target != 'stock_backfill' &&
+          steps.target.outputs.target != 'nifty500_backfill'
+        continue-on-error: true
+        run: |
+          MODE="intraday"
+          if [ "${{ steps.target.outputs.target }}" != "intraday" ]; then
+            MODE="eod"
+          fi
+          node backend/data-health-check.js --mode $MODE --fix
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
       # ── ML pipeline: runs on nightly rebuild, sentiment, backfills ──────────
       - name: Set up Python (ML pipeline)
         if: >-
