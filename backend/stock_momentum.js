@@ -3,10 +3,14 @@
 /**
  * Stock Momentum Radar
  *
- * Fetches daily price history for a curated universe of NSE stocks via
- * yahoo-finance2 and computes per-sector leaderboards: median returns over
- * 1W/1M/3M/6M/1Y plus a 1-week z-score (current 1W return vs trailing
- * 90-day weekly distribution).
+ * Fetches daily price history for a curated universe of NSE stocks and
+ * computes per-sector leaderboards: median returns over 1W/1M/3M/6M/1Y
+ * plus a 1-week z-score (current 1W return vs trailing 90-day weekly
+ * distribution).
+ *
+ * Price source priority (Yahoo Finance is blocked on GitHub Actions IPs):
+ *   1. Stooq  — free CSV, no auth, works on CI
+ *   2. Yahoo Finance v8 REST  — fallback, may be blocked on shared IPs
  *
  * Caches:
  *   - stock_history_cache.json  — per-symbol price history (24h TTL)
@@ -15,21 +19,14 @@
 
 const fs   = require("fs");
 const path = require("path");
-const YahooFinance = require("yahoo-finance2").default;
 const { STOCK_SECTORS } = require("./stock_universe");
-
-const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
-
-function atomicWrite(filePath, data) {
-  const tmp = filePath + ".tmp";
-  fs.writeFileSync(tmp, data);
-  fs.renameSync(tmp, filePath);
-}
 
 const CACHE_FILE      = path.join(__dirname, "stock_history_cache.json");
 const HISTORY_DAYS    = 400;
 const SYMBOL_TTL      = 24 * 60 * 60 * 1000;
 const LEADERBOARD_TTL = 60 * 60 * 1000;
+
+const FETCH_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 // ─── Cache I/O ────────────────────────────────────────────────────────────────
 
@@ -48,13 +45,120 @@ function loadCache() {
 
 function saveCache() {
   try {
-    atomicWrite(CACHE_FILE, JSON.stringify(cache));
+    const tmp = CACHE_FILE + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(cache));
+    fs.renameSync(tmp, CACHE_FILE);
   } catch (e) {
     console.error("stock_history_cache.json save failed:", e.message);
   }
 }
 
-// ─── Price history ─────────────────────────────────────────────────────────────
+// ─── Date helpers ─────────────────────────────────────────────────────────────
+
+function yyyymmdd(date) {
+  return date.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+// ─── Source 1: Stooq (primary — works on GitHub Actions) ──────────────────────
+
+async function fetchFromStooq(symbol, startDate) {
+  const sym = symbol.replace(".NS", "").toLowerCase();
+  const d1  = yyyymmdd(startDate);
+  const d2  = yyyymmdd(new Date(Date.now() + 86400000)); // tomorrow
+  const url = `https://stooq.com/q/d/l/?s=${sym}.ns&d1=${d1}&d2=${d2}&i=d`;
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": FETCH_UA },
+      signal:  AbortSignal.timeout(30000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    // Stooq returns a short error string or HTML when the symbol is unknown
+    if (text.length < 50 || !text.toLowerCase().startsWith("date") || text.includes("apikey")) {
+      throw new Error(`no data (len=${text.length})`);
+    }
+    const lines   = text.trim().split(/\r?\n/);
+    const headers = lines[0].toLowerCase().split(",");
+    const iDate   = headers.indexOf("date");
+    const iOpen   = headers.indexOf("open");
+    const iHigh   = headers.indexOf("high");
+    const iLow    = headers.indexOf("low");
+    const iClose  = headers.indexOf("close");
+    const iVol    = headers.indexOf("volume");
+    if (iDate < 0 || iClose < 0) throw new Error("unexpected CSV header");
+
+    const prices = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols  = lines[i].split(",");
+      const close = parseFloat(cols[iClose]);
+      if (!isFinite(close) || close <= 0) continue;
+      prices.push({
+        date:   cols[iDate]?.trim() ?? "",
+        open:   parseFloat(cols[iOpen])  || close,
+        high:   parseFloat(cols[iHigh])  || close,
+        low:    parseFloat(cols[iLow])   || close,
+        close,
+        volume: parseInt(cols[iVol], 10) || 0,
+      });
+    }
+    prices.sort((a, b) => a.date.localeCompare(b.date));
+    if (prices.length === 0) throw new Error("empty after parsing");
+    return prices;
+  } catch (e) {
+    console.warn(`  [stooq] ${symbol}: ${e.message}`);
+    return null;
+  }
+}
+
+// ─── Source 2: Yahoo Finance v8 REST (fallback) ───────────────────────────────
+
+async function fetchFromYahooRest(symbol, startDate) {
+  const period1 = Math.floor(startDate.getTime() / 1000);
+  const period2 = Math.floor(Date.now() / 1000) + 86400;
+  const params  = new URLSearchParams({ interval: "1d", period1, period2, events: "history" });
+  for (const base of [
+    "https://query1.finance.yahoo.com",
+    "https://query2.finance.yahoo.com",
+  ]) {
+    const url = `${base}/v8/finance/chart/${symbol}?${params}`;
+    try {
+      const res = await fetch(url, {
+        headers: { "User-Agent": FETCH_UA, "Accept": "application/json" },
+        signal:  AbortSignal.timeout(20000),
+      });
+      if (res.status === 429) { console.warn(`  [yahoo] ${symbol}: 429 rate-limited`); break; }
+      if (!res.ok) continue;
+      const data   = await res.json();
+      const result = data?.chart?.result?.[0];
+      if (!result) continue;
+      const timestamps = result.timestamp ?? [];
+      const q          = result.indicators?.quote?.[0] ?? {};
+      const adjCloses  = result.indicators?.adjclose?.[0]?.adjclose ?? [];
+      const closes     = adjCloses.length ? adjCloses : (q.close ?? []);
+      if (!timestamps.length || !closes.length) continue;
+      const prices = [];
+      for (let i = 0; i < timestamps.length; i++) {
+        const close = closes[i];
+        if (close == null || close <= 0) continue;
+        prices.push({
+          date:   new Date(timestamps[i] * 1000).toISOString().slice(0, 10),
+          open:   q.open?.[i]   ?? close,
+          high:   q.high?.[i]   ?? close,
+          low:    q.low?.[i]    ?? close,
+          close,
+          volume: q.volume?.[i] ?? 0,
+        });
+      }
+      prices.sort((a, b) => a.date.localeCompare(b.date));
+      if (prices.length > 0) return prices;
+    } catch (e) {
+      console.warn(`  [yahoo] ${symbol} (${base.split("/")[2]}): ${e.message}`);
+    }
+  }
+  return null;
+}
+
+// ─── Price history with source fallback ──────────────────────────────────────
 
 async function fetchSymbolHistory(symbol) {
   const cached = cache.symbols[symbol];
@@ -62,30 +166,19 @@ async function fetchSymbolHistory(symbol) {
     return cached;
   }
 
-  const period1 = new Date();
-  period1.setDate(period1.getDate() - HISTORY_DAYS);
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - HISTORY_DAYS);
 
-  const data = await yahooFinance.chart(symbol, {
-    period1: Math.floor(period1.getTime() / 1000),
-    interval: "1d",
-  });
+  let prices = await fetchFromStooq(symbol, startDate);
 
-  const quotes = data && data.quotes;
-  if (!quotes || quotes.length === 0) {
-    throw new Error(`No price history returned for ${symbol}`);
+  if (!prices || prices.length === 0) {
+    console.warn(`  [fallback] ${symbol}: trying Yahoo REST…`);
+    prices = await fetchFromYahooRest(symbol, startDate);
   }
 
-  const prices = quotes
-    .filter((d) => d.close != null && d.close > 0)
-    .sort((a, b) => new Date(a.date) - new Date(b.date))
-    .map((d) => ({
-      date:   new Date(d.date).toISOString().slice(0, 10),
-      open:   d.open   ?? d.close,
-      high:   d.high   ?? d.close,
-      low:    d.low    ?? d.close,
-      close:  d.close,
-      volume: d.volume ?? 0,
-    }));
+  if (!prices || prices.length === 0) {
+    throw new Error(`No price history returned for ${symbol} (all sources failed)`);
+  }
 
   const entry = { fetchedAt: new Date().toISOString(), prices };
   cache.symbols[symbol] = entry;
