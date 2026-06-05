@@ -172,7 +172,8 @@ async function fetchFromYahooRest(symbol, startDate) {
 const NSE_ARCH         = "https://nsearchives.nseindia.com/products/content";
 const MAX_BHAV_PARALLEL = 20;
 
-let bhavFillPromise = null;   // singleton — Bhavcopy bulk fill runs at most once
+let bhavFillPromise  = null;   // singleton — Bhavcopy bulk fill runs at most once
+let bhavFillComplete = false;  // true once fill has finished; skips Stooq after that
 
 function isoFromDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -319,7 +320,14 @@ async function bulkFillFromBhavcopies() {
   }
 
   saveCache();
+  bhavFillComplete = true;
   console.log(`  [bhavcopy] cache populated: ${filled} symbols`);
+}
+
+// Call before the per-symbol scan to pre-fill OHLCV for all symbols at once.
+async function prewarmBhavOHLCV() {
+  if (!bhavFillPromise) bhavFillPromise = bulkFillFromBhavcopies();
+  await bhavFillPromise;
 }
 
 // ─── Price history with source fallback ──────────────────────────────────────
@@ -333,21 +341,28 @@ async function fetchSymbolHistory(symbol) {
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - HISTORY_DAYS);
 
-  let prices = await fetchFromStooq(symbol, startDate);
-
-  if (!prices || prices.length === 0) {
-    // Trigger Bhavcopy bulk fill (lazy singleton — runs once per process, ~2 min cold start)
+  // Only try Stooq when Bhavcopy hasn't run yet — if it failed for one symbol
+  // it will fail for all, so skip it entirely once the bulk fill is done.
+  if (!bhavFillComplete) {
+    const stooqPrices = await fetchFromStooq(symbol, startDate);
+    if (stooqPrices?.length > 0) {
+      const entry = { fetchedAt: new Date().toISOString(), prices: stooqPrices };
+      cache.symbols[symbol] = entry;
+      saveCache();
+      return entry;
+    }
+    // Stooq failed — trigger Bhavcopy bulk fill (singleton)
     if (!bhavFillPromise) bhavFillPromise = bulkFillFromBhavcopies();
     await bhavFillPromise;
-
-    // Check cache after fill — Bhavcopy populates all symbols at once
-    const afterFill = cache.symbols[symbol];
-    if (afterFill?.prices?.length > 0) return afterFill;
-
-    // Last resort: Yahoo REST (rate-limits quickly at scale, but catches stragglers)
-    console.warn(`  [fallback] ${symbol}: trying Yahoo REST…`);
-    prices = await fetchFromYahooRest(symbol, startDate);
   }
+
+  // Check cache after Bhavcopy fill (or if fill already ran)
+  const afterFill = cache.symbols[symbol];
+  if (afterFill?.prices?.length > 0) return afterFill;
+
+  // Last resort: Yahoo REST (rate-limits quickly at scale, but catches stragglers)
+  console.warn(`  [fallback] ${symbol}: trying Yahoo REST…`);
+  const prices = await fetchFromYahooRest(symbol, startDate);
 
   if (!prices || prices.length === 0) {
     throw new Error(`No price history returned for ${symbol} (all sources failed)`);
@@ -499,4 +514,4 @@ async function getStockLeaderboard({ force = false } = {}) {
   return data;
 }
 
-module.exports = { getStockLeaderboard, fetchSymbolHistory };
+module.exports = { getStockLeaderboard, fetchSymbolHistory, prewarmBhavOHLCV };

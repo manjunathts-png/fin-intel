@@ -11,7 +11,7 @@
  */
 
 const { STOCK_SECTORS } = require("./stock_universe");
-const { fetchSymbolHistory } = require("./stock_momentum");
+const { fetchSymbolHistory, prewarmBhavOHLCV } = require("./stock_momentum");
 const { getNifty500 } = require("./nifty500_universe");
 
 // ─── Basic helpers ────────────────────────────────────────────────────────────
@@ -406,6 +406,16 @@ async function buildSignalsLeaderboard({
     for (const [sector, stocks] of Object.entries(STOCK_SECTORS)) {
       for (const s of stocks) universe.push({ ...s, sector });
     }
+  }
+
+  // Pre-fill OHLCV from NSE Bhavcopy archive before per-symbol scan.
+  // Stooq/Yahoo fail at scale from CI — Bhavcopy downloads all symbols at once.
+  // After this, fetchSymbolHistory serves from cache and skips Stooq entirely.
+  console.log(`  pre-filling OHLCV cache from NSE Bhavcopy archive…`);
+  try {
+    await prewarmBhavOHLCV();
+  } catch (e) {
+    console.warn(`  ⚠ Bhavcopy prewarm failed: ${e.message} — will fall back per-symbol`);
   }
 
   console.log(`  scanning ${universe.length} stocks (concurrency=${concurrency})…`);
