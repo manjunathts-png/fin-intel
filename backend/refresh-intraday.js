@@ -126,10 +126,9 @@ async function fetchYahooQuote(symbol) {
       const data   = await res.json();
       const result = data?.chart?.result?.[0];
       if (!result) continue;
-      const meta      = result.meta ?? {};
-      const price     = meta.regularMarketPrice ?? null;
+      const meta     = result.meta ?? {};
+      const price    = meta.regularMarketPrice ?? null;
       const prevClose = meta.previousClose ?? meta.chartPreviousClose ?? null;
-      // v8 chart meta does not include regularMarketChangePercent — derive it
       const changePct = (price != null && prevClose != null && prevClose > 0)
         ? ((price - prevClose) / prevClose) * 100
         : null;

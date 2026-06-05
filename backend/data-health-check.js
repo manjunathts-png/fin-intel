@@ -199,19 +199,20 @@ async function checkYahoo() {
 async function checkSources() {
   console.log(`\n[3] Data source connectivity (probe: ${PROBE})`);
 
-  let anySourceUp = false;
+  let anyUp = false;
   for (const [name, fn] of [["Stooq", checkStooq], ["NSE", checkNse], ["Yahoo", checkYahoo]]) {
     try {
       const detail = await fn();
       ok(name, detail);
-      anySourceUp = true;
+      anyUp = true;
     } catch (e) {
-      // Individual source failures are warnings — the pipeline has fallbacks.
-      // Only fail if ALL sources are down.
+      // Individual source failures are expected (e.g. NSE/Stooq blocked on CI).
+      // Only fail the health check if ALL sources are unreachable.
       console.warn(`  ⚠ ${name} — ${e.message}`);
     }
   }
-  if (!anySourceUp) {
+
+  if (!anyUp) {
     fail("all sources", "Stooq, NSE, and Yahoo are all unreachable — no price data possible");
   }
 }
