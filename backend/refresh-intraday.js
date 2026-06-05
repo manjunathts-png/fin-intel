@@ -126,15 +126,20 @@ async function fetchYahooQuote(symbol) {
       const data   = await res.json();
       const result = data?.chart?.result?.[0];
       if (!result) continue;
-      const meta = result.meta ?? {};
+      const meta     = result.meta ?? {};
+      const price    = meta.regularMarketPrice ?? null;
+      const prevClose = meta.previousClose ?? meta.chartPreviousClose ?? null;
+      const changePct = (price != null && prevClose != null && prevClose > 0)
+        ? ((price - prevClose) / prevClose) * 100
+        : null;
       return {
-        regularMarketPrice:         meta.regularMarketPrice         ?? null,
-        regularMarketOpen:          meta.chartPreviousClose         ?? null, // best proxy from v8
-        regularMarketPreviousClose: meta.previousClose              ?? null,
-        regularMarketVolume:        meta.regularMarketVolume        ?? null,
-        regularMarketChangePercent: meta.regularMarketChangePercent ?? null,
-        regularMarketDayHigh:       meta.regularMarketDayHigh       ?? null,
-        fiftyTwoWeekHigh:           meta.fiftyTwoWeekHigh           ?? null,
+        regularMarketPrice:         price,
+        regularMarketOpen:          meta.regularMarketOpen ?? prevClose,
+        regularMarketPreviousClose: prevClose,
+        regularMarketVolume:        meta.regularMarketVolume  ?? null,
+        regularMarketChangePercent: changePct,
+        regularMarketDayHigh:       meta.regularMarketDayHigh ?? null,
+        fiftyTwoWeekHigh:           meta.fiftyTwoWeekHigh     ?? null,
       };
     } catch (e) {
       console.warn(`  [yahoo] ${symbol}: ${e.message}`);
