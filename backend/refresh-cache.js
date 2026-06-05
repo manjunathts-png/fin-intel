@@ -294,18 +294,27 @@ async function main() {
 
     signals.picks = signals.all.slice(0, 50);
 
-    await upsert("stock_picks", {
-      asOf:      signals.asOf,
-      universe:  signals.universe,
-      scanned:   signals.scanned,
-      picks:     signals.picks,
-      all:       signals.all.slice(0, 200),     // top 200 only — cache size
-      discovery: discovery ?? null,
-      niftyReturns,
-      warnings:  signals.warnings.slice(0, 20),
-    });
-    console.log(`  ✓ ${signals.picks.length} top picks ranked (${signals.scanned} of ${signals.universe} stocks scanned)`);
-    if (signals.warnings?.length) console.warn(`  warnings (${signals.warnings.length} total, first 5):`, signals.warnings.slice(0, 5));
+    // Guard: never overwrite Supabase with a near-empty scan — it would wipe out
+    // persistence counters (daysInTop50) that took days to accumulate, making
+    // Core picks disappear. A healthy Nifty 500 run always yields 400+ stocks.
+    const MIN_SCAN_FOR_UPSERT = 100;
+    if (signals.scanned < MIN_SCAN_FOR_UPSERT) {
+      console.error(`  ✗ scan produced only ${signals.scanned} stocks (< ${MIN_SCAN_FOR_UPSERT} threshold) — skipping stock_picks upsert to preserve existing data`);
+      console.error("  ✗ check data source connectivity and re-run once resolved");
+    } else {
+      await upsert("stock_picks", {
+        asOf:      signals.asOf,
+        universe:  signals.universe,
+        scanned:   signals.scanned,
+        picks:     signals.picks,
+        all:       signals.all.slice(0, 200),     // top 200 only — cache size
+        discovery: discovery ?? null,
+        niftyReturns,
+        warnings:  signals.warnings.slice(0, 20),
+      });
+      console.log(`  ✓ ${signals.picks.length} top picks ranked (${signals.scanned} of ${signals.universe} stocks scanned)`);
+      if (signals.warnings?.length) console.warn(`  warnings (${signals.warnings.length} total, first 5):`, signals.warnings.slice(0, 5));
+    }
 
     console.log("Generating rule-based stock rationales…");
     const today = new Date().toISOString().slice(0, 10);
