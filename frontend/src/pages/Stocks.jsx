@@ -17,25 +17,48 @@ export default function Stocks() {
   const [error,   setError]   = useState(null);
 
   useEffect(() => {
-    function loadData() {
-      supabase
-        .from("radar_cache")
-        .select("data,built_at")
-        .eq("key", "stock_picks")
-        .maybeSingle()
-        .then(({ data: row, error: e }) => {
-          if (e) { setError(e.message); return; }
-          setError(null);
-          if (row) { setData(row.data); setBuiltAt(row.built_at); }
-        })
-        .finally(() => setLoading(false));
+    // Two-phase fetch: poll built_at only (< 100 bytes) every 5 min.
+    // Only download the full data payload when built_at actually changed.
+    // Stock picks update ~7×/day; this cuts Supabase bandwidth by ~97%.
+    let lastBuiltAt = null;
+
+    async function checkAndLoad() {
+      try {
+        // Phase 1: lightweight freshness check
+        const { data: meta, error: metaErr } = await supabase
+          .from("radar_cache")
+          .select("built_at")
+          .eq("key", "stock_picks")
+          .maybeSingle();
+        if (metaErr) throw metaErr;
+        if (!meta) return;
+
+        // Phase 2: full payload — only when data has changed
+        if (meta.built_at === lastBuiltAt) return;
+
+        const { data: row, error: rowErr } = await supabase
+          .from("radar_cache")
+          .select("data,built_at")
+          .eq("key", "stock_picks")
+          .maybeSingle();
+        if (rowErr) throw rowErr;
+        if (row) {
+          setData(row.data);
+          setBuiltAt(row.built_at);
+          lastBuiltAt = row.built_at;
+        }
+        setError(null);
+      } catch (e) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
     }
 
-    loadData();
+    checkAndLoad();
 
-    // Re-fetch every 5 minutes so prices stay current without a manual page reload.
-    // The backend refreshes intraday prices ~5× per market day; this keeps the UI in sync.
-    const timer = setInterval(loadData, 5 * 60 * 1000);
+    // Re-check every 5 minutes. Full download only happens ~7×/day when data changes.
+    const timer = setInterval(checkAndLoad, 5 * 60 * 1000);
     return () => clearInterval(timer);
   }, []);
 
