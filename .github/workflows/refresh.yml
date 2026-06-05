@@ -2,7 +2,8 @@ name: Refresh Radar Cache
 
 on:
   schedule:
-    - cron: '30 23 * * *'       # 5:00 AM IST daily        — MF + Stocks full rebuild
+    - cron: '30 23 * * 1-5'     # 5:00 AM IST weeknights    — MF + Stocks + ML full rebuild
+    - cron: '30 23 * * 0,6'     # 5:00 AM IST weekends      — Stocks only (no ML, markets closed)
     - cron: '15 10 * * 1-5'     # 3:45 PM IST weekdays     — Stocks EOD (final prices)
     - cron: '10 4 * * 1-5'      # 9:40 AM IST weekdays     — Stocks intraday (open)
     - cron: '0 7 * * 1-5'       # 12:30 PM IST weekdays    — Stocks intraday (midday)
@@ -64,8 +65,10 @@ jobs:
             echo "target=${{ github.event.inputs.target }}" >> $GITHUB_OUTPUT
           elif [ "${{ github.event.schedule }}" = "15 10 * * 1-5" ]; then
             echo "target=stocks" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event.schedule }}" = "30 23 * * *" ]; then
+          elif [ "${{ github.event.schedule }}" = "30 23 * * 1-5" ]; then
             echo "target=all" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "30 23 * * 0,6" ]; then
+            echo "target=stocks" >> $GITHUB_OUTPUT
           elif [ "${{ github.event.schedule }}" = "30 18 * * 0" ]; then
             echo "target=gdelt_sentiment" >> $GITHUB_OUTPUT
           else
