@@ -17,7 +17,7 @@ on:
         required: false
         default: 'all'
         type: choice
-        options: [all, mf, stocks, intraday, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, migrate]
+        options: [all, mf, stocks, intraday, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, migrate, restore_persistence]
       backfill_days:
         description: 'Days to backfill for stock_backfill/nifty500_backfill (default 365)'
         required: false
@@ -74,12 +74,20 @@ jobs:
             echo "target=intraday" >> $GITHUB_OUTPUT
           fi
 
+      - name: Restore persistence counters (one-time recovery)
+        if: steps.target.outputs.target == 'restore_persistence'
+        run: node backend/restore-persistence.js
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
       - name: Refresh cache
         if: >-
           steps.target.outputs.target != 'sentiment' &&
           steps.target.outputs.target != 'gdelt_sentiment' &&
           steps.target.outputs.target != 'stock_backfill' &&
-          steps.target.outputs.target != 'nifty500_backfill'
+          steps.target.outputs.target != 'nifty500_backfill' &&
+          steps.target.outputs.target != 'restore_persistence'
         run: |
           if [ "${{ steps.target.outputs.target }}" = "intraday" ]; then
             node backend/refresh-intraday.js
@@ -93,22 +101,32 @@ jobs:
       - name: Data health check
         # Always run after refresh — reports source connectivity and data freshness.
         # Uses --fix to auto-retry with alternative sources if data is stale.
+        # Uses --notify to send email/Telegram alerts on failures (configure secrets below).
         # 'continue-on-error: true' so a failed health check never blocks the ML pipeline.
         if: >-
           steps.target.outputs.target != 'sentiment' &&
           steps.target.outputs.target != 'gdelt_sentiment' &&
           steps.target.outputs.target != 'stock_backfill' &&
-          steps.target.outputs.target != 'nifty500_backfill'
+          steps.target.outputs.target != 'nifty500_backfill' &&
+          steps.target.outputs.target != 'restore_persistence'
         continue-on-error: true
         run: |
           MODE="intraday"
           if [ "${{ steps.target.outputs.target }}" != "intraday" ]; then
             MODE="eod"
           fi
-          node backend/data-health-check.js --mode $MODE --fix
+          node backend/data-health-check.js --mode $MODE --fix --notify
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          # Alert destinations — add these secrets in GitHub → Settings → Secrets → Actions
+          # Email (Resend): sign up at resend.com, create API key, set a verified From domain
+          RESEND_API_KEY:       ${{ secrets.RESEND_API_KEY }}
+          ALERT_EMAIL:          ${{ secrets.ALERT_EMAIL }}
+          # Telegram: create a bot via @BotFather, send it a message, then call
+          #   https://api.telegram.org/bot<TOKEN>/getUpdates to find your chat_id
+          TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
 
       # ── ML pipeline: runs on nightly rebuild, sentiment, backfills ──────────
       - name: Set up Python (ML pipeline)

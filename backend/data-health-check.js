@@ -2,13 +2,16 @@
 /**
  * Data Health Check
  *
- * Verifies that stock price data in Supabase is fresh and reachable data
- * sources are working. Run after every refresh step to catch silent failures.
+ * Verifies that stock, MF, and ETF data in Supabase is fresh and reachable
+ * data sources are working. Writes a system_health snapshot to Supabase so
+ * the frontend can surface alerts. Run after every refresh step.
  *
  * Checks:
- *   1. Supabase stock_picks freshness (intraday threshold: 3h, EOD: 28h)
- *   2. Price coverage — % of top-50 picks that have a valid close price
- *   3. Source connectivity — Stooq, NSE, Yahoo for one probe symbol
+ *   1. stock_picks — EOD freshness (28h), intraday freshness (3h), price coverage
+ *   2. mf_radar    — freshness (28h), fund count
+ *   3. etf_picks   — freshness (28h), ETF count
+ *   4. Nifty benchmark — connectivity via NSE index archive or Stooq/Yahoo
+ *   5. Source connectivity — Stooq, NSE, Yahoo for one probe symbol
  *
  * Exit codes:
  *   0 — all checks passed
@@ -34,25 +37,47 @@ const supabase = createClient(
   { auth: { persistSession: false }, realtime: { transport: WebSocket } }
 );
 
-const args   = process.argv.slice(2);
-const FIX    = args.includes("--fix");
-const MODE   = args.includes("--mode") ? args[args.indexOf("--mode") + 1] : "intraday";
-const PROBE  = "TCS.NS";  // test symbol for source connectivity checks
+const args    = process.argv.slice(2);
+const FIX     = args.includes("--fix");
+const NOTIFY  = args.includes("--notify");  // send alerts only when this flag is set
+const MODE    = args.includes("--mode") ? args[args.indexOf("--mode") + 1] : "intraday";
+const PROBE   = "TCS.NS";  // test symbol for source connectivity checks
 
-const STALE_INTRADAY_H = 3;   // hours — intraday data older than this is stale
-const STALE_EOD_H      = 28;  // hours — EOD data older than this is stale
-const MIN_PRICE_COVERAGE = 0.80;  // at least 80% of top-50 picks need a valid close
+// Alert destinations — set via environment variables (no hard-coded secrets)
+// Email  : set ALERT_EMAIL + RESEND_API_KEY (https://resend.com, free 3k/mo)
+// Telegram: set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID
+//           (create bot via @BotFather, get chat ID via https://api.telegram.org/bot<TOKEN>/getUpdates)
+const ALERT_EMAIL       = process.env.ALERT_EMAIL;
+const RESEND_API_KEY    = process.env.RESEND_API_KEY;
+const TELEGRAM_TOKEN    = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID  = process.env.TELEGRAM_CHAT_ID;
+
+const STALE_INTRADAY_H   = 3;    // hours — intraday data older than this is stale
+const STALE_EOD_H        = 28;   // hours — EOD data older than this is stale
+const MIN_PRICE_COVERAGE = 0.80; // at least 80% of top-50 picks need a valid close
+const MIN_FUND_COUNT     = 5;    // at least this many MF funds expected
+const MIN_ETF_COUNT      = 3;    // at least this many ETFs expected
 
 const FETCH_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
 
 let allPassed = true;
 
+// ─── Structured result accumulator ───────────────────────────────────────────
+
+const healthResults = [];
+
+function record(check, status, detail = "") {
+  healthResults.push({ check, status, detail, ts: new Date().toISOString() });
+}
+
 function ok(label, detail = "") {
   console.log(`  ✓ ${label}${detail ? ` — ${detail}` : ""}`);
+  record(label, "ok", detail);
 }
 
 function fail(label, detail = "") {
   console.error(`  ✗ ${label}${detail ? ` — ${detail}` : ""}`);
+  record(label, "fail", detail);
   allPassed = false;
 }
 
@@ -60,12 +85,17 @@ function info(label, detail = "") {
   console.log(`  ℹ ${label}${detail ? ` — ${detail}` : ""}`);
 }
 
+function warn(label, detail = "") {
+  console.warn(`  ⚠ ${label}${detail ? ` — ${detail}` : ""}`);
+  record(label, "warn", detail);
+}
+
 function hoursAgo(isoStr) {
   if (!isoStr) return Infinity;
   return (Date.now() - new Date(isoStr).getTime()) / (1000 * 60 * 60);
 }
 
-// ─── Check 1: Supabase freshness ──────────────────────────────────────────────
+// ─── Check 1: Supabase stock_picks freshness ──────────────────────────────────
 
 async function checkSupabaseFreshness() {
   console.log("\n[1] Supabase stock_picks freshness");
@@ -91,16 +121,16 @@ async function checkSupabaseFreshness() {
   info("DB built_at",   `${builtAt?.slice(0, 16) ?? "—"} (${dbAge.toFixed(1)}h ago)`);
 
   if (eodAge > STALE_EOD_H) {
-    fail("EOD freshness", `${eodAge.toFixed(1)}h old — expected < ${STALE_EOD_H}h`);
+    fail("stocks EOD freshness", `${eodAge.toFixed(1)}h old — expected < ${STALE_EOD_H}h`);
   } else {
-    ok("EOD freshness", `${eodAge.toFixed(1)}h old`);
+    ok("stocks EOD freshness", `${eodAge.toFixed(1)}h old`);
   }
 
   if (MODE === "intraday") {
     if (intradayAge > STALE_INTRADAY_H) {
-      fail("intraday freshness", `${intradayAge.toFixed(1)}h old — expected < ${STALE_INTRADAY_H}h`);
+      fail("stocks intraday freshness", `${intradayAge.toFixed(1)}h old — expected < ${STALE_INTRADAY_H}h`);
     } else {
-      ok("intraday freshness", `${intradayAge.toFixed(1)}h old`);
+      ok("stocks intraday freshness", `${intradayAge.toFixed(1)}h old`);
     }
   }
 
@@ -125,7 +155,6 @@ function checkPriceCoverage(stored) {
     ok("price coverage", `${withClose}/${picks.length} picks have close price`);
   }
 
-  // Spot-check: report the 3 most recent intradayAsOf timestamps
   const times = picks
     .map((p) => p.intradayAsOf)
     .filter(Boolean)
@@ -136,7 +165,119 @@ function checkPriceCoverage(stored) {
   }
 }
 
-// ─── Check 3: Source connectivity ────────────────────────────────────────────
+// ─── Check 3: MF radar freshness ─────────────────────────────────────────────
+
+async function checkMfRadar() {
+  console.log("\n[3] Supabase mf_radar freshness");
+  const { data: row, error } = await supabase
+    .from("radar_cache").select("data, built_at").eq("key", "mf_radar").single();
+
+  if (error || !row) {
+    fail("mf_radar", `could not load from Supabase: ${error?.message ?? "no row"}`);
+    return;
+  }
+
+  const age        = hoursAgo(row.built_at);
+  const categories = row.data?.categories ?? [];
+  const fundCount  = categories.reduce((n, c) => n + (c.funds?.length ?? 0), 0);
+
+  info("mf_radar built_at", `${row.built_at?.slice(0, 16) ?? "—"} (${age.toFixed(1)}h ago)`);
+  info("categories", `${categories.length}, funds: ${fundCount}`);
+
+  if (age > STALE_EOD_H) {
+    fail("mf_radar freshness", `${age.toFixed(1)}h old — expected < ${STALE_EOD_H}h`);
+  } else {
+    ok("mf_radar freshness", `${age.toFixed(1)}h old`);
+  }
+
+  if (fundCount < MIN_FUND_COUNT) {
+    fail("mf_radar fund count", `${fundCount} funds — expected >= ${MIN_FUND_COUNT}`);
+  } else {
+    ok("mf_radar fund count", `${fundCount} funds`);
+  }
+}
+
+// ─── Check 4: ETF picks freshness ────────────────────────────────────────────
+
+async function checkEtfPicks() {
+  console.log("\n[4] Supabase etf_picks freshness");
+  const { data: row, error } = await supabase
+    .from("radar_cache").select("data, built_at").eq("key", "etf_picks").single();
+
+  if (error || !row) {
+    fail("etf_picks", `could not load from Supabase: ${error?.message ?? "no row"}`);
+    return;
+  }
+
+  const age      = hoursAgo(row.built_at);
+  const etfCount = (row.data?.picks ?? row.data?.etfs ?? []).length;
+
+  info("etf_picks built_at", `${row.built_at?.slice(0, 16) ?? "—"} (${age.toFixed(1)}h ago)`);
+  info("ETFs", `${etfCount}`);
+
+  if (age > STALE_EOD_H) {
+    fail("etf_picks freshness", `${age.toFixed(1)}h old — expected < ${STALE_EOD_H}h`);
+  } else {
+    ok("etf_picks freshness", `${age.toFixed(1)}h old`);
+  }
+
+  if (etfCount < MIN_ETF_COUNT) {
+    fail("etf_picks count", `${etfCount} ETFs — expected >= ${MIN_ETF_COUNT}`);
+  } else {
+    ok("etf_picks count", `${etfCount} ETFs`);
+  }
+}
+
+// ─── Check 5: Nifty benchmark ────────────────────────────────────────────────
+
+async function checkNiftyBenchmark() {
+  console.log("\n[5] Nifty benchmark connectivity");
+  // Try NSE index archive probe (single recent file — fastest)
+  const probeDate  = new Date();
+  probeDate.setDate(probeDate.getDate() - 3); // go back 3 days to avoid today being non-trading
+  const dd   = String(probeDate.getDate()).padStart(2, "0");
+  const mm   = String(probeDate.getMonth() + 1).padStart(2, "0");
+  const yyyy = probeDate.getFullYear();
+  const url  = `https://nsearchives.nseindia.com/content/indices/ind_close_all_${dd}${mm}${yyyy}.csv`;
+
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": FETCH_UA },
+      signal:  AbortSignal.timeout(15000),
+    });
+    // 404 is expected for non-trading days — just confirms archive is reachable
+    if (res.ok || res.status === 404) {
+      ok("NSE index archive", `HTTP ${res.status} — archive reachable`);
+      return;
+    }
+    throw new Error(`HTTP ${res.status}`);
+  } catch (e) {
+    warn("NSE index archive", e.message);
+  }
+
+  // Stooq fallback probe
+  try {
+    const d1  = new Date(); d1.setDate(d1.getDate() - 10);
+    const d2  = new Date(); d2.setDate(d2.getDate() + 1);
+    const fmt = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
+    const stooqUrl = `https://stooq.com/q/d/l/?s=%5Ensei&d1=${fmt(d1)}&d2=${fmt(d2)}&i=d`;
+    const res  = await fetch(stooqUrl, {
+      headers: { "User-Agent": FETCH_UA },
+      signal:  AbortSignal.timeout(20000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    if (text.length < 50 || !text.toLowerCase().startsWith("date")) throw new Error(`unexpected response (len=${text.length})`);
+    ok("Nifty benchmark (Stooq)", `${text.trim().split(/\r?\n/).length - 1} rows`);
+    return;
+  } catch (e) {
+    warn("Nifty benchmark (Stooq)", e.message);
+  }
+
+  fail("Nifty benchmark", "NSE index archive and Stooq both unreachable — RS signals will be null");
+}
+
+// ─── Check 6: Source connectivity ────────────────────────────────────────────
 
 async function checkStooq() {
   const sym = PROBE.replace(".NS", "").toLowerCase();
@@ -159,7 +300,6 @@ async function checkStooq() {
 
 async function checkNse() {
   const NSE_BASE = "https://www.nseindia.com";
-  // Warm cookies
   const warm = await fetch(NSE_BASE + "/", {
     headers: { "User-Agent": FETCH_UA },
     signal:  AbortSignal.timeout(12000),
@@ -190,14 +330,14 @@ async function checkYahoo() {
     signal:  AbortSignal.timeout(15000),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const j    = await res.json();
-  const ts   = j?.chart?.result?.[0]?.timestamp ?? [];
+  const j  = await res.json();
+  const ts = j?.chart?.result?.[0]?.timestamp ?? [];
   if (!ts.length) throw new Error("empty result");
   return `${ts.length} bars`;
 }
 
 async function checkSources() {
-  console.log(`\n[3] Data source connectivity (probe: ${PROBE})`);
+  console.log(`\n[6] Data source connectivity (probe: ${PROBE})`);
 
   let anyUp = false;
   for (const [name, fn] of [["Stooq", checkStooq], ["NSE", checkNse], ["Yahoo", checkYahoo]]) {
@@ -206,14 +346,126 @@ async function checkSources() {
       ok(name, detail);
       anyUp = true;
     } catch (e) {
-      // Individual source failures are expected (e.g. NSE/Stooq blocked on CI).
-      // Only fail the health check if ALL sources are unreachable.
-      console.warn(`  ⚠ ${name} — ${e.message}`);
+      warn(name, e.message);
     }
   }
 
   if (!anyUp) {
-    fail("all sources", "Stooq, NSE, and Yahoo are all unreachable — no price data possible");
+    fail("all price sources", "Stooq, NSE, and Yahoo are all unreachable — no price data possible");
+  }
+}
+
+// ─── Alert notifications ──────────────────────────────────────────────────────
+
+function buildAlertText() {
+  const fails = healthResults.filter((r) => r.status === "fail");
+  const warns = healthResults.filter((r) => r.status === "warn");
+  const lines = [
+    `⚠️ fin-intel data health check — ${fails.length} failure(s), ${warns.length} warning(s)`,
+    `Mode: ${MODE} | ${new Date().toISOString().slice(0, 16)} UTC`,
+    "",
+  ];
+  if (fails.length) {
+    lines.push("FAILURES:");
+    for (const r of fails) lines.push(`  ✗ ${r.check}${r.detail ? ` — ${r.detail}` : ""}`);
+    lines.push("");
+  }
+  if (warns.length) {
+    lines.push("WARNINGS:");
+    for (const r of warns) lines.push(`  ⚠ ${r.check}${r.detail ? ` — ${r.detail}` : ""}`);
+  }
+  return lines.join("\n");
+}
+
+async function sendEmailAlert(text) {
+  if (!RESEND_API_KEY || !ALERT_EMAIL) return false;
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method:  "POST",
+      headers: {
+        "Authorization": `Bearer ${RESEND_API_KEY}`,
+        "Content-Type":  "application/json",
+      },
+      body: JSON.stringify({
+        from:    "fin-intel alerts <alerts@fin-intel.dev>",
+        to:      [ALERT_EMAIL],
+        subject: `[fin-intel] Data health check failed (${healthResults.filter((r) => r.status === "fail").length} issues)`,
+        text,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    console.log(`  ✓ email alert sent to ${ALERT_EMAIL}`);
+    return true;
+  } catch (e) {
+    console.warn(`  ⚠ email alert failed: ${e.message}`);
+    return false;
+  }
+}
+
+async function sendTelegramAlert(text) {
+  if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) return false;
+  try {
+    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+    const res = await fetch(url, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id:    TELEGRAM_CHAT_ID,
+        text:       `<pre>${text}</pre>`,
+        parse_mode: "HTML",
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    console.log(`  ✓ Telegram alert sent`);
+    return true;
+  } catch (e) {
+    console.warn(`  ⚠ Telegram alert failed: ${e.message}`);
+    return false;
+  }
+}
+
+async function sendAlerts() {
+  // Only alert on actual failures (warnings are tolerable)
+  const failCount = healthResults.filter((r) => r.status === "fail").length;
+  if (failCount === 0) {
+    console.log("  ✓ no failures — no alert sent");
+    return;
+  }
+
+  const text = buildAlertText();
+  console.log("\n[alert] Sending failure notifications…");
+
+  let sent = false;
+  sent = await sendEmailAlert(text) || sent;
+  sent = await sendTelegramAlert(text) || sent;
+
+  if (!sent) {
+    console.warn("  ⚠ no alert destinations configured");
+    console.warn("  Set RESEND_API_KEY + ALERT_EMAIL for email, or TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID for Telegram");
+  }
+}
+
+// ─── Write system_health to Supabase ─────────────────────────────────────────
+
+async function writeSystemHealth() {
+  const payload = {
+    checkedAt:  new Date().toISOString(),
+    mode:       MODE,
+    allPassed,
+    results:    healthResults,
+    failCount:  healthResults.filter((r) => r.status === "fail").length,
+    warnCount:  healthResults.filter((r) => r.status === "warn").length,
+  };
+  try {
+    const { error } = await supabase
+      .from("radar_cache")
+      .upsert({ key: "system_health", data: payload, built_at: new Date().toISOString() });
+    if (error) throw error;
+    console.log(`  ✓ system_health written to Supabase (${payload.failCount} fails, ${payload.warnCount} warns)`);
+  } catch (e) {
+    console.error(`  ✗ failed to write system_health: ${e.message}`);
   }
 }
 
@@ -244,6 +496,9 @@ async function main() {
 
   const stored = await checkSupabaseFreshness();
   checkPriceCoverage(stored);
+  await checkMfRadar();
+  await checkEtfPicks();
+  await checkNiftyBenchmark();
   await checkSources();
 
   console.log(`\n${"─".repeat(50)}`);
@@ -257,6 +512,13 @@ async function main() {
       console.error("  Run with --fix to attempt automatic recovery.");
     }
   }
+
+  await writeSystemHealth();
+
+  if (NOTIFY) {
+    await sendAlerts();
+  }
+
   console.log("─".repeat(50));
 
   process.exit(allPassed ? 0 : 1);
