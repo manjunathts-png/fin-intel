@@ -4,10 +4,8 @@ on:
   schedule:
     - cron: '30 23 * * *'       # 5:00 AM IST daily        — MF + Stocks full rebuild
     - cron: '15 10 * * 1-5'     # 3:45 PM IST weekdays     — Stocks EOD (final prices)
-    - cron: '0 4 * * 1-5'       # 9:30 AM IST weekdays     — Stocks intraday
-    - cron: '30 5 * * 1-5'      # 11:00 AM IST weekdays    — Stocks intraday
-    - cron: '0 7 * * 1-5'       # 12:30 PM IST weekdays    — Stocks intraday
-    - cron: '30 8 * * 1-5'      # 2:00 PM IST weekdays     — Stocks intraday
+    - cron: '0 4 * * 1-5'       # 9:30 AM IST weekdays     — Stocks intraday (open)
+    - cron: '0 7 * * 1-5'       # 12:30 PM IST weekdays    — Stocks intraday (midday)
     - cron: '0 10 * * 1-5'      # 3:30 PM IST weekdays     — Stocks intraday (pre-close)
     # - cron: '30 18 * * 0'     # 12:00 AM IST Mondays — Weekly GDELT sentiment (disabled: needs ANTHROPIC_API_KEY secret)
   workflow_dispatch:
