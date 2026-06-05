@@ -17,16 +17,26 @@ export default function Stocks() {
   const [error,   setError]   = useState(null);
 
   useEffect(() => {
-    supabase
-      .from("radar_cache")
-      .select("data,built_at")
-      .eq("key", "stock_picks")
-      .maybeSingle()
-      .then(({ data: row, error: e }) => {
-        if (e) { setError(e.message); return; }
-        if (row) { setData(row.data); setBuiltAt(row.built_at); }
-      })
-      .finally(() => setLoading(false));
+    function loadData() {
+      supabase
+        .from("radar_cache")
+        .select("data,built_at")
+        .eq("key", "stock_picks")
+        .maybeSingle()
+        .then(({ data: row, error: e }) => {
+          if (e) { setError(e.message); return; }
+          setError(null);
+          if (row) { setData(row.data); setBuiltAt(row.built_at); }
+        })
+        .finally(() => setLoading(false));
+    }
+
+    loadData();
+
+    // Re-fetch every 5 minutes so prices stay current without a manual page reload.
+    // The backend refreshes intraday prices ~5× per market day; this keeps the UI in sync.
+    const timer = setInterval(loadData, 5 * 60 * 1000);
+    return () => clearInterval(timer);
   }, []);
 
   // Pre-compute sector aggregates so all sub-routes share the same derived data
