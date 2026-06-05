@@ -14,9 +14,11 @@
 const fs   = require("fs");
 const path = require("path");
 
-const CACHE_FILE = path.join(__dirname, "nifty_benchmark_cache.json");
-const TTL        = 6 * 60 * 60 * 1000; // 6h
-const FETCH_UA   = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const CACHE_FILE    = path.join(__dirname, "nifty_benchmark_cache.json");
+const TTL           = 6 * 60 * 60 * 1000; // 6h
+const FETCH_UA      = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const NSE_IDX_ARCH  = "https://nsearchives.nseindia.com/content/indices";
+const MAX_IDX_PAR   = 20; // parallel downloads for index archive
 
 function yyyymmdd(date) {
   return date.toISOString().slice(0, 10).replace(/-/g, "");
@@ -55,7 +57,72 @@ async function fetchNiftyFromStooq(startDate) {
   return prices;
 }
 
-// ─── Source 2: Yahoo Finance v8 REST (fallback) ───────────────────────────────
+// ─── Source 2: NSE Index Archive (no cookies, CI-friendly) ───────────────────
+
+function ddmmyyyyIdx(date) {
+  const d = String(date.getDate()).padStart(2, "0");
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const y = date.getFullYear();
+  return `${d}${m}${y}`;
+}
+
+async function fetchOneIndexFile(date) {
+  const fname = `ind_close_all_${ddmmyyyyIdx(date)}.csv`;
+  const url   = `${NSE_IDX_ARCH}/${fname}`;
+  const res   = await fetch(url, {
+    headers: { "User-Agent": FETCH_UA },
+    signal:  AbortSignal.timeout(15000),
+  });
+  if (!res.ok) return null; // non-trading day — silently skip
+  const text = await res.text();
+  if (text.length < 30 || !text.toLowerCase().startsWith("index")) return null;
+  const lines = text.trim().split(/\r?\n/);
+  const hdr   = lines[0].toLowerCase().split(",");
+  const iName  = hdr.indexOf("index name");
+  const iDate  = hdr.indexOf("index date");
+  const iClose = hdr.findIndex((h) => h.includes("closing"));
+  if (iName < 0 || iDate < 0 || iClose < 0) return null;
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(",");
+    if ((cols[iName] ?? "").trim().toLowerCase() !== "nifty 50") continue;
+    const raw   = cols[iDate]?.trim() ?? "";
+    const close = parseFloat(cols[iClose]);
+    if (!isFinite(close) || close <= 0) return null;
+    // Date format from NSE: "DD-Mon-YYYY" e.g. "04-Jun-2026"
+    const m = /^(\d{2})-(\w{3})-(\d{4})$/.exec(raw);
+    if (!m) return null;
+    const months = { jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",
+                     jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12" };
+    const mo = months[m[2].toLowerCase()];
+    if (!mo) return null;
+    return { date: `${m[3]}-${mo}-${m[1]}`, close };
+  }
+  return null; // "Nifty 50" row not found
+}
+
+async function fetchNiftyFromNseIndexArchive(startDate) {
+  const dates = [];
+  const cursor = new Date(startDate);
+  const today  = new Date();
+  while (cursor <= today) {
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) dates.push(new Date(cursor)); // skip weekends
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  const prices = [];
+  for (let i = 0; i < dates.length; i += MAX_IDX_PAR) {
+    const batch   = dates.slice(i, i + MAX_IDX_PAR);
+    const results = await Promise.all(batch.map((d) => fetchOneIndexFile(d).catch(() => null)));
+    for (const r of results) { if (r) prices.push(r); }
+  }
+
+  prices.sort((a, b) => a.date.localeCompare(b.date));
+  if (prices.length === 0) throw new Error("NSE index archive: no Nifty 50 data found");
+  return prices;
+}
+
+// ─── Source 3: Yahoo Finance v8 REST (fallback) ───────────────────────────────
 
 async function fetchNiftyFromYahooRest(startDate) {
   const period1 = Math.floor(startDate.getTime() / 1000);
@@ -111,7 +178,15 @@ async function getNiftyHistory() {
   try {
     prices = await fetchNiftyFromStooq(startDate);
   } catch (e) {
-    console.warn(`  [stooq] ^NSEI: ${e.message} — trying Yahoo REST…`);
+    console.warn(`  [stooq] ^NSEI: ${e.message} — trying NSE index archive…`);
+  }
+
+  if (!prices || prices.length === 0) {
+    try {
+      prices = await fetchNiftyFromNseIndexArchive(startDate);
+    } catch (e) {
+      console.warn(`  [nse-arch] ^NSEI: ${e.message} — trying Yahoo REST…`);
+    }
   }
 
   if (!prices || prices.length === 0) {
@@ -119,7 +194,7 @@ async function getNiftyHistory() {
   }
 
   if (!prices || prices.length === 0) {
-    throw new Error("Nifty benchmark unavailable (all sources failed)");
+    throw new Error("Nifty benchmark unavailable (Stooq, NSE archive, and Yahoo all failed)");
   }
 
   fs.writeFileSync(CACHE_FILE, JSON.stringify({ fetchedAt: new Date().toISOString(), prices }));

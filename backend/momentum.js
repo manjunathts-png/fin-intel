@@ -27,9 +27,11 @@ function atomicWrite(filePath, data) {
 }
 const { CATEGORIES } = require("./mf_universe");
 
-const CACHE_FILE = path.join(__dirname, "mf_history_cache.json");
-const AMFI_URL = "https://www.amfiindia.com/spages/NAVAll.txt";
-const MFAPI_URL = (code) => `https://api.mfapi.in/mf/${code}`;
+const CACHE_FILE   = path.join(__dirname, "mf_history_cache.json");
+const AMFI_URL     = "https://www.amfiindia.com/spages/NAVAll.txt";
+const MFAPI_URL    = (code) => `https://api.mfapi.in/mf/${code}`;
+const AMFI_HIST_URL = (code, from, to) =>
+  `https://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx?frmdt=${from}&todt=${to}&SchId=${code}`;
 // Keep up to ~15 years of NAV history. mfapi.in returns full lifetime (often
 // 20+ years for older schemes) — we cap at 15Y * 365 = 5475 days to keep the
 // cache file size sane while still supporting 10Y CAGR with margin.
@@ -140,6 +142,42 @@ function findSchemeCode(amfiList, queryName) {
   return bestMatch;
 }
 
+// ─── AMFI portal direct NAV history (last-resort fallback) ───────────────────
+
+function amfiFmtDate(d) {
+  const dd = String(d.getDate()).padStart(2, "0");
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${dd}-${months[d.getMonth()]}-${d.getFullYear()}`;
+}
+
+async function fetchSchemeHistoryFromAmfi(code) {
+  const to   = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - NAV_HISTORY_DAYS);
+  const url = AMFI_HIST_URL(code, amfiFmtDate(from), amfiFmtDate(to));
+  const text = await httpsGet(url, { timeoutMs: 30000 });
+  // Format: SchemeCode;ISIN1;ISIN2;SchemeName;NAV;Date (header on first line)
+  const navs = [];
+  for (const line of text.split("\n")) {
+    const parts = line.trim().split(";");
+    if (parts.length < 6) continue;
+    if (parts[0].trim() !== String(code)) continue;
+    const navVal = parseFloat(parts[4]);
+    const raw    = parts[5]?.trim() ?? "";
+    // Date from AMFI portal: DD-Mon-YYYY
+    const m = /^(\d{2})-(\w{3})-(\d{4})$/.exec(raw);
+    if (!m || !isFinite(navVal) || navVal <= 0) continue;
+    const months = { jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",
+                     jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12" };
+    const mo = months[m[2].toLowerCase()];
+    if (!mo) continue;
+    navs.push({ date: `${m[3]}-${mo}-${m[1]}`, nav: navVal });
+  }
+  navs.sort((a, b) => a.date.localeCompare(b.date));
+  if (navs.length === 0) throw new Error(`AMFI portal returned no NAV data for ${code}`);
+  return navs;
+}
+
 // ─── Scheme NAV history ───────────────────────────────────────────────────────
 
 async function fetchSchemeHistory(code) {
@@ -175,10 +213,20 @@ async function fetchSchemeHistory(code) {
     // Stale-on-error: if mfapi.in is down but we have any cached data (even expired),
     // use it rather than dropping the fund entirely from the leaderboard.
     if (cached && cached.navs?.length > 0) {
-      console.warn(`  [stale-ok] ${code}: fetch failed (${e.message}) — using cached data from ${cached.fetchedAt.slice(0, 10)}`);
+      console.warn(`  [stale-ok] ${code}: mfapi failed (${e.message}) — using cached data from ${cached.fetchedAt.slice(0, 10)}`);
       return cached;
     }
-    throw e; // No cache at all — caller logs the warning and skips this fund
+    // Cold cache + mfapi.in down → try AMFI portal direct
+    console.warn(`  [amfi-fallback] ${code}: mfapi failed, no cache — trying AMFI portal…`);
+    try {
+      const navs = await fetchSchemeHistoryFromAmfi(code);
+      const entry = { fetchedAt: new Date().toISOString(), name: null, navs: navs.slice(-NAV_HISTORY_DAYS) };
+      cache.schemes[code] = entry;
+      saveCache();
+      return entry;
+    } catch (e2) {
+      throw new Error(`${e.message}; AMFI fallback also failed: ${e2.message}`);
+    }
   }
 }
 
