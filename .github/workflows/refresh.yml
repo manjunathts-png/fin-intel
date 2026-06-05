@@ -17,7 +17,7 @@ on:
         required: false
         default: 'all'
         type: choice
-        options: [all, mf, stocks, intraday, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, migrate]
+        options: [all, mf, stocks, intraday, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, migrate, restore_persistence]
       backfill_days:
         description: 'Days to backfill for stock_backfill/nifty500_backfill (default 365)'
         required: false
@@ -74,12 +74,20 @@ jobs:
             echo "target=intraday" >> $GITHUB_OUTPUT
           fi
 
+      - name: Restore persistence counters (one-time recovery)
+        if: steps.target.outputs.target == 'restore_persistence'
+        run: node backend/restore-persistence.js
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
       - name: Refresh cache
         if: >-
           steps.target.outputs.target != 'sentiment' &&
           steps.target.outputs.target != 'gdelt_sentiment' &&
           steps.target.outputs.target != 'stock_backfill' &&
-          steps.target.outputs.target != 'nifty500_backfill'
+          steps.target.outputs.target != 'nifty500_backfill' &&
+          steps.target.outputs.target != 'restore_persistence'
         run: |
           if [ "${{ steps.target.outputs.target }}" = "intraday" ]; then
             node backend/refresh-intraday.js
@@ -99,7 +107,8 @@ jobs:
           steps.target.outputs.target != 'sentiment' &&
           steps.target.outputs.target != 'gdelt_sentiment' &&
           steps.target.outputs.target != 'stock_backfill' &&
-          steps.target.outputs.target != 'nifty500_backfill'
+          steps.target.outputs.target != 'nifty500_backfill' &&
+          steps.target.outputs.target != 'restore_persistence'
         continue-on-error: true
         run: |
           MODE="intraday"
