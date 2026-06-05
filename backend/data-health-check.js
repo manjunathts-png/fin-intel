@@ -37,10 +37,20 @@ const supabase = createClient(
   { auth: { persistSession: false }, realtime: { transport: WebSocket } }
 );
 
-const args   = process.argv.slice(2);
-const FIX    = args.includes("--fix");
-const MODE   = args.includes("--mode") ? args[args.indexOf("--mode") + 1] : "intraday";
-const PROBE  = "TCS.NS";  // test symbol for source connectivity checks
+const args    = process.argv.slice(2);
+const FIX     = args.includes("--fix");
+const NOTIFY  = args.includes("--notify");  // send alerts only when this flag is set
+const MODE    = args.includes("--mode") ? args[args.indexOf("--mode") + 1] : "intraday";
+const PROBE   = "TCS.NS";  // test symbol for source connectivity checks
+
+// Alert destinations — set via environment variables (no hard-coded secrets)
+// Email  : set ALERT_EMAIL + RESEND_API_KEY (https://resend.com, free 3k/mo)
+// Telegram: set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID
+//           (create bot via @BotFather, get chat ID via https://api.telegram.org/bot<TOKEN>/getUpdates)
+const ALERT_EMAIL       = process.env.ALERT_EMAIL;
+const RESEND_API_KEY    = process.env.RESEND_API_KEY;
+const TELEGRAM_TOKEN    = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID  = process.env.TELEGRAM_CHAT_ID;
 
 const STALE_INTRADAY_H   = 3;    // hours — intraday data older than this is stale
 const STALE_EOD_H        = 28;   // hours — EOD data older than this is stale
@@ -345,6 +355,98 @@ async function checkSources() {
   }
 }
 
+// ─── Alert notifications ──────────────────────────────────────────────────────
+
+function buildAlertText() {
+  const fails = healthResults.filter((r) => r.status === "fail");
+  const warns = healthResults.filter((r) => r.status === "warn");
+  const lines = [
+    `⚠️ fin-intel data health check — ${fails.length} failure(s), ${warns.length} warning(s)`,
+    `Mode: ${MODE} | ${new Date().toISOString().slice(0, 16)} UTC`,
+    "",
+  ];
+  if (fails.length) {
+    lines.push("FAILURES:");
+    for (const r of fails) lines.push(`  ✗ ${r.check}${r.detail ? ` — ${r.detail}` : ""}`);
+    lines.push("");
+  }
+  if (warns.length) {
+    lines.push("WARNINGS:");
+    for (const r of warns) lines.push(`  ⚠ ${r.check}${r.detail ? ` — ${r.detail}` : ""}`);
+  }
+  return lines.join("\n");
+}
+
+async function sendEmailAlert(text) {
+  if (!RESEND_API_KEY || !ALERT_EMAIL) return false;
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method:  "POST",
+      headers: {
+        "Authorization": `Bearer ${RESEND_API_KEY}`,
+        "Content-Type":  "application/json",
+      },
+      body: JSON.stringify({
+        from:    "fin-intel alerts <alerts@fin-intel.dev>",
+        to:      [ALERT_EMAIL],
+        subject: `[fin-intel] Data health check failed (${healthResults.filter((r) => r.status === "fail").length} issues)`,
+        text,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    console.log(`  ✓ email alert sent to ${ALERT_EMAIL}`);
+    return true;
+  } catch (e) {
+    console.warn(`  ⚠ email alert failed: ${e.message}`);
+    return false;
+  }
+}
+
+async function sendTelegramAlert(text) {
+  if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) return false;
+  try {
+    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+    const res = await fetch(url, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id:    TELEGRAM_CHAT_ID,
+        text:       `<pre>${text}</pre>`,
+        parse_mode: "HTML",
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    console.log(`  ✓ Telegram alert sent`);
+    return true;
+  } catch (e) {
+    console.warn(`  ⚠ Telegram alert failed: ${e.message}`);
+    return false;
+  }
+}
+
+async function sendAlerts() {
+  // Only alert on actual failures (warnings are tolerable)
+  const failCount = healthResults.filter((r) => r.status === "fail").length;
+  if (failCount === 0) {
+    console.log("  ✓ no failures — no alert sent");
+    return;
+  }
+
+  const text = buildAlertText();
+  console.log("\n[alert] Sending failure notifications…");
+
+  let sent = false;
+  sent = await sendEmailAlert(text) || sent;
+  sent = await sendTelegramAlert(text) || sent;
+
+  if (!sent) {
+    console.warn("  ⚠ no alert destinations configured");
+    console.warn("  Set RESEND_API_KEY + ALERT_EMAIL for email, or TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID for Telegram");
+  }
+}
+
 // ─── Write system_health to Supabase ─────────────────────────────────────────
 
 async function writeSystemHealth() {
@@ -412,6 +514,11 @@ async function main() {
   }
 
   await writeSystemHealth();
+
+  if (NOTIFY) {
+    await sendAlerts();
+  }
+
   console.log("─".repeat(50));
 
   process.exit(allPassed ? 0 : 1);
