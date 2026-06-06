@@ -3,7 +3,7 @@ import { Navigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 
-const ADMIN_EMAIL = "manjunathts@gmail.com";
+const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL ?? "";
 
 function timeAgo(iso) {
   const mins = Math.round((Date.now() - new Date(iso)) / 60000);

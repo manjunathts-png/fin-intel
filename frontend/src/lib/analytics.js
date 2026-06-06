@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 
-const ADMIN_EMAIL = "manjunathts@gmail.com";
+const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL ?? "";
 
 export async function trackEvent(user, event, page = null) {
   if (!user) return;
