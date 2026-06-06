@@ -518,44 +518,61 @@ def check_shap_stability(
         return report
     try:
         import time as _time
-        query = (
+        # Step 1: fetch only model_version + trained_at (lightweight — avoids Cloudflare
+        # 1101 "JSON could not be generated" that fires when feature_importance JSON is large)
+        query_meta = (
             supabase.table("mf_model_runs")
-            .select("model_version,feature_importance,trained_at")
+            .select("model_version,trained_at")
             .neq("model_version", model_version)
         )
-        # Filter to same horizon so 3m models only compare against 3m baselines
         if horizon_tag:
-            query = query.like("model_version", f"lgbm_v1.0_{horizon_tag}_%")
-        # Retry on Supabase Cloudflare 1101 — these are returned as response bodies
-        # (not exceptions), so we check resp.data for the error indicator.
-        resp = None
+            query_meta = query_meta.like("model_version", f"lgbm_v1.0_{horizon_tag}_%")
+
+        resp_meta = None
         for attempt in range(3):
             try:
-                resp = query.order("trained_at", desc=True).limit(1).execute()
-                # 1101 errors arrive as dicts with 'code' key rather than real data
-                if resp.data and isinstance(resp.data, dict) and "code" in resp.data:
-                    raise ValueError(f"Supabase error: {resp.data.get('message','1101')}")
+                resp_meta = query_meta.order("trained_at", desc=True).limit(1).execute()
                 break
             except Exception as exc:
-                wait = 10 * (2 ** attempt)
-                log.warning("SHAP stability query failed (attempt %d/3): %s — retrying in %ds",
+                wait = 5 * (2 ** attempt)
+                log.warning("SHAP meta query failed (attempt %d/3): %s — retrying in %ds",
                             attempt + 1, str(exc)[:80], wait)
                 _time.sleep(wait)
-                resp = None
-        if resp is None:
-            log.warning("SHAP stability check failed after 3 retries — skipping")
-            return report
-        if not resp.data:
+
+        if not resp_meta or not resp_meta.data:
             log.info("SHAP stability: no previous model run found — first run, skipping")
             return report
 
-        prev = resp.data[0]
-        prev_fi: list[dict] = prev.get("feature_importance") or []
+        prev_version = resp_meta.data[0]["model_version"]
+
+        # Step 2: fetch feature_importance for that specific version (1 row, targeted)
+        resp_fi = None
+        for attempt in range(3):
+            try:
+                resp_fi = (
+                    supabase.table("mf_model_runs")
+                    .select("feature_importance")
+                    .eq("model_version", prev_version)
+                    .limit(1)
+                    .execute()
+                )
+                break
+            except Exception as exc:
+                wait = 5 * (2 ** attempt)
+                log.warning("SHAP fi query failed (attempt %d/3): %s — retrying in %ds",
+                            attempt + 1, str(exc)[:80], wait)
+                _time.sleep(wait)
+
+        if not resp_fi or not resp_fi.data:
+            log.info("SHAP stability: could not fetch feature_importance for %s", prev_version)
+            return report
+
+        prev_fi: list[dict] = resp_fi.data[0].get("feature_importance") or []
         if len(prev_fi) < 3:
             log.info(
                 "SHAP stability: previous run (%s) has no feature importance stored — "
                 "comparison skipped (pre-SHAP run or empty)",
-                prev.get("model_version"),
+                prev_version,
             )
             return report
         prev_top5 = [x["feature"] for x in prev_fi[:5]]
@@ -565,7 +582,7 @@ def check_shap_stability(
         report.update({
             "checked": True,
             "overlap": overlap,
-            "prev_version": prev["model_version"],
+            "prev_version": prev_version,
             "current_top5": curr_top5,
             "prev_top5": prev_top5,
         })
