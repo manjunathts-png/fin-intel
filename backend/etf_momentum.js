@@ -24,14 +24,9 @@ const path = require("path");
 const https = require("https");
 const YahooFinance = require("yahoo-finance2").default;
 const { ETF_TYPES, flatUniverse } = require("./etf_universe");
+const { atomicWrite, daysAgo, mean, stddev, median, round2 } = require("./utils");
 
 const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
-
-function atomicWrite(filePath, data) {
-  const tmp = filePath + ".tmp";
-  fs.writeFileSync(tmp, data);
-  fs.renameSync(tmp, filePath);
-}
 
 const NAV_CACHE_FILE   = path.join(__dirname, "etf_nav_cache.json");
 const PRICE_CACHE_FILE = path.join(__dirname, "etf_price_cache.json");
@@ -61,12 +56,13 @@ function savePriceCache() { try { atomicWrite(PRICE_CACHE_FILE, JSON.stringify(p
 
 // ─── HTTP ─────────────────────────────────────────────────────────────────────
 
-function httpsGet(url, { json = false, timeoutMs = 15000 } = {}) {
+function httpsGet(url, { json = false, timeoutMs = 15000, _depth = 0 } = {}) {
   return new Promise((resolve, reject) => {
+    if (_depth > 5) return reject(new Error(`too many redirects: ${url}`));
     const req = https.get(url, (res) => {
       if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
         res.resume();
-        return resolve(httpsGet(res.headers.location, { json, timeoutMs }));
+        return resolve(httpsGet(res.headers.location, { json, timeoutMs, _depth: _depth + 1 }));
       }
       if (res.statusCode !== 200) {
         res.resume();
@@ -159,12 +155,6 @@ function valAtOrBefore(series, targetDate, key = "nav") {
   return series[lo].date <= targetDate ? series[lo][key] : null;
 }
 
-function daysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
-}
-
 function pctReturn(series, days, key = "nav") {
   if (series.length === 0) return null;
   const latest = series[series.length - 1][key];
@@ -183,20 +173,6 @@ function rollingWeeklyReturns(series, lookbackDays = 90, key = "nav") {
   }
   return out;
 }
-
-const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
-const stddev = (a) => {
-  if (a.length < 2) return 0;
-  const m = mean(a);
-  return Math.sqrt(mean(a.map((x) => (x - m) ** 2)));
-};
-const median = (a) => {
-  if (a.length === 0) return null;
-  const s = [...a].sort((x, y) => x - y);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
-};
-const round2 = (v) => (v == null || isNaN(v) ? null : parseFloat(v.toFixed(2)));
 
 function computeStats(series, key) {
   const ret1w = pctReturn(series, 7,   key);

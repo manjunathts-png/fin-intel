@@ -22,6 +22,7 @@
 
 const fs   = require("fs");
 const path = require("path");
+const { daysAgo, mean, stddev, median, round2 } = require("./utils");
 const { STOCK_SECTORS } = require("./stock_universe");
 
 const CACHE_FILE      = path.join(__dirname, "stock_history_cache.json");
@@ -372,12 +373,6 @@ function priceAtOrBefore(prices, targetDate) {
   return prices[lo].date <= targetDate ? prices[lo].close : null;
 }
 
-function daysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
-}
-
 function pctReturn(prices, days) {
   if (prices.length === 0) return null;
   const latest = prices[prices.length - 1].close;
@@ -396,20 +391,6 @@ function rollingWeeklyReturns(prices, lookbackDays = 90) {
   }
   return out;
 }
-
-const mean   = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
-const stddev = (a) => {
-  if (a.length < 2) return 0;
-  const m = mean(a);
-  return Math.sqrt(mean(a.map((x) => (x - m) ** 2)));
-};
-const median = (a) => {
-  if (a.length === 0) return null;
-  const s = [...a].sort((x, y) => x - y);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
-};
-const round2 = (v) => (v == null || isNaN(v) ? null : parseFloat(v.toFixed(2)));
 
 function computeStockStats(prices) {
   const ret1w = pctReturn(prices, 7);

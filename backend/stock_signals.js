@@ -13,12 +13,11 @@
 const { STOCK_SECTORS } = require("./stock_universe");
 const { fetchSymbolHistory } = require("./stock_momentum");
 const { getNifty500 } = require("./nifty500_universe");
+const { mean, round } = require("./utils");
 
 // ─── Basic helpers ────────────────────────────────────────────────────────────
 
-const mean = (arr) => (arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : 0);
 const sum  = (arr) => arr.reduce((s, x) => s + x, 0);
-const round = (v, d = 2) => (v == null || !isFinite(v) ? null : parseFloat(v.toFixed(d)));
 
 // ─── Indicator computations ───────────────────────────────────────────────────
 
