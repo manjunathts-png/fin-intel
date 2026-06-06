@@ -209,6 +209,41 @@ def _fetch_nifty_via_mfapi(start: str = "2018-01-01") -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _fetch_vix_kite(start: str = "2018-01-01", access_token: str = "") -> pd.DataFrame:
+    """
+    Fetch India VIX daily history from Kite Connect API.
+    Requires KITE_API_KEY + a valid access_token (expires 6 AM IST daily).
+    Instrument token 264969 = India VIX on NSE.
+    """
+    try:
+        from kiteconnect import KiteConnect
+        kc = KiteConnect(api_key=os.environ.get("KITE_API_KEY", "9tbbi2hz87cqmnlr"))
+        kc.set_access_token(access_token)
+        from datetime import datetime as _dt
+        records = kc.historical_data(
+            instrument_token=264969,
+            from_date=_dt.strptime(start, "%Y-%m-%d"),
+            to_date=_dt.now(),
+            interval="day",
+        )
+        if not records:
+            return pd.DataFrame()
+        df = pd.DataFrame(records)
+        df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+        df = df.set_index("date")[["close"]].rename(columns={"close": "india_vix"})
+        # Rename to match the expected "close" column convention used by value_at_or_before()
+        df = df.rename(columns={"india_vix": "close"})
+        df = df.sort_index().dropna()
+        log.info("Kite VIX: %d rows (%s → %s)",
+                 len(df), df.index.min().date(), df.index.max().date())
+        # Also save to VIX_CACHE so carry-forward works on next run
+        df.to_parquet(VIX_CACHE)
+        return df
+    except Exception as e:
+        log.warning("Kite VIX fetch failed: %s", e)
+        return pd.DataFrame()
+
+
 def _fetch_vix_nse(start: str = "2018-01-01") -> pd.DataFrame:
     """
     Fetch India VIX history from NSE archives (public CSV, no auth required).
@@ -338,8 +373,22 @@ def fetch_yf(tickers, cache_file: Path, start: str = "2018-01-01") -> pd.DataFra
         df = _fetch_nifty_via_mfapi(start)
 
     elif primary == "^INDIAVIX":
-        log.info("Fetching India VIX via NSE archive…")
-        df = _fetch_vix_nse(start)
+        # Try Kite API first (requires KITE_API_KEY + KITE_ACCESS_TOKEN env vars)
+        kite_token = os.environ.get("KITE_ACCESS_TOKEN")
+        if kite_token:
+            df = _fetch_vix_kite(start, kite_token)
+        # Fall back to cached parquet from last successful fetch (carry-forward)
+        if df.empty and VIX_CACHE.exists():
+            try:
+                df = pd.read_parquet(VIX_CACHE)
+                log.info("Using cached VIX parquet (%d rows, latest=%s)",
+                         len(df), df.index.max().date() if not df.empty else "?")
+            except Exception as e:
+                log.warning("Failed to load VIX cache: %s", e)
+        # Last resort: NSE archive (often 404 but worth trying)
+        if df.empty:
+            log.info("Fetching India VIX via NSE archive…")
+            df = _fetch_vix_nse(start)
 
     elif primary in ("USDINR=X", "INR=X"):
         log.info("Fetching USD/INR via frankfurter.app…")

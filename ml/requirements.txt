@@ -29,3 +29,6 @@ feedparser==6.0.11      # Google News RSS parsing
 
 # CLI niceties
 tqdm==4.66.4
+
+# Zerodha Kite API (India VIX fetch — used by fetch_vix_kite.py + macro_features.py)
+kiteconnect>=5.0.1

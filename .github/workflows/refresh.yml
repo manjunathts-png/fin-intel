@@ -177,6 +177,8 @@ jobs:
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          KITE_API_KEY:         ${{ secrets.KITE_API_KEY }}
+          KITE_ACCESS_TOKEN:    ${{ secrets.KITE_ACCESS_TOKEN }}
 
       - name: Label MF targets — 3M and 1M + Sharpe backfill
         if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
