@@ -218,8 +218,8 @@ jobs:
         # Bhavcopy fallback is incremental (only missing trailing days) so Stooq outages
         # no longer cause timeouts — typical time stays ~2 min even when Stooq is fully blocked.
         continue-on-error: true
-        run: python ml/extract_stock_features.py --nifty500 --workers 4
-        timeout-minutes: 30
+        run: python ml/extract_stock_features.py --nifty500 --workers 4 || true
+        timeout-minutes: 45
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

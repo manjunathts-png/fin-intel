@@ -517,6 +517,7 @@ def check_shap_stability(
     if not current_fi:
         return report
     try:
+        import time as _time
         query = (
             supabase.table("mf_model_runs")
             .select("model_version,feature_importance,trained_at")
@@ -525,7 +526,20 @@ def check_shap_stability(
         # Filter to same horizon so 3m models only compare against 3m baselines
         if horizon_tag:
             query = query.like("model_version", f"lgbm_v1.0_{horizon_tag}_%")
-        resp = query.order("trained_at", desc=True).limit(1).execute()
+        # Retry on Supabase Cloudflare 1101 transient errors
+        resp = None
+        for attempt in range(3):
+            try:
+                resp = query.order("trained_at", desc=True).limit(1).execute()
+                break
+            except Exception as exc:
+                wait = 10 * (2 ** attempt)
+                log.warning("SHAP stability query failed (attempt %d/3): %s — retrying in %ds",
+                            attempt + 1, str(exc)[:80], wait)
+                _time.sleep(wait)
+        if resp is None:
+            log.warning("SHAP stability check failed after 3 retries — skipping")
+            return report
         if not resp.data:
             log.info("SHAP stability: no previous model run found — first run, skipping")
             return report
