@@ -1,0 +1,37 @@
+name: Delayed Workflow Trigger
+
+on:
+  workflow_dispatch:
+    inputs:
+      delay_minutes:
+        description: 'Minutes to wait before triggering'
+        required: false
+        default: '120'
+      target:
+        description: 'Workflow target to trigger'
+        required: false
+        default: 'nifty500_backfill'
+      backfill_days:
+        description: 'Backfill days'
+        required: false
+        default: '365'
+
+jobs:
+  delayed-trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for specified delay
+        run: |
+          DELAY=$(( ${{ github.event.inputs.delay_minutes }} * 60 ))
+          echo "Sleeping ${DELAY}s (~${{ github.event.inputs.delay_minutes }} min) before triggering ${{ github.event.inputs.target }}..."
+          sleep $DELAY
+
+      - name: Trigger target workflow
+        run: |
+          gh workflow run refresh.yml \
+            --repo ${{ github.repository }} \
+            --field target=${{ github.event.inputs.target }} \
+            --field backfill_days=${{ github.event.inputs.backfill_days }}
+          echo "Triggered: target=${{ github.event.inputs.target }} backfill_days=${{ github.event.inputs.backfill_days }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
