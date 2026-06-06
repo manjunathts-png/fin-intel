@@ -57,7 +57,8 @@ function rsi14(prices) {
 function avgVolume(prices, n = 20) {
   if (prices.length < n + 1) return null;
   const slice = prices.slice(-n - 1, -1); // n bars ending yesterday
-  return mean(slice.map((p) => p.volume).filter((v) => v > 0));
+  const vols = slice.map((p) => p.volume).filter((v) => v > 0);
+  return vols.length ? mean(vols) : null; // null when all volumes missing, not 0
 }
 
 // 52-week (252 trading days) high

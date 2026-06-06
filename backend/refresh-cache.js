@@ -296,8 +296,10 @@ async function main() {
 
     // Guard: never overwrite Supabase with a near-empty scan — it would wipe out
     // persistence counters (daysInTop50) that took days to accumulate, making
-    // Core picks disappear. A healthy Nifty 500 run always yields 400+ stocks.
-    const MIN_SCAN_FOR_UPSERT = 100;
+    // Core picks disappear. Threshold is 50: low enough to allow the 158-stock
+    // curated fallback to succeed even under heavy fetch failures, high enough
+    // to catch truly broken scans (network down, empty universe, etc.).
+    const MIN_SCAN_FOR_UPSERT = 50;
     if (signals.scanned < MIN_SCAN_FOR_UPSERT) {
       console.error(`  ✗ scan produced only ${signals.scanned} stocks (< ${MIN_SCAN_FOR_UPSERT} threshold) — skipping stock_picks upsert to preserve existing data`);
       console.error("  ✗ check data source connectivity and re-run once resolved");

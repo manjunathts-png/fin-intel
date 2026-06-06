@@ -57,7 +57,7 @@ export function computeRawScore(stats, typeZ) {
   let score = 0;
   for (const [k, w] of Object.entries(weights)) {
     if (k === "sharpe") {
-      const s = Math.min(Math.max(stats.sharpe ?? 0, 0), 2) * 5;
+      const s = Math.min(Math.max(stats.sharpe ?? 0, -1), 2) * 5;
       score += s * w;
     } else {
       score += (stats[k] ?? 0) * w;

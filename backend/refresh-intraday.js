@@ -271,7 +271,7 @@ async function main() {
       breakPct: round(((price - band50) / band50) * 100, 2),
     } : { fired: false };
 
-    const gapPct = prevClose ? ((open - prevClose) / prevClose) * 100 : 0;
+    const gapPct = (prevClose && open != null) ? ((open - prevClose) / prevClose) * 100 : 0;
     const gapUp  = { fired: gapPct >= 1.5, gapPct: round(gapPct, 2), open: round(open, 2), prevClose: round(prevClose, 2) };
 
     const volumeShock = liveVolumeShock(volume, avg20v, nowIST);

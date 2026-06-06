@@ -61,12 +61,13 @@ function savePriceCache() { try { atomicWrite(PRICE_CACHE_FILE, JSON.stringify(p
 
 // ─── HTTP ─────────────────────────────────────────────────────────────────────
 
-function httpsGet(url, { json = false, timeoutMs = 15000 } = {}) {
+function httpsGet(url, { json = false, timeoutMs = 15000, _depth = 0 } = {}) {
   return new Promise((resolve, reject) => {
+    if (_depth > 5) return reject(new Error(`too many redirects: ${url}`));
     const req = https.get(url, (res) => {
       if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
         res.resume();
-        return resolve(httpsGet(res.headers.location, { json, timeoutMs }));
+        return resolve(httpsGet(res.headers.location, { json, timeoutMs, _depth: _depth + 1 }));
       }
       if (res.statusCode !== 200) {
         res.resume();
