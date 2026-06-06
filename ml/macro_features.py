@@ -217,7 +217,15 @@ def _fetch_vix_yahoo(start: str = "2018-01-01") -> pd.DataFrame:
     """
     import urllib3
     urllib3.disable_warnings()
-    session = _get_session()
+    # Use a fresh session with SSL verify disabled — required on both macOS LibreSSL
+    # and GitHub Actions runners where the Yahoo Finance cert chain can't be verified.
+    session = requests.Session()
+    session.verify = False
+    session.headers.update({"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"})
+    try:
+        session.get("https://fc.yahoo.com", timeout=8, allow_redirects=True)
+    except Exception:
+        pass
     start_ts = int(pd.Timestamp(start).timestamp())
     end_ts   = int(pd.Timestamp.now().timestamp()) + 86400
     params   = {"interval": "1d", "period1": start_ts, "period2": end_ts, "events": "history"}

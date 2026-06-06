@@ -526,17 +526,22 @@ def check_shap_stability(
         # Filter to same horizon so 3m models only compare against 3m baselines
         if horizon_tag:
             query = query.like("model_version", f"lgbm_v1.0_{horizon_tag}_%")
-        # Retry on Supabase Cloudflare 1101 transient errors
+        # Retry on Supabase Cloudflare 1101 — these are returned as response bodies
+        # (not exceptions), so we check resp.data for the error indicator.
         resp = None
         for attempt in range(3):
             try:
                 resp = query.order("trained_at", desc=True).limit(1).execute()
+                # 1101 errors arrive as dicts with 'code' key rather than real data
+                if resp.data and isinstance(resp.data, dict) and "code" in resp.data:
+                    raise ValueError(f"Supabase error: {resp.data.get('message','1101')}")
                 break
             except Exception as exc:
                 wait = 10 * (2 ** attempt)
                 log.warning("SHAP stability query failed (attempt %d/3): %s — retrying in %ds",
                             attempt + 1, str(exc)[:80], wait)
                 _time.sleep(wait)
+                resp = None
         if resp is None:
             log.warning("SHAP stability check failed after 3 retries — skipping")
             return report
