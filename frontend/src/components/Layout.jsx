@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { trackEvent } from "../lib/analytics";
 
-const ADMIN_EMAIL = "manjunathts@gmail.com";
+const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL ?? "";
 
 const tabs = [
   { to: "/mf",        label: "Mutual Funds", icon: "📊" },
