@@ -210,12 +210,14 @@ jobs:
 
       - name: Extract stock features (today) — Nifty 500 universe
         if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
-        # Non-blocking: stock extraction failure must not abort MF pipeline
-        # --workers 4: parallel fetch across 4 threads (safe: each stock is independent)
-        # Smart cache: stocks whose parquet already has yesterday's close are skipped instantly
-        # Typical nightly time: ~3 min (cache hits) vs 45 min cold
-        run: python ml/extract_stock_features.py --nifty500 --workers 4 || echo "Stock feature extraction failed — check logs"
-        timeout-minutes: 20
+        # Non-blocking: stock extraction failure must not abort MF pipeline.
+        # --workers 4: parallel fetch across 4 threads (safe: each stock is independent).
+        # Smart cache: stocks whose parquet already has yesterday's close are skipped instantly.
+        # Bhavcopy fallback is incremental (only missing trailing days) so Stooq outages
+        # no longer cause timeouts — typical time stays ~2 min even when Stooq is fully blocked.
+        continue-on-error: true
+        run: python ml/extract_stock_features.py --nifty500 --workers 4
+        timeout-minutes: 30
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
