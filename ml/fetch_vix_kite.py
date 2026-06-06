@@ -52,7 +52,7 @@ KITE_API_SECRET = os.environ.get("KITE_API_SECRET", "pxs1pnsxz28vhyn3rumq5ch60mu
 SUPABASE_URL    = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY    = os.environ.get("SUPABASE_SERVICE_KEY")
 
-CALLBACK_PORT   = 5099          # temp local server to capture request_token
+CALLBACK_PORT   = 5001          # must match redirect URL registered in Kite developer app
 VIX_INSTRUMENT  = 264969        # Kite instrument token for India VIX (NSE)
 CACHE_DIR       = Path(__file__).parent / ".cache_macro"
 VIX_CACHE       = CACHE_DIR / "vix_daily.parquet"
@@ -70,6 +70,7 @@ _captured_token: str | None = None
 class _CallbackHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         global _captured_token
+        # Accept any path — Kite redirects to /auth/callback but we handle all paths
         params = parse_qs(urlparse(self.path).query)
         token  = params.get("request_token", [None])[0]
         status = params.get("status", [""])[0]
@@ -91,8 +92,8 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
 def _get_access_token_via_browser(kc) -> str:
     """Open Kite login in browser, capture request_token via local callback, return access_token."""
-    # Temporarily override redirect URL to our local callback
-    kc.redirect_url = f"http://localhost:{CALLBACK_PORT}"
+    # Must use the redirect URL registered in the Kite developer app
+    kc.redirect_url = f"http://localhost:{CALLBACK_PORT}/auth/callback"
     login_url = kc.login_url()
 
     server = HTTPServer(("localhost", CALLBACK_PORT), _CallbackHandler)

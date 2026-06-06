@@ -209,6 +209,45 @@ def _fetch_nifty_via_mfapi(start: str = "2018-01-01") -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _fetch_vix_yahoo(start: str = "2018-01-01") -> pd.DataFrame:
+    """
+    Fetch India VIX history via Yahoo Finance v8 raw API.
+    Uses SSL verification disabled (required on macOS LibreSSL + GitHub Actions).
+    Symbol: ^INDIAVIX  Works reliably on both local and CI environments.
+    """
+    import urllib3
+    urllib3.disable_warnings()
+    session = _get_session()
+    start_ts = int(pd.Timestamp(start).timestamp())
+    end_ts   = int(pd.Timestamp.now().timestamp()) + 86400
+    params   = {"interval": "1d", "period1": start_ts, "period2": end_ts, "events": "history"}
+    for base in ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"]:
+        try:
+            r = session.get(f"{base}/v8/finance/chart/%5EINDIAVIX", params=params, timeout=20)
+            if r.status_code != 200:
+                continue
+            data   = r.json()
+            result = data.get("chart", {}).get("result")
+            if not result:
+                continue
+            ts     = result[0].get("timestamp", [])
+            closes = result[0].get("indicators", {}).get("quote", [{}])[0].get("close", [])
+            if not ts or not closes:
+                continue
+            idx = pd.to_datetime(ts, unit="s").tz_localize(None)
+            df  = pd.DataFrame({"close": closes}, index=idx).dropna()
+            df  = df[df["close"] > 0].sort_index()
+            if df.empty:
+                continue
+            df.to_parquet(VIX_CACHE)   # update carry-forward cache
+            log.info("Yahoo VIX: %d rows (%s → %s, latest=%.2f)",
+                     len(df), df.index.min().date(), df.index.max().date(), df["close"].iloc[-1])
+            return df
+        except Exception as e:
+            log.warning("Yahoo VIX %s failed: %s", base, e)
+    return pd.DataFrame()
+
+
 def _fetch_vix_kite(start: str = "2018-01-01", access_token: str = "") -> pd.DataFrame:
     """
     Fetch India VIX daily history from Kite Connect API.
@@ -373,11 +412,10 @@ def fetch_yf(tickers, cache_file: Path, start: str = "2018-01-01") -> pd.DataFra
         df = _fetch_nifty_via_mfapi(start)
 
     elif primary == "^INDIAVIX":
-        # Try Kite API first (requires KITE_API_KEY + KITE_ACCESS_TOKEN env vars)
-        kite_token = os.environ.get("KITE_ACCESS_TOKEN")
-        if kite_token:
-            df = _fetch_vix_kite(start, kite_token)
-        # Fall back to cached parquet from last successful fetch (carry-forward)
+        # Primary: Yahoo Finance v8 raw API (SSL verify disabled — works on CI and macOS)
+        log.info("Fetching India VIX via Yahoo Finance v8…")
+        df = _fetch_vix_yahoo(start)
+        # Fallback: cached parquet from last successful fetch (carry-forward — VIX never goes null)
         if df.empty and VIX_CACHE.exists():
             try:
                 df = pd.read_parquet(VIX_CACHE)
@@ -385,7 +423,11 @@ def fetch_yf(tickers, cache_file: Path, start: str = "2018-01-01") -> pd.DataFra
                          len(df), df.index.max().date() if not df.empty else "?")
             except Exception as e:
                 log.warning("Failed to load VIX cache: %s", e)
-        # Last resort: NSE archive (often 404 but worth trying)
+        # Last resort: Kite API (requires KITE_ACCESS_TOKEN env var, expires daily)
+        if df.empty:
+            kite_token = os.environ.get("KITE_ACCESS_TOKEN")
+            if kite_token:
+                df = _fetch_vix_kite(start, kite_token)
         if df.empty:
             log.info("Fetching India VIX via NSE archive…")
             df = _fetch_vix_nse(start)
