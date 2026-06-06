@@ -76,10 +76,11 @@ TICKERS = {
 # Fallback: UTI Nifty 50 Index Direct Growth on mfapi.in (use as Nifty proxy)
 NIFTY_MFAPI_CODE = "120716"
 
-NIFTY_CACHE  = CACHE_DIR / "nifty_daily.parquet"
-VIX_CACHE    = CACHE_DIR / "vix_daily.parquet"
-USDINR_CACHE = CACHE_DIR / "usdinr_daily.parquet"
-US10Y_CACHE  = CACHE_DIR / "us10y_daily.parquet"
+NIFTY_CACHE   = CACHE_DIR / "nifty_daily.parquet"
+VIX_CACHE     = CACHE_DIR / "vix_daily.parquet"
+USDINR_CACHE  = CACHE_DIR / "usdinr_daily.parquet"
+US10Y_CACHE   = CACHE_DIR / "us10y_daily.parquet"
+FIIDII_CACHE  = CACHE_DIR / "fiidii_daily.parquet"
 NAV_CACHE_DIR = Path(__file__).parent / ".cache_nav"
 
 # Shared requests session (SSL disabled for macOS LibreSSL compatibility)
@@ -392,6 +393,107 @@ def _fetch_usdinr_frankfurter(start: str = "2018-01-01") -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _fetch_fiidii_nse() -> pd.DataFrame:
+    """
+    Fetch FII/DII net equity cash-segment flows from NSE API.
+    Returns DataFrame with DatetimeIndex and columns fii_net_cr, dii_net_cr (₹ crore).
+    Typically covers the last ~30 trading days; called daily to build up the cache.
+    """
+    session = requests.Session()
+    session.verify = False
+    session.headers.update({
+        "User-Agent":  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept":      "application/json, text/plain, */*",
+        "Referer":     "https://www.nseindia.com",
+        "Accept-Language": "en-US,en;q=0.9",
+    })
+    try:
+        # Warm up NSE session cookies — required for API calls
+        session.get("https://www.nseindia.com", timeout=15, allow_redirects=True)
+        time.sleep(1)
+        r = session.get(
+            "https://www.nseindia.com/api/fiidiiTradeReact",
+            timeout=20,
+        )
+        if r.status_code != 200:
+            log.warning("FII/DII NSE API returned HTTP %d", r.status_code)
+            return pd.DataFrame()
+        data = r.json()
+        if not data or not isinstance(data, list):
+            return pd.DataFrame()
+        rows = []
+        for rec in data:
+            try:
+                dt      = pd.Timestamp(str(rec.get("date", "")), dayfirst=True)
+                fii_net = float(str(rec.get("fiiNet",  "0")).replace(",", ""))
+                dii_net = float(str(rec.get("diiNet",  "0")).replace(",", ""))
+                if pd.isna(dt):
+                    continue
+                rows.append({"date": dt, "fii_net_cr": fii_net, "dii_net_cr": dii_net})
+            except Exception:
+                continue
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows).set_index("date").sort_index()
+        df = df[df.index > pd.Timestamp("2015-01-01")]
+        log.info("FII/DII NSE API: %d rows (%s → %s)",
+                 len(df), df.index.min().date(), df.index.max().date())
+        return df
+    except Exception as e:
+        log.warning("FII/DII NSE API failed: %s", e)
+        return pd.DataFrame()
+
+
+def fetch_fiidii() -> pd.DataFrame:
+    """
+    Fetch FII/DII net equity flows, maintaining an incremental local cache.
+    Each daily run appends the latest ~30 rows so the cache grows continuously.
+    Computes rolling 5-day and 20-day net flow columns for use as model features.
+    """
+    # Load existing cache
+    existing = pd.DataFrame()
+    if FIIDII_CACHE.exists():
+        try:
+            existing = pd.read_parquet(FIIDII_CACHE)
+            existing.index = pd.to_datetime(existing.index)
+        except Exception:
+            pass
+
+    # Check freshness (< 12h = skip re-fetch)
+    if FIIDII_CACHE.exists():
+        age_h = (datetime.now().timestamp() - FIIDII_CACHE.stat().st_mtime) / 3600
+        if age_h < 12 and not existing.empty:
+            log.debug("FII/DII cache fresh (%d rows)", len(existing))
+            return existing
+
+    # Fetch fresh data from NSE
+    fresh = _fetch_fiidii_nse()
+
+    if not fresh.empty:
+        if not existing.empty:
+            combined = pd.concat([existing[["fii_net_cr", "dii_net_cr"]], fresh]).sort_index()
+            combined = combined[~combined.index.duplicated(keep="last")]
+        else:
+            combined = fresh
+        # Add rolling features
+        combined["fii_net_5d"]  = combined["fii_net_cr"].rolling(5,  min_periods=1).sum()
+        combined["fii_net_20d"] = combined["fii_net_cr"].rolling(20, min_periods=5).sum()
+        combined["dii_net_5d"]  = combined["dii_net_cr"].rolling(5,  min_periods=1).sum()
+        combined["dii_net_20d"] = combined["dii_net_cr"].rolling(20, min_periods=5).sum()
+        combined["fiidii_net_5d"]  = combined["fii_net_5d"]  + combined["dii_net_5d"]
+        combined["fiidii_net_20d"] = combined["fii_net_20d"] + combined["dii_net_20d"]
+        combined.to_parquet(FIIDII_CACHE)
+        log.info("FII/DII cache updated: %d rows, last=%s",
+                 len(combined), combined.index.max().date())
+        return combined
+    elif not existing.empty:
+        log.info("FII/DII: using cached data (%d rows)", len(existing))
+        return existing
+
+    log.warning("FII/DII: no data available (NSE API failed, cache empty)")
+    return pd.DataFrame()
+
+
 def fetch_yf(tickers, cache_file: Path, start: str = "2018-01-01") -> pd.DataFrame:
     """
     Fetch daily close for a macro series.
@@ -627,6 +729,8 @@ def main():
     vix_df    = fetch_yf(TICKERS["vix"],     VIX_CACHE)
     usdinr_df = fetch_yf(TICKERS["usd_inr"], USDINR_CACHE)
     us10y_df  = fetch_yf(TICKERS["us_10y"],  US10Y_CACHE)
+    log.info("Fetching FII/DII equity flows from NSE…")
+    fetch_fiidii()   # update cache; stock feature extractor reads directly from parquet
 
     if nifty_df.empty:
         log.error("Could not fetch Nifty data — aborting")

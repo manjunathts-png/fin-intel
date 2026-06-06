@@ -199,7 +199,7 @@ def _last_trading_day() -> date:
     return d
 
 
-def fetch_ohlcv(symbol: str, start: str = "2022-01-01") -> pd.DataFrame:
+def fetch_ohlcv(symbol: str, start: str = "2020-01-01") -> pd.DataFrame:
     """
     Fetch daily OHLCV for an NSE stock. Source priority:
       1. Stooq  — free CSV, no auth (works on residential IPs)
@@ -405,6 +405,62 @@ def _fetch_ohlcv_bhavcopy(symbol: str, start: str = "2022-01-01") -> pd.DataFram
     return df
 
 
+# ─── Delivery map builder ─────────────────────────────────────────────────────
+
+def _build_delivery_map(
+    stocks: list[Stock],
+    dates: list[pd.Timestamp],
+) -> dict[str, pd.Series]:
+    """
+    Build delivery_pct (DELIV_PER) time series for all stocks from bhavcopy cache.
+    The bhavcopy CSV already contains DELIV_PER — zero extra HTTP requests needed.
+    Reads each cached bhavcopy parquet file ONCE (O(dates) not O(stocks × dates)).
+    Returns: {symbol: pd.Series(date → delivery_pct)}
+    """
+    sym_set = {s.symbol for s in stocks}
+
+    # Include a 7-day lookback window so we can compute 5-day rolling averages
+    all_dates: set[pd.Timestamp] = set()
+    for d in dates:
+        for i in range(8):
+            candidate = d - pd.Timedelta(days=i)
+            if candidate.weekday() < 5:
+                all_dates.add(candidate)
+
+    sym_data: dict[str, list[tuple]] = {s.symbol: [] for s in stocks}
+
+    for dt in sorted(all_dates):
+        date_str   = dt.strftime("%d%m%Y")
+        cache_file = BHAVCOPY_CACHE / f"{date_str}.parquet"
+        if not cache_file.exists():
+            continue
+        try:
+            raw = pd.read_parquet(cache_file)
+            raw.columns = [c.strip().upper() for c in raw.columns]
+            if "SYMBOL" not in raw.columns or "DELIV_PER" not in raw.columns:
+                continue
+            if "SERIES" in raw.columns:
+                raw = raw[raw["SERIES"].str.strip() == "EQ"]
+            raw = raw.copy()
+            raw["_SYM"] = raw["SYMBOL"].str.strip()
+            raw["_DEL"] = pd.to_numeric(raw["DELIV_PER"], errors="coerce")
+            filtered = raw[raw["_SYM"].isin(sym_set)][["_SYM", "_DEL"]].dropna(subset=["_DEL"])
+            date_dict = filtered.groupby("_SYM")["_DEL"].first().to_dict()
+            for sym, val in date_dict.items():
+                if sym in sym_data:
+                    sym_data[sym].append((dt, float(val)))
+        except Exception:
+            continue
+
+    result: dict[str, pd.Series] = {}
+    for sym, pairs in sym_data.items():
+        if pairs:
+            idx, vals = zip(*pairs)
+            result[sym] = pd.Series(list(vals), index=pd.DatetimeIndex(list(idx))).sort_index()
+    log.info("Delivery map built: %d/%d stocks have DELIV_PER data", len(result), len(stocks))
+    return result
+
+
 # ─── Fundamentals fetcher with disk cache ────────────────────────────────────
 
 def fetch_fundamentals(symbol: str) -> dict[str, Any]:
@@ -513,7 +569,19 @@ def load_macro_series() -> dict[str, pd.DataFrame]:
         "vix":     _load_macro_cache("vix_daily.parquet"),
         "usdinr":  _load_macro_cache("usdinr_daily.parquet"),
         "us10y":   _load_macro_cache("us10y_daily.parquet"),
+        "fiidii":  _load_macro_cache("fiidii_daily.parquet"),  # FII/DII rolling flows
     }
+
+
+def _fiidii_val(fiidii_df: pd.DataFrame, col: str, as_of: pd.Timestamp) -> float | None:
+    """Return the most recent value of a FII/DII rolling column at or before as_of."""
+    if fiidii_df.empty or col not in fiidii_df.columns:
+        return None
+    sub = fiidii_df[fiidii_df.index <= as_of]
+    if sub.empty:
+        return None
+    v = sub[col].iloc[-1]
+    return None if pd.isna(v) else float(round(v, 2))
 
 
 def get_macro_row(macro: dict[str, pd.DataFrame], as_of: pd.Timestamp) -> dict[str, Any]:
@@ -530,12 +598,21 @@ def get_macro_row(macro: dict[str, pd.DataFrame], as_of: pd.Timestamp) -> dict[s
         if cur and p3m and p3m > 0:
             nifty3m = round((cur - p3m) / p3m * 100, 4)
 
+    fiidii = macro.get("fiidii", pd.DataFrame())
+
     return {
-        "nifty_ret1m": nifty1m,
-        "nifty_ret3m": nifty3m,
-        "india_vix":   _val_at_or_before(macro["vix"],    as_of),
-        "usd_inr":     _val_at_or_before(macro["usdinr"], as_of),
-        "us_10y_yield":_val_at_or_before(macro["us10y"],  as_of),
+        "nifty_ret1m":    nifty1m,
+        "nifty_ret3m":    nifty3m,
+        "india_vix":      _val_at_or_before(macro["vix"],    as_of),
+        "usd_inr":        _val_at_or_before(macro["usdinr"], as_of),
+        "us_10y_yield":   _val_at_or_before(macro["us10y"],  as_of),
+        # FII/DII rolling net flows (₹ crore) — builds up incrementally from NSE API
+        "fii_net_5d":     _fiidii_val(fiidii, "fii_net_5d",     as_of),
+        "fii_net_20d":    _fiidii_val(fiidii, "fii_net_20d",    as_of),
+        "dii_net_5d":     _fiidii_val(fiidii, "dii_net_5d",     as_of),
+        "dii_net_20d":    _fiidii_val(fiidii, "dii_net_20d",    as_of),
+        "fiidii_net_5d":  _fiidii_val(fiidii, "fiidii_net_5d",  as_of),
+        "fiidii_net_20d": _fiidii_val(fiidii, "fiidii_net_20d", as_of),
     }
 
 
@@ -760,6 +837,7 @@ def build_stock_features(
     fundamentals: dict[str, Any],
     macro: dict[str, pd.DataFrame],
     as_of: pd.Timestamp,
+    delivery_map: "dict[str, pd.Series] | None" = None,
 ) -> dict[str, Any] | None:
     if ohlcv is None or ohlcv.empty:
         return None
@@ -788,11 +866,13 @@ def build_stock_features(
         "stock_name": stock.label,
         "sector":     stock.sector,
 
-        # Returns
+        # Returns (multi-horizon momentum)
         "ret1w": pct_ret(ohlcv, as_of, 7),
         "ret1m": pct_ret(ohlcv, as_of, 30),
+        "ret2m": pct_ret(ohlcv, as_of, 60),   # new: fills gap between 1m and 3m
         "ret3m": pct_ret(ohlcv, as_of, 90),
         "ret6m": pct_ret(ohlcv, as_of, 180),
+        "ret9m": pct_ret(ohlcv, as_of, 270),   # new: fills gap between 6m and 1y
         "ret1y": ret1y,
 
         # Risk
@@ -830,6 +910,20 @@ def build_stock_features(
         # Macro
         **macro_row,
     }
+
+    # ── Delivery volume % (from bhavcopy DELIV_PER — already cached) ─────────
+    del_pct: float | None = None
+    del_pct_5d: float | None = None
+    if delivery_map and stock.symbol in delivery_map:
+        del_ser = delivery_map[stock.symbol]
+        sub_del = del_ser[del_ser.index <= as_of]
+        if not sub_del.empty:
+            del_pct = float(sub_del.iloc[-1])
+            recent5 = sub_del.iloc[-5:]
+            del_pct_5d = float(recent5.mean()) if len(recent5) >= 3 else None
+    feats["delivery_pct"]     = del_pct
+    feats["delivery_pct_5d_avg"] = del_pct_5d
+
     return feats
 
 
@@ -840,25 +934,61 @@ def add_cross_sectional(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return rows
     df = pd.DataFrame(rows)
 
-    # Universe-wide percentile ranks
+    def _zscore_group(x: pd.Series) -> pd.Series:
+        std = x.std(ddof=1)
+        return (x - x.mean()) / (std if std > 0 else 1.0)
+
+    # ── Universe-wide percentile ranks ─────────────────────────────────────
     for col, dest in [("ret1m", "univ_rank_1m"), ("ret3m", "univ_rank_3m"), ("ret1y", "univ_rank_1y")]:
-        if col in df:
+        if col in df.columns:
             df[dest] = df[col].rank(pct=True)
 
-    # Sector-relative percentile ranks
+    # ── Universe-wide z-scores ─────────────────────────────────────────────
+    for col, dest in [
+        ("ret1m",    "univ_rel_ret1m"),
+        ("ret3m",    "univ_rel_ret3m"),
+        ("vol_30d",  "univ_rel_vol30d"),
+        ("sharpe_1y","univ_rel_sharpe"),
+    ]:
+        if col in df.columns:
+            std = df[col].std(ddof=1)
+            df[dest] = (df[col] - df[col].mean()) / (std if std > 0 else 1.0)
+
+    # ── Sector-relative percentile ranks ───────────────────────────────────
     for col, dest in [("ret1m", "sector_rank_1m"), ("ret3m", "sector_rank_3m"), ("ret1y", "sector_rank_1y")]:
-        if col in df:
+        if col in df.columns:
             df[dest] = df.groupby("sector")[col].rank(pct=True)
 
-    # Sector z-score of z1w (momentum conviction within sector)
-    if "z1w" in df:
-        df["sector_z"] = df.groupby("sector")["z1w"].transform(
-            lambda x: (x - x.mean()) / (x.std(ddof=1) if x.std(ddof=1) > 0 else 1.0)
-        )
+    # ── Sector-relative z-scores (mirror of cat_rel_* for MF models) ───────
+    # These are the single highest-impact new features — same pattern that
+    # lifted MF AUC when cat_rel_* was introduced.
+    _SECTOR_REL = [
+        ("ret1m",       "sector_rel_ret1m"),
+        ("ret2m",       "sector_rel_ret2m"),
+        ("ret3m",       "sector_rel_ret3m"),
+        ("ret6m",       "sector_rel_ret6m"),
+        ("ret9m",       "sector_rel_ret9m"),
+        ("vol_30d",     "sector_rel_vol30d"),
+        ("vol_90d",     "sector_rel_vol90d"),
+        ("vol_1y",      "sector_rel_vol1y"),
+        ("sharpe_1y",   "sector_rel_sharpe"),
+        ("sortino_1y",  "sector_rel_sortino"),
+        ("rsi_14",      "sector_rel_rsi"),
+        ("bb_pct",      "sector_rel_bb"),
+        ("high52w_pct", "sector_rel_high52w"),
+        ("beta_nifty",  "sector_rel_beta"),
+        ("max_dd_1y",   "sector_rel_maxdd"),
+        ("delivery_pct","sector_rel_delivery"),
+    ]
+    for src, dst in _SECTOR_REL:
+        if src in df.columns:
+            df[dst] = df.groupby("sector")[src].transform(_zscore_group)
 
-    # Cross-sector momentum: how is this sector doing vs all other sectors?
-    # sector_momentum_3m = median ret3m of all stocks in the same sector
-    # sector_vs_univ_3m  = percentile rank of that sector median vs all sectors
+    # ── Sector z-score of z1w (momentum conviction within sector) ──────────
+    if "z1w" in df.columns:
+        df["sector_z"] = df.groupby("sector")["z1w"].transform(_zscore_group)
+
+    # ── Cross-sector momentum: how is this sector doing vs all other sectors?
     if "ret3m" in df.columns:
         df["sector_momentum_3m"] = df.groupby("sector")["ret3m"].transform("median")
         sec_medians = df.groupby("sector")["ret3m"].median()
@@ -954,10 +1084,11 @@ def _wait_for_yahoo(probe_symbol: str = "TCS", max_wait_s: int = 1800) -> None:
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def _process_stock(stock: Stock, ohlcv_map: dict, fund_map: dict, macro: dict,
-                   as_of: pd.Timestamp) -> dict[str, Any] | None:
+                   as_of: pd.Timestamp,
+                   delivery_map: "dict[str, pd.Series] | None" = None) -> dict[str, Any] | None:
     ohlcv  = ohlcv_map.get(stock.symbol, pd.DataFrame())
     fundam = fund_map.get(stock.symbol, {})
-    return build_stock_features(stock, ohlcv, fundam, macro, as_of)
+    return build_stock_features(stock, ohlcv, fundam, macro, as_of, delivery_map=delivery_map)
 
 
 def main():
@@ -1039,6 +1170,9 @@ def main():
             "Continuing without macro features."
         )
 
+    # ── Build delivery map from bhavcopy cache (zero extra HTTP requests) ─────
+    delivery_map = _build_delivery_map(stocks, dates)
+
     # ── Connect to Supabase ───────────────────────────────────────────────────
     supabase = None
     if not args.dry_run:
@@ -1069,7 +1203,8 @@ def main():
         rows = []
         for stock in stocks:
             try:
-                row = _process_stock(stock, ohlcv_map, fund_map, macro, as_of)
+                row = _process_stock(stock, ohlcv_map, fund_map, macro, as_of,
+                                     delivery_map=delivery_map)
                 if row:
                     rows.append(row)
             except Exception as e:
