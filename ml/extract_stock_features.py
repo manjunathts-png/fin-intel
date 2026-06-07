@@ -483,7 +483,7 @@ def fetch_fundamentals(symbol: str) -> dict[str, Any]:
     ticker  = f"{symbol}.NS"
     url     = _YF_SUMMARY_URL.format(ticker=ticker)
     params  = {
-        "modules": "summaryDetail,financialData,defaultKeyStatistics,assetProfile,price"
+        "modules": "summaryDetail,financialData,defaultKeyStatistics,assetProfile,price,earningsHistory,earningsTrend"
     }
     session = _get_session()
 
@@ -505,6 +505,8 @@ def fetch_fundamentals(symbol: str) -> dict[str, Any]:
         fd  = qr.get("financialData",         {})
         ks  = qr.get("defaultKeyStatistics",  {})
         pr  = qr.get("price",                 {})
+        eh  = qr.get("earningsHistory",       {})
+        et  = qr.get("earningsTrend",         {})
 
         def rv(d: dict, k: str, scale: float = 1.0) -> float | None:
             v = d.get(k)
@@ -517,6 +519,51 @@ def fetch_fundamentals(symbol: str) -> dict[str, Any]:
             except (TypeError, ValueError):
                 return None
 
+        # ── Earnings momentum from earningsHistory ────────────────────────────
+        # earningsHistory.history = list of last N quarters
+        # each entry: {epsActual:{raw}, epsEstimate:{raw}, surprisePercent:{raw}}
+        eps_beat_rate_4q    = None
+        eps_surprise_avg_4q = None
+        eps_qoq_slope       = None
+        eh_history = eh.get("history", [])
+        if eh_history:
+            actuals   = []
+            surprises = []
+            for q in eh_history[-4:]:   # last 4 quarters, oldest first
+                actual   = rv(q, "epsActual")
+                surprise = rv(q, "surprisePercent", 100.0)  # convert 0.05 → 5%
+                if actual   is not None: actuals.append(actual)
+                if surprise is not None: surprises.append(surprise)
+            if len(surprises) >= 2:
+                beats = [s > 0 for s in surprises]
+                eps_beat_rate_4q    = round(sum(beats) / len(beats), 4)
+                eps_surprise_avg_4q = round(sum(surprises) / len(surprises), 4)
+            # Linear slope of actual EPS over quarters (sign = direction)
+            if len(actuals) >= 3:
+                n   = len(actuals)
+                xs  = list(range(n))
+                xm  = sum(xs) / n
+                ym  = sum(actuals) / n
+                num = sum((x - xm) * (y - ym) for x, y in zip(xs, actuals))
+                den = sum((x - xm) ** 2 for x in xs)
+                eps_qoq_slope = round(num / den, 6) if den > 0 else None
+
+        # ── EPS analyst revision from earningsTrend ───────────────────────────
+        # earningsTrend.trend[0] = current quarter estimates
+        # trend[0].epsTrend: {current, 7daysAgo, 30daysAgo, 60daysAgo, 90daysAgo}
+        eps_rev_30d = None
+        eps_rev_90d = None
+        et_trends = et.get("trend", [])
+        if et_trends:
+            eps_trend = et_trends[0].get("epsTrend", {})
+            current_est = rv(eps_trend, "current")
+            est_30d_ago = rv(eps_trend, "30daysAgo")
+            est_90d_ago = rv(eps_trend, "90daysAgo")
+            if current_est is not None and est_30d_ago is not None and abs(est_30d_ago) > 0.001:
+                eps_rev_30d = round((current_est - est_30d_ago) / abs(est_30d_ago) * 100, 4)
+            if current_est is not None and est_90d_ago is not None and abs(est_90d_ago) > 0.001:
+                eps_rev_90d = round((current_est - est_90d_ago) / abs(est_90d_ago) * 100, 4)
+
         fundamentals = {
             "pe_ratio":        rv(sd, "trailingPE"),
             "pb_ratio":        rv(ks, "priceToBook"),
@@ -526,6 +573,12 @@ def fetch_fundamentals(symbol: str) -> dict[str, Any]:
             "profit_margins":  rv(fd, "profitMargins",   100.0),
             "debt_to_equity":  rv(fd, "debtToEquity"),
             "dividend_yield":  rv(sd, "dividendYield",   100.0),
+            # ── Earnings momentum (new) ──────────────────────────────────────
+            "eps_beat_rate_4q":    eps_beat_rate_4q,     # fraction of last 4 qtrs beating estimate
+            "eps_surprise_avg_4q": eps_surprise_avg_4q,  # avg % surprise (positive = beat)
+            "eps_qoq_slope":       eps_qoq_slope,         # linear slope of actual EPS (trend direction)
+            "eps_rev_30d":         eps_rev_30d,           # % analyst estimate revision over 30 days
+            "eps_rev_90d":         eps_rev_90d,           # % analyst estimate revision over 90 days
         }
         cache_file.write_text(json.dumps(fundamentals))
         return fundamentals
@@ -905,6 +958,9 @@ def build_stock_features(
             "pe_ratio", "pb_ratio", "roe",
             "revenue_growth", "earnings_growth", "profit_margins",
             "debt_to_equity", "dividend_yield",
+            # Earnings momentum
+            "eps_beat_rate_4q", "eps_surprise_avg_4q", "eps_qoq_slope",
+            "eps_rev_30d", "eps_rev_90d",
         )},
 
         # Macro
@@ -1181,7 +1237,9 @@ def main():
         # Persist today's fundamentals snapshot (point-in-time history)
         if not args.no_fundamentals and fund_map:
             _FUND_COLS = ["pe_ratio","pb_ratio","roe","revenue_growth",
-                          "earnings_growth","profit_margins","debt_to_equity","dividend_yield"]
+                          "earnings_growth","profit_margins","debt_to_equity","dividend_yield",
+                          "eps_beat_rate_4q","eps_surprise_avg_4q","eps_qoq_slope",
+                          "eps_rev_30d","eps_rev_90d"]
             snap_rows = []
             today_str = as_of_end.strftime("%Y-%m-%d")
             for sym, fd in fund_map.items():
