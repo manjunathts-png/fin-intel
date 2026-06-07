@@ -96,38 +96,48 @@ CATEGORY_GROUPS: dict[str, str] = {
 # ─── Stock model ──────────────────────────────────────────────────────────────
 
 STOCK_FEATURE_COLS = [
-    # Returns
-    "ret1w", "ret1m", "ret3m", "ret6m", "ret1y",
-    # Risk
+    # ── Returns (multi-horizon momentum) ──────────────────────────────────────
+    "ret1w", "ret1m", "ret2m", "ret3m", "ret6m", "ret9m", "ret1y",
+    # ── Risk ──────────────────────────────────────────────────────────────────
     "vol_30d", "vol_90d", "vol_1y",
     "max_dd_1y", "downside_dev_1y",
     "sharpe_1y", "sortino_1y",
-    # Technical indicators (new vs MF model)
+    # ── Technical indicators ───────────────────────────────────────────────────
     "rsi_14", "macd_hist", "bb_pct", "vol_ratio", "high52w_pct",
-    # Momentum
+    # ── Delivery volume % (NSE bhavcopy DELIV_PER) ────────────────────────────
+    "delivery_pct", "delivery_pct_5d_avg",
+    # ── Momentum ──────────────────────────────────────────────────────────────
     "z1w", "positive_months_12m",
-    # Cross-sectional ranks
+    # ── Cross-sectional ranks (universe + sector) ─────────────────────────────
     "sector_rank_1m", "sector_rank_3m", "sector_rank_1y",
-    "univ_rank_1m", "univ_rank_3m", "univ_rank_1y",
+    "univ_rank_1m",   "univ_rank_3m",   "univ_rank_1y",
     "sector_z",
-    # Sector-level momentum vs universe (cross-sector signal)
-    "sector_momentum_3m",   # median ret3m of all stocks in this sector
-    "sector_vs_univ_3m",    # percentile rank of that sector median vs all sectors
-    # Style vs Nifty
+    # ── Sector-relative z-scores (key lift — same as cat_rel_* for MF model) ──
+    "sector_rel_ret1m",    "sector_rel_ret2m",   "sector_rel_ret3m",
+    "sector_rel_ret6m",    "sector_rel_ret9m",
+    "sector_rel_vol30d",   "sector_rel_vol90d",  "sector_rel_vol1y",
+    "sector_rel_sharpe",   "sector_rel_sortino",
+    "sector_rel_rsi",      "sector_rel_bb",      "sector_rel_high52w",
+    "sector_rel_beta",     "sector_rel_maxdd",   "sector_rel_delivery",
+    # ── Universe-relative z-scores ────────────────────────────────────────────
+    "univ_rel_ret1m", "univ_rel_ret3m", "univ_rel_vol30d", "univ_rel_sharpe",
+    # ── Cross-sector momentum ─────────────────────────────────────────────────
+    "sector_momentum_3m", "sector_vs_univ_3m",
+    # ── Style vs Nifty ────────────────────────────────────────────────────────
     "beta_nifty", "alpha_nifty", "corr_nifty",
-    # Fundamentals snapshot
+    # ── Fundamentals snapshot ─────────────────────────────────────────────────
     "pe_ratio", "pb_ratio", "roe",
     "revenue_growth", "earnings_growth", "profit_margins",
     "debt_to_equity", "dividend_yield",
-    # Macro context
+    # ── Macro context ─────────────────────────────────────────────────────────
     "nifty_ret1m", "nifty_ret3m",
     "india_vix", "usd_inr", "us_10y_yield",
-    # News sentiment (GDELT + Claude Haiku, weekly)
+    # ── FII/DII institutional flows (rolling net, ₹ crore) ───────────────────
+    "fii_net_5d", "fii_net_20d",
+    "dii_net_5d", "dii_net_20d",
+    "fiidii_net_5d", "fiidii_net_20d",
+    # ── News sentiment (GDELT + Claude Haiku, weekly) ─────────────────────────
     "sentiment_score",
-    # Sector-relative risk z-scores (mirrors MF model approach)
-    "sector_rel_max_dd_1y",
-    "sector_rel_vol_1y",
-    "sector_rel_sharpe_1y",
 ]
 
 STOCK_TARGET_COL  = "fwd_top_q_3m"
