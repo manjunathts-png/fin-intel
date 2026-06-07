@@ -40,7 +40,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from supabase import create_client
 
-from config import CATEGORY_GROUPS, FEATURE_COLS, SHARPE_TARGET_COL, TARGET_COL
+from config import CATEGORY_GROUPS, SHARPE_TARGET_COL, TARGET_COL, get_mf_feature_cols
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -132,7 +132,7 @@ def prepare_X(df: pd.DataFrame, fit_medians: dict[str, float] | None = None) -> 
     Returns (X, medians) where medians can be passed in at inference time
     to ensure consistent imputation.
     """
-    available = [c for c in FEATURE_COLS if c in df.columns]
+    available = get_mf_feature_cols(df)
     X = df[available].copy().astype(float)
 
     medians: dict[str, float] = {}
@@ -734,7 +734,7 @@ def main():
              y_train.mean() * 100)
 
     # ── 1b. Null-rate audit (before imputation) ────────────────────────────
-    audit_null_rates(train_df[[c for c in FEATURE_COLS if c in train_df.columns]])
+    audit_null_rates(train_df[get_mf_feature_cols(train_df)])
 
     # ── 2. Hyperparameter selection ────────────────────────────────────────
     if args.tune:

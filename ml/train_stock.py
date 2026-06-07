@@ -38,7 +38,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from supabase import create_client
 
-from config import STOCK_FEATURE_COLS, STOCK_SHARPE_TARGET_COL, STOCK_TARGET_COL
+from config import STOCK_SHARPE_TARGET_COL, STOCK_TARGET_COL, get_stock_feature_cols
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -118,7 +118,7 @@ def load_latest_features(supabase, prediction_date: date) -> pd.DataFrame:
 # ─── Feature preparation ─────────────────────────────────────────────────────
 
 def prepare_X(df: pd.DataFrame, fit_medians: dict | None = None) -> tuple[pd.DataFrame, dict]:
-    available = [c for c in STOCK_FEATURE_COLS if c in df.columns]
+    available = get_stock_feature_cols(df)
     X = df[available].copy().astype(float)
     medians: dict[str, float] = {}
     for col in X.columns:
@@ -386,7 +386,7 @@ def main():
              len(X_train), len(X_train.columns), training_window)
     log.info("Class balance: %d positive / %d negative (%.1f%%)",
              y_train.sum(), len(y_train) - y_train.sum(), y_train.mean() * 100)
-    audit_null_rates(train_df[[c for c in STOCK_FEATURE_COLS if c in train_df.columns]])
+    audit_null_rates(train_df[get_stock_feature_cols(train_df)])
 
     # ── 2. Hyperparameters ─────────────────────────────────────────────────
     params = tune_hyperparams(X_train, y_train, n_trials=args.n_trials) if args.tune else DEFAULT_PARAMS
