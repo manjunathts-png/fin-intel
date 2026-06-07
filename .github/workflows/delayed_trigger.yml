@@ -34,4 +34,7 @@ jobs:
             --field backfill_days=${{ github.event.inputs.backfill_days }}
           echo "Triggered: target=${{ github.event.inputs.target }} backfill_days=${{ github.event.inputs.backfill_days }}"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN cannot trigger other workflows (403). Use a PAT with
+          # 'workflow' scope. Create at github.com/settings/tokens and add as
+          # secret GH_PAT in repo Settings → Secrets → Actions.
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
