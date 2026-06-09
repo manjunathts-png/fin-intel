@@ -55,7 +55,7 @@ const TELEGRAM_CHAT_ID  = process.env.TELEGRAM_CHAT_ID;
 const STALE_INTRADAY_H   = 3;    // hours — intraday data older than this is stale
 const STALE_EOD_H        = 28;   // hours — EOD data older than this is stale
 const MIN_PRICE_COVERAGE = 0.80; // at least 80% of top-50 picks need a valid close
-const MIN_FUND_COUNT     = 5;    // at least this many MF funds expected
+const MIN_FUND_COUNT     = 60;   // at least this many MF funds expected
 const MIN_ETF_COUNT      = 3;    // at least this many ETFs expected
 
 const FETCH_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
