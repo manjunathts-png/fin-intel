@@ -24,10 +24,18 @@ _MF_NON_FEATURE_COLS: frozenset[str] = frozenset({
     # ── Identifiers ────────────────────────────────────────────────────────
     "scheme_code", "as_of_date", "category", "fund_name",
     # ── Forward labels — must not leak into features ────────────────────────
+    # Binary targets
     "fwd_top_q_3m", "fwd_top_q_1m",
     "fwd_top_sharpe_q_3m", "fwd_top_sharpe_q_1m",
+    # Continuous returns / Sharpe
     "fwd_ret_3m", "fwd_ret_1m",
-    "fwd_sharpe_3m", "fwd_sharpe_q_3m",
+    "fwd_sharpe_3m",
+    # Quartile ranks (int 1–4): perfectly correlated with the target.
+    # CRITICAL: at inference time these are NULL → median-imputed to ~2.5
+    # → model predicts "not top quartile" for every fund → all scores = 0
+    "fwd_quartile_3m", "fwd_quartile_1m",
+    # Sharpe quartile ranks
+    "fwd_sharpe_q_3m", "fwd_sharpe_q_1m",
     # ── Admin / internal ───────────────────────────────────────────────────
     "id", "created_at", "updated_at",
 })
@@ -36,10 +44,18 @@ _STOCK_NON_FEATURE_COLS: frozenset[str] = frozenset({
     # ── Identifiers ────────────────────────────────────────────────────────
     "symbol", "as_of_date", "sector", "stock_name",
     # ── Forward labels — must not leak into features ────────────────────────
+    # Binary targets
     "fwd_top_q_3m", "fwd_top_q_1m",
     "fwd_top_sharpe_q_3m", "fwd_top_sharpe_q_1m",
+    # Continuous returns / Sharpe
     "fwd_ret_3m", "fwd_ret_1m",
-    "fwd_sharpe_3m", "fwd_sharpe_q_3m", "fwd_sharpe_q_1m",
+    "fwd_sharpe_3m",
+    # Quartile ranks (int 1–4): perfectly correlated with the target.
+    # CRITICAL: at inference time these are NULL → median-imputed to ~2.5
+    # → model predicts "not top quartile" for every stock → all scores = 0
+    "fwd_quartile_3m", "fwd_quartile_1m",
+    # Sharpe quartile ranks
+    "fwd_sharpe_q_3m", "fwd_sharpe_q_1m",
     # ── Admin / internal ───────────────────────────────────────────────────
     "id", "created_at", "updated_at",
 })
