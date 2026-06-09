@@ -64,25 +64,36 @@ _STOCK_NON_FEATURE_COLS: frozenset[str] = frozenset({
 def get_mf_feature_cols(df) -> list[str]:
     """
     Auto-discover MF feature columns from a DataFrame.
-    Returns every numeric column not in the MF blocklist.
-    New features written to mf_features are picked up automatically on the
-    next training run — no code change required.
+    Returns every numeric column that is safe to use as a model feature.
+
+    Two exclusion layers (belt-and-suspenders):
+      1. fwd_ prefix rule  — any column starting with 'fwd_' is a forward label
+         written by label_targets.py and must never be a feature. This catches
+         new forward-label columns automatically even if the blocklist is not
+         updated (e.g. the fwd_quartile_3m bug that caused all scores = 0).
+      2. Explicit blocklist — identifiers, admin columns, and any edge-case
+         forward labels that don't follow the fwd_ convention.
     """
-    import pandas as pd
     numeric = df.select_dtypes(include=["number"]).columns.tolist()
-    return [c for c in numeric if c not in _MF_NON_FEATURE_COLS]
+    return [c for c in numeric
+            if not c.startswith("fwd_")          # Layer 1: prefix rule
+            and c not in _MF_NON_FEATURE_COLS]   # Layer 2: explicit blocklist
 
 
 def get_stock_feature_cols(df) -> list[str]:
     """
     Auto-discover stock feature columns from a DataFrame.
-    Returns every numeric column not in the stock blocklist.
-    New features written to stock_features are picked up automatically on the
-    next training run — no code change required.
+    Returns every numeric column that is safe to use as a model feature.
+
+    Two exclusion layers (belt-and-suspenders):
+      1. fwd_ prefix rule  — any column starting with 'fwd_' is a forward label
+         written by label_stock_targets.py and must never be a feature.
+      2. Explicit blocklist — identifiers and admin columns.
     """
-    import pandas as pd
     numeric = df.select_dtypes(include=["number"]).columns.tolist()
-    return [c for c in numeric if c not in _STOCK_NON_FEATURE_COLS]
+    return [c for c in numeric
+            if not c.startswith("fwd_")             # Layer 1: prefix rule
+            and c not in _STOCK_NON_FEATURE_COLS]   # Layer 2: explicit blocklist
 
 
 # ─── MF model targets ─────────────────────────────────────────────────────────

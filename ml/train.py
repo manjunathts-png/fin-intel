@@ -165,6 +165,35 @@ def audit_null_rates(X: pd.DataFrame, threshold: float = 0.20) -> None:
             log.warning("  %-25s  %.1f%% null", feat, rate * 100)
 
 
+def check_leakage(X: pd.DataFrame, y: pd.Series, threshold: float = 0.70) -> None:
+    """Fail fast if any feature has suspiciously high correlation with the target."""
+    corrs = X.fillna(X.median()).corrwith(y.astype(float)).abs().sort_values(ascending=False)
+    leaky = corrs[corrs > threshold]
+    if not leaky.empty:
+        log.error("─── LEAKAGE DETECTED ──────────────────────────────────────")
+        for feat, r in leaky.items():
+            log.error("  %-35s  |r| = %.4f", feat, r)
+        log.error("Add these columns to _MF_NON_FEATURE_COLS in config.py")
+        log.error("─────────────────────────────────────────────────────────────")
+        raise SystemExit(1)
+    log.info("Leakage check passed: no feature exceeds |r|=%.2f with target", threshold)
+
+
+def check_null_drift(X_train: pd.DataFrame, X_pred: pd.DataFrame,
+                     warn_threshold: float = 0.50) -> None:
+    """Warn if a column is mostly non-null in training but null at inference time."""
+    train_nulls = X_train.isnull().mean()
+    pred_nulls  = X_pred.isnull().mean()
+    drift = pred_nulls[(pred_nulls > warn_threshold) & (train_nulls < 0.10)]
+    if not drift.empty:
+        log.warning("─── NULL DRIFT WARNING ──────────────────────────────────")
+        for feat, rate in drift.items():
+            log.warning("  %-35s  train_null=%.1f%%  pred_null=%.1f%%",
+                        feat, train_nulls[feat] * 100, rate * 100)
+        log.warning("If scores look wrong, check if these are forward labels.")
+        log.warning("─────────────────────────────────────────────────────────")
+
+
 # ─── Optuna tuning ────────────────────────────────────────────────────────────
 
 def tune_hyperparams(X_train: pd.DataFrame, y_train: pd.Series, n_trials: int = 50) -> dict[str, Any]:
@@ -735,6 +764,7 @@ def main():
 
     # ── 1b. Null-rate audit (before imputation) ────────────────────────────
     audit_null_rates(train_df[get_mf_feature_cols(train_df)])
+    check_leakage(X_train, y_train)   # exits if any feature |r|>0.70 with target
 
     # ── 2. Hyperparameter selection ────────────────────────────────────────
     if args.tune:
@@ -789,6 +819,7 @@ def main():
         if col not in X_pred.columns:
             X_pred[col] = train_medians.get(col, 0.0)
     X_pred = X_pred[X_train.columns]  # ensure same order
+    check_null_drift(X_train, X_pred)  # warns if a col is non-null in train but null in inference
 
     # ── 7. Predict ─────────────────────────────────────────────────────────
     probs = model.predict_proba(X_pred)[:, 1]

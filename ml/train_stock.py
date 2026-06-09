@@ -139,6 +139,58 @@ def audit_null_rates(X: pd.DataFrame, threshold: float = 0.30) -> None:
             log.warning("  %-30s  %.1f%% null", feat, rate * 100)
 
 
+def check_leakage(X: pd.DataFrame, y: pd.Series, threshold: float = 0.70) -> None:
+    """
+    Detect data leakage: flag any feature with |correlation| > threshold with target.
+
+    A legitimate feature rarely exceeds 0.5 correlation with a binary target.
+    Anything above 0.7 almost certainly means future information leaked in —
+    e.g. a forward-label column that wasn't excluded from the feature set.
+
+    Exits with error if leakage is found — a leaky model would score 0 at
+    inference time (feature is NULL → imputed to median → wrong prediction).
+    """
+    # Fill NaN so corrwith doesn't silently drop columns
+    corrs = X.fillna(X.median()).corrwith(y.astype(float)).abs().sort_values(ascending=False)
+    leaky = corrs[corrs > threshold]
+    if not leaky.empty:
+        log.error("─── LEAKAGE DETECTED ──────────────────────────────────────")
+        log.error("The following features have suspiciously high correlation")
+        log.error("with the target (|r| > %.2f). They may be forward labels", threshold)
+        log.error("that were not excluded by the blocklist:")
+        for feat, r in leaky.items():
+            log.error("  %-35s  |r| = %.4f", feat, r)
+        log.error("Fix: add these columns to _STOCK_NON_FEATURE_COLS in config.py")
+        log.error("─────────────────────────────────────────────────────────────")
+        raise SystemExit(1)
+    log.info("Leakage check passed: no feature exceeds |r|=%.2f with target", threshold)
+
+
+def check_null_drift(X_train: pd.DataFrame, X_pred: pd.DataFrame,
+                     warn_threshold: float = 0.50) -> None:
+    """
+    Detect the 'null-at-inference' pattern that causes all predictions to collapse.
+
+    If a column is mostly non-null in training but mostly null in inference,
+    it is almost certainly a forward label (future return) that wasn't excluded.
+    At inference time the feature is NULL → imputed to median → model outputs
+    a constant probability → all scores identical (usually 0 or near-0).
+    """
+    train_nulls = X_train.isnull().mean()
+    pred_nulls  = X_pred.isnull().mean()
+    # Columns with low null rate in training but high null rate in inference
+    drift = pred_nulls[(pred_nulls > warn_threshold) & (train_nulls < 0.10)]
+    if not drift.empty:
+        log.warning("─── NULL DRIFT WARNING ──────────────────────────────────")
+        log.warning("These features are mostly non-null in training but mostly")
+        log.warning("null in inference — scores may collapse to near-0:")
+        for feat, rate in drift.items():
+            log.warning("  %-35s  train_null=%.1f%%  pred_null=%.1f%%",
+                        feat, train_nulls[feat] * 100, rate * 100)
+        log.warning("If scores look wrong, check if these are forward labels.")
+        log.warning("─────────────────────────────────────────────────────────")
+
+
 # ─── Optuna tuning ────────────────────────────────────────────────────────────
 
 def tune_hyperparams(X_train: pd.DataFrame, y_train: pd.Series, n_trials: int = 50) -> dict:
@@ -387,6 +439,7 @@ def main():
     log.info("Class balance: %d positive / %d negative (%.1f%%)",
              y_train.sum(), len(y_train) - y_train.sum(), y_train.mean() * 100)
     audit_null_rates(train_df[get_stock_feature_cols(train_df)])
+    check_leakage(X_train, y_train)   # exits if any feature |r|>0.70 with target
 
     # ── 2. Hyperparameters ─────────────────────────────────────────────────
     params = tune_hyperparams(X_train, y_train, n_trials=args.n_trials) if args.tune else DEFAULT_PARAMS
@@ -416,6 +469,7 @@ def main():
         if col not in X_pred.columns:
             X_pred[col] = train_medians.get(col, 0.0)
     X_pred = X_pred[X_train.columns]
+    check_null_drift(X_train, X_pred)  # warns if a col is non-null in train but null in inference
 
     # ── 6. Predict ─────────────────────────────────────────────────────────
     probs  = model.predict_proba(X_pred)[:, 1]

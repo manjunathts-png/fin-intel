@@ -32,3 +32,4 @@ tqdm==4.66.4
 
 # Zerodha Kite API (India VIX fetch — used by fetch_vix_kite.py + macro_features.py)
 kiteconnect>=5.0.1
+pytest>=8.0
