@@ -22,9 +22,9 @@ jobs:
       passed: ${{ steps.check.outcome == 'success' && 'true' || 'false' }}
       report: ${{ steps.check.outputs.report }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@42375524b29e854abf8b7f1a8e4e7f12e58174a6  # v5.4.0
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -55,9 +55,9 @@ jobs:
     outputs:
       passed: ${{ steps.playwright.outcome == 'success' && 'true' || 'false' }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
@@ -85,9 +85,9 @@ jobs:
     needs: [ml-quality, frontend-smoke]
     if: failure()
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@42375524b29e854abf8b7f1a8e4e7f12e58174a6  # v5.4.0
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
