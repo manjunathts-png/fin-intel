@@ -175,14 +175,14 @@ print("\n── Stock features (core columns) ───────────�
 feat_date = pred_date
 feat_rows = get(
     "stock_features",
-    f"select=symbol,ret1m,ret3m,momentum_20d,vol_3m,close"
+    f"select=symbol,ret1m,ret3m,vol_30d,vol_90d"
     f"&as_of_date=eq.{feat_date}&limit=600",
 )
 if not feat_rows:
     feat_date = pred_date - timedelta(days=1)
     feat_rows = get(
         "stock_features",
-        f"select=symbol,ret1m,ret3m,momentum_20d,vol_3m,close"
+        f"select=symbol,ret1m,ret3m,vol_30d,vol_90d"
         f"&as_of_date=eq.{feat_date}&limit=600",
     )
 
@@ -190,7 +190,7 @@ if not feat_rows:
     fail(f"No stock_features rows found for {pred_date} or {pred_date - timedelta(1)}")
 else:
     ok(f"{len(feat_rows)} stock_features rows for {feat_date}")
-    CORE = ["ret1m", "ret3m", "momentum_20d", "vol_3m", "close"]
+    CORE = ["ret1m", "ret3m", "vol_30d", "vol_90d"]
     for col in CORE:
         null_pct = sum(1 for r in feat_rows if r.get(col) is None) / len(feat_rows) * 100
         if null_pct > 25:
@@ -199,9 +199,10 @@ else:
             ok(f"  {col}: {null_pct:.1f}% null")
 
     # Newer columns — warn until backfill populates them
+    NEW_COLS = ["sharpe_1y", "sortino_1y", "pe_ratio"]
     new_sample = get(
         "stock_features",
-        f"select=sharpe_1y,sortino_1y,sector_rel_sharpe,pe_ratio,fii_net_5d"
+        f"select=sharpe_1y,sortino_1y,pe_ratio"
         f"&as_of_date=eq.{feat_date}&limit=600",
     )
     if new_sample:
