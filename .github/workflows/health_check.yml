@@ -22,9 +22,9 @@ jobs:
       passed: ${{ steps.check.outcome == 'success' && 'true' || 'false' }}
       report: ${{ steps.check.outputs.report }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@42375524b29e854abf8b7f1a8e4e7f12e58174a6  # v5.4.0
         with:
           python-version: '3.11'
 
@@ -35,21 +35,18 @@ jobs:
         id: check
         run: |
           set +e
-          python tests/ml_quality_check.py 2>&1 | tee /tmp/ml_report.txt
-          EXIT_CODE=${PIPESTATUS[0]}
-          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          OUTPUT=$(python tests/ml_quality_check.py 2>&1)
+          EXIT_CODE=$?
+          echo "$OUTPUT"
+          # Escape newlines for multi-line GitHub output
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "report<<$EOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
           exit $EXIT_CODE
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-
-      - name: Upload ML report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ml-quality-report
-          path: /tmp/ml_report.txt
-          retention-days: 14
 
   # ── Job 2: Frontend smoke tests (Playwright) ────────────────────────────────
   frontend-smoke:
@@ -58,9 +55,9 @@ jobs:
     outputs:
       passed: ${{ steps.playwright.outcome == 'success' && 'true' || 'false' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
         with:
           node-version: '22'
 
@@ -88,36 +85,31 @@ jobs:
     needs: [ml-quality, frontend-smoke]
     if: failure()
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@42375524b29e854abf8b7f1a8e4e7f12e58174a6  # v5.4.0
         with:
           python-version: '3.11'
 
       - name: Install httpx
         run: pip install httpx -q
 
-      - name: Download ML report (if available)
-        uses: actions/download-artifact@v4
-        with:
-          name: ml-quality-report
-          path: /tmp/artifacts
-        continue-on-error: true
-
-      - name: Send failure email
+      - name: Build alert and send email
         env:
-          RESEND_API_KEY:  ${{ secrets.RESEND_API_KEY }}
-          ALERT_EMAIL:     ${{ secrets.ALERT_EMAIL }}
-          ML_PASSED:       ${{ needs.ml-quality.result == 'success' && 'true' || 'false' }}
-          FRONTEND_PASSED: ${{ needs.frontend-smoke.result == 'success' && 'true' || 'false' }}
-          RUN_URL:         ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ALERT_EMAIL:    ${{ secrets.ALERT_EMAIL }}
+          ML_REPORT:      ${{ needs.ml-quality.outputs.report }}
+          ML_PASSED:      ${{ needs.ml-quality.outputs.passed }}
+          FRONTEND_PASSED: ${{ needs.frontend-smoke.outputs.passed }}
+          RUN_URL:        ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python - <<'PYEOF'
           import os, sys
 
-          ml_passed       = os.environ.get("ML_PASSED", "false") == "true"
+          ml_passed      = os.environ.get("ML_PASSED", "false") == "true"
           frontend_passed = os.environ.get("FRONTEND_PASSED", "false") == "true"
-          run_url         = os.environ.get("RUN_URL", "")
+          run_url        = os.environ.get("RUN_URL", "")
+          ml_report      = os.environ.get("ML_REPORT", "(no output captured)")
 
           failed_jobs = []
           if not ml_passed:
@@ -130,25 +122,22 @@ jobs:
           lines = [
               f"Health check FAILED — {', '.join(failed_jobs)}",
               "",
-              f"Full run details: {run_url}",
+              f"Run: {run_url}",
               "",
           ]
 
           if not ml_passed:
-              try:
-                  report = open("/tmp/artifacts/ml_report.txt").read()
-              except Exception:
-                  report = "(report not available — check GitHub Actions artifacts)"
-              lines += ["── ML Quality check output ──", report, ""]
+              lines += ["── ML Quality check output ──", ml_report or "(output not captured)", ""]
 
           if not frontend_passed:
               lines += [
                   "── Frontend Smoke tests ──",
-                  "Playwright tests failed. Download the 'playwright-report' artifact from the run URL above.",
+                  "Playwright tests failed. See the 'playwright-report' artifact in the run above.",
                   "",
               ]
 
           body = "\n".join(lines)
+
           sys.argv = [sys.argv[0], subject, body]
           exec(open("tests/notify.py").read())
           PYEOF

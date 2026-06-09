@@ -8,7 +8,7 @@ import httpx
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 ALERT_EMAIL    = os.environ.get("ALERT_EMAIL", "")
-FROM_EMAIL     = os.environ.get("FROM_EMAIL", "onboarding@resend.dev")
+FROM_EMAIL     = "fin-intel alerts <alerts@fin-intel.dev>"  # must be a verified Resend sender
 
 if not RESEND_API_KEY or not ALERT_EMAIL:
     print("RESEND_API_KEY or ALERT_EMAIL not configured — skipping email alert")
