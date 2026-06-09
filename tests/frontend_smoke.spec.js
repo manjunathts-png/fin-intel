@@ -1,62 +1,42 @@
 // @ts-check
 import { test, expect } from "@playwright/test";
 
-// ── Navigation / shell ────────────────────────────────────────────────────────
+// Note: the app requires Google OAuth login. Playwright cannot authenticate via OAuth,
+// so these tests only verify the public-facing shell (login page, JS bundle, branding).
+// All data quality checks (table row counts, ML scores, freshness) are done server-side
+// in tests/ml_quality_check.py using the Supabase service key.
 
-test("homepage redirects to MF picks and renders nav", async ({ page }) => {
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/mf\/picks/);
-  await expect(page.getByText("Fin Intel")).toBeVisible();
-  // All main nav tabs present
-  for (const label of ["Mutual Funds", "Stocks", "ETFs"]) {
-    await expect(page.getByRole("link", { name: label })).toBeVisible();
-  }
-});
+// ── Site is up and login page renders ────────────────────────────────────────
 
-// ── Mutual funds ──────────────────────────────────────────────────────────────
-
-test("MF picks table loads rows", async ({ page }) => {
-  await page.goto("/mf/picks");
-  // Table must have at least 5 data rows — confirms Supabase MF data is live
-  const rows = page.locator("table tbody tr");
-  await expect(rows.nth(4)).toBeVisible({ timeout: 25_000 });
-  const n = await rows.count();
-  expect(n).toBeGreaterThan(5);
-});
-
-// ── Stocks ────────────────────────────────────────────────────────────────────
-
-test("Stocks picks table loads rows", async ({ page }) => {
-  await page.goto("/stocks/picks");
-  const rows = page.locator("table tbody tr");
-  await expect(rows.nth(4)).toBeVisible({ timeout: 25_000 });
-  const n = await rows.count();
-  expect(n).toBeGreaterThan(5);
-});
-
-test("Stocks picks page shows ML score column", async ({ page }) => {
-  await page.goto("/stocks/picks");
-  // Wait for any table row first
-  await expect(page.locator("table tbody tr").first()).toBeVisible({ timeout: 25_000 });
-  // ML score column header should be present (header text may vary — check for 'Score' or 'ML')
-  const header = page.locator("table thead").getByText(/score|ml score|rank/i).first();
-  await expect(header).toBeVisible();
-});
-
-// ── ETFs ──────────────────────────────────────────────────────────────────────
-
-test("ETF page loads", async ({ page }) => {
-  await page.goto("/etf");
-  // Page must render something meaningful within the timeout
-  await expect(page.getByText("Fin Intel")).toBeVisible({ timeout: 15_000 });
-});
-
-// ── No JS errors on key pages ─────────────────────────────────────────────────
-
-test("no uncaught JS errors on stocks picks", async ({ page }) => {
+test("site loads and shows login screen", async ({ page }) => {
   const errors = [];
   page.on("pageerror", (err) => errors.push(err.message));
-  await page.goto("/stocks/picks");
-  await page.locator("table tbody tr").first().waitFor({ timeout: 25_000 });
-  expect(errors, `Uncaught JS errors: ${errors.join(", ")}`).toHaveLength(0);
+
+  await page.goto("/");
+
+  // App branding must be visible
+  await expect(page.getByText("Fin Intel")).toBeVisible({ timeout: 15_000 });
+
+  // Login button must be present (app renders the auth wall correctly)
+  await expect(
+    page.getByRole("button", { name: /sign in|log in|login|google/i })
+  ).toBeVisible({ timeout: 10_000 });
+
+  // No JS crashes during initial render
+  expect(errors, `Uncaught JS errors on load: ${errors.join(", ")}`).toHaveLength(0);
 });
+
+// ── JS bundle loads without errors on all main routes ────────────────────────
+
+for (const route of ["/", "/mf/picks", "/stocks/picks", "/etf"]) {
+  test(`no JS errors on ${route}`, async ({ page }) => {
+    const errors = [];
+    page.on("pageerror", (err) => errors.push(err.message));
+    const response = await page.goto(route);
+    // Page must return a successful HTTP response (not 404/500)
+    expect(response?.status(), `HTTP status for ${route}`).toBeLessThan(400);
+    // Allow time for React to mount and any synchronous errors to fire
+    await page.waitForLoadState("networkidle", { timeout: 15_000 });
+    expect(errors, `JS errors on ${route}: ${errors.join(", ")}`).toHaveLength(0);
+  });
+}
