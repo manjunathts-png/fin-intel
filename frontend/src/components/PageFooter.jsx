@@ -12,7 +12,7 @@ export default function PageFooter({ sections = [], note }) {
             <div className="mb-1 font-semibold uppercase tracking-wider text-[10px] text-gray-600">{s.title}</div>
             <ul className="space-y-0.5">
               {s.items.map((item, i) => (
-                <li key={i}>• {item}</li>
+                <li key={i} dangerouslySetInnerHTML={{ __html: `• ${item}` }} />
               ))}
             </ul>
           </div>
