@@ -103,9 +103,11 @@ jobs:
         continue-on-error: true
 
       - name: Send failure email
+        continue-on-error: true
         env:
           RESEND_API_KEY:  ${{ secrets.RESEND_API_KEY }}
           ALERT_EMAIL:     ${{ secrets.ALERT_EMAIL }}
+          FROM_EMAIL:      onboarding@resend.dev
           ML_PASSED:       ${{ needs.ml-quality.result == 'success' && 'true' || 'false' }}
           FRONTEND_PASSED: ${{ needs.frontend-smoke.result == 'success' && 'true' || 'false' }}
           RUN_URL:         ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

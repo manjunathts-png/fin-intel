@@ -221,17 +221,17 @@ else:
 print("\n── Mutual fund predictions & cache ─────────────────────────────────────")
 
 # 10. MF prediction freshness + count
-mf_latest = get("predictions", "select=as_of_date&order=as_of_date.desc&limit=1")
+mf_latest = get("mf_predictions", "select=prediction_date&order=prediction_date.desc&limit=1")
 if not mf_latest:
-    warn("No rows in 'predictions' table — MF model may never have run")
+    warn("No rows in 'mf_predictions' table — MF model may never have run")
 else:
-    mf_date = date.fromisoformat(mf_latest[0]["as_of_date"])
+    mf_date = date.fromisoformat(mf_latest[0]["prediction_date"])
     if mf_date < stale_after:
         fail(f"MF predictions stale: latest={mf_date} ({(today - mf_date).days}d old)")
     else:
         ok(f"MF predictions fresh: {mf_date}")
 
-    mf_count = get("predictions", f"select=scheme_code&as_of_date=eq.{mf_date}&limit=200")
+    mf_count = get("mf_predictions", f"select=scheme_code&prediction_date=eq.{mf_date}&limit=200")
     if len(mf_count) < 30:
         fail(f"MF prediction count is {len(mf_count)} (expected ≥30) — MF model may not have scored all funds")
     else:
