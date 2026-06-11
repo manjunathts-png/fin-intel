@@ -32,3 +32,10 @@ ml/*.pkl
 ml/*.joblib
 ml/backtest_results*.csv
 ml/.cache_macro/
+ml/.cache_stock/
+ml/.cache_fundamentals/
+ml/.cache_bhavcopy/
+
+## Python
+__pycache__/
+*.py[cod]
