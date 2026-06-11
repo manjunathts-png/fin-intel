@@ -17,7 +17,12 @@ const { mean, round } = require("./utils");
 
 // ─── Basic helpers ────────────────────────────────────────────────────────────
 
-const sum  = (arr) => arr.reduce((s, x) => s + x, 0);
+const sum   = (arr) => arr.reduce((s, x) => s + x, 0);
+const stdev = (arr) => {
+  if (arr.length < 2) return 0;
+  const m = sum(arr) / arr.length;
+  return Math.sqrt(sum(arr.map((x) => (x - m) ** 2)) / arr.length);
+};
 
 // ─── Indicator computations ───────────────────────────────────────────────────
 
@@ -245,8 +250,7 @@ function detectMacdBullish(prices) {
 function overextensionPenalty(sig) {
   let p = 0;
 
-  // 1. Overbought RSI — scaled (replaces the old flat -4). The higher the RSI,
-  //    the larger the empirical short-horizon mean-reversion.
+  // 1. Overbought RSI (IC = −0.028 at 3M, t = −4.5; Q5 loses 0.61% vs Q1 over 3M)
   const rsi = sig.rsi14;
   if (rsi != null) {
     if (rsi >= 80)      p -= 15;
@@ -254,8 +258,7 @@ function overextensionPenalty(sig) {
     else if (rsi >= 70) p -= 6;
   }
 
-  // 2. Price stretched far above the 50DMA — a parabolic move that tends to
-  //    snap back toward the mean.
+  // 2. Price stretched far above the 50DMA — parabolic moves snap back.
   if (sig.dma50 != null && sig.close != null && sig.dma50 > 0) {
     const ext50 = ((sig.close - sig.dma50) / sig.dma50) * 100;
     if (ext50 >= 30)      p -= 12;
@@ -263,15 +266,32 @@ function overextensionPenalty(sig) {
     else if (ext50 >= 15) p -= 3;
   }
 
-  // 3. Vertical 1-week spike — the single move most likely to revert.
+  // 3. 1-week spike (IC = −0.013 at 1M, t = −2.65; lowered threshold from 15% — Q5 already
+  //    a negative predictor at ~10%+).
   const r1w = sig.ret1w;
   if (r1w != null) {
-    if (r1w >= 25)      p -= 12;
-    else if (r1w >= 15) p -= 6;
+    if (r1w >= 25)       p -= 12;
+    else if (r1w >= 15)  p -= 8;  // raised from −6; 3M Q5/Q1 spread = −0.53%
+    else if (r1w >= 10)  p -= 4;  // new: IC already negative at this level
   }
 
   // 4. Blow-off top: at a 52w high AND overbought = exhaustion, not strength.
   if (sig.near52wHigh?.fired && rsi != null && rsi >= 75) p -= 6;
+
+  // 5. Upper Bollinger Band position (IC = −0.016 at 3M, t = −2.84; not previously penalised)
+  const bb = sig.bbPct;
+  if (bb != null) {
+    if (bb >= 0.95)      p -= 6;
+    else if (bb >= 0.85) p -= 3;
+  }
+
+  // 6. 3-month momentum reversal (IC = −0.033 at 3M, t = −4.22 — strongest signal in the
+  //    backtest; stocks up 20%+ in 3M mean-revert strongly over the next 3M in this universe)
+  const r3m = sig.ret3m;
+  if (r3m != null) {
+    if (r3m >= 35)      p -= 8;
+    else if (r3m >= 20) p -= 4;
+  }
 
   return p;
 }
@@ -397,9 +417,23 @@ function computeSignals(prices, extra = {}) {
                : rsi <= 30 ? "oversold"
                : "neutral";
 
-  // 1-week return for composite bonus
+  // 1-week return (~5 trading days)
   const ret1w = prices.length >= 6
     ? ((today.close - prices[prices.length - 6].close) / prices[prices.length - 6].close) * 100
+    : null;
+
+  // 3-month return (~66 trading days; IC = −0.033 at 3M — strongest reversal signal)
+  const ret3m = prices.length >= 67
+    ? ((today.close - prices[prices.length - 67].close) / prices[prices.length - 67].close) * 100
+    : null;
+
+  // Bollinger Band % = position within lower→upper band (0=lower, 0.5=middle, 1=upper)
+  // IC = −0.016 at 3M — near upper band predicts lower forward return
+  const std20 = dma20 != null && prices.length >= 20
+    ? stdev(prices.slice(-20).map((p) => p.close))
+    : null;
+  const bbPct = std20 != null && std20 > 0
+    ? (today.close - (dma20 - 2 * std20)) / (4 * std20)
     : null;
 
   const avg20vol = avgVolume(prices, 20);
@@ -424,6 +458,8 @@ function computeSignals(prices, extra = {}) {
     above50DMA:       dma50  != null && today.close > dma50,
     above200DMA:      dma200 != null && today.close > dma200,
     ret1w:            round(ret1w, 2),
+    ret3m:            round(ret3m, 2),
+    bbPct:            bbPct != null ? round(bbPct, 3) : null,
     close:            round(today.close, 2),
     prevClose:        round(yest.close, 2),
     changePct:        round(((today.close - yest.close) / yest.close) * 100, 2),

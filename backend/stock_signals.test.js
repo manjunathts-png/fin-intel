@@ -25,13 +25,32 @@ test("overextension penalty scales with RSI", () => {
   assert.strictEqual(overextensionPenalty({ rsi14: 82 }), -15, "RSI 82 → -15");
 });
 
-test("overextension penalty stacks RSI + stretch + spike + blow-off", () => {
+test("overextension penalty stacks RSI + stretch + spike + blow-off + BB + 3M", () => {
   const exhausted = {
-    rsi14: 82, close: 135, dma50: 100, dma20: 120, ret1w: 28,
+    rsi14: 82, close: 135, dma50: 100, dma20: 120, ret1w: 28, ret3m: 40, bbPct: 0.97,
     above50DMA: true, above200DMA: true, near52wHigh: { fired: true }, rsVsNifty3M: 20,
   };
-  // -15 (RSI≥80) -12 (≥30% above 50DMA) -12 (≥25% week) -6 (blow-off top) = -45
-  assert.strictEqual(overextensionPenalty(exhausted), -45);
+  // -15 (RSI≥80) -12 (≥30% above 50DMA) -12 (≥25% week) -6 (blow-off) -6 (bbPct≥0.95) -8 (ret3m≥35) = -59
+  assert.strictEqual(overextensionPenalty(exhausted), -59);
+});
+
+test("overextension: 1-week threshold fires at 10%, raised middle tier", () => {
+  assert.strictEqual(overextensionPenalty({ ret1w: 8 }),  0,   "ret1w 8% → below new threshold");
+  assert.strictEqual(overextensionPenalty({ ret1w: 10 }), -4,  "ret1w 10% → -4 (new tier)");
+  assert.strictEqual(overextensionPenalty({ ret1w: 16 }), -8,  "ret1w 16% → -8 (raised from -6)");
+  assert.strictEqual(overextensionPenalty({ ret1w: 25 }), -12, "ret1w 25% → -12 (unchanged)");
+});
+
+test("overextension: upper Bollinger Band penalty fires above 0.85", () => {
+  assert.strictEqual(overextensionPenalty({ bbPct: 0.80 }), 0,  "bbPct 0.80 → 0");
+  assert.strictEqual(overextensionPenalty({ bbPct: 0.88 }), -3, "bbPct 0.88 → -3");
+  assert.strictEqual(overextensionPenalty({ bbPct: 0.96 }), -6, "bbPct 0.96 → -6");
+});
+
+test("overextension: 3M momentum reversal fires above 20% (IC = -0.033, t = -4.22)", () => {
+  assert.strictEqual(overextensionPenalty({ ret3m: 15 }), 0,  "ret3m 15% → 0");
+  assert.strictEqual(overextensionPenalty({ ret3m: 25 }), -4, "ret3m 25% → -4");
+  assert.strictEqual(overextensionPenalty({ ret3m: 40 }), -8, "ret3m 40% → -8");
 });
 
 test("clean early breakout is not penalised", () => {
