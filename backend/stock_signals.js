@@ -228,6 +228,71 @@ function detectMacdBullish(prices) {
 // Split into EOD signals (stable across the day) and intraday signals
 // (price/volume sensitive, refreshed ~5× per day).
 
+// ── Entry-timing guards ───────────────────────────────────────────────────────
+//
+// The raw signal stack rewards strength (breakouts, 52w highs, volume spikes).
+// On its own that buys stocks AFTER a large fast move, right when they are most
+// prone to a short-term pullback. These two helpers correct the *entry timing*:
+//
+//   overextensionPenalty — docks score when a stock is already stretched
+//     (overbought RSI, far above its 50DMA, or just spiked). A breakout from a
+//     clean base keeps its bonus; a breakout that is already exhausted nets out.
+//   pullbackBonus — rewards buying a confirmed uptrend on a DIP (healthy RSI,
+//     price hugging the 20DMA) rather than at a vertical extension.
+//
+// Both operate on EOD-stable fields (RSI, DMAs, 1w return, relative strength).
+
+function overextensionPenalty(sig) {
+  let p = 0;
+
+  // 1. Overbought RSI — scaled (replaces the old flat -4). The higher the RSI,
+  //    the larger the empirical short-horizon mean-reversion.
+  const rsi = sig.rsi14;
+  if (rsi != null) {
+    if (rsi >= 80)      p -= 15;
+    else if (rsi >= 75) p -= 10;
+    else if (rsi >= 70) p -= 6;
+  }
+
+  // 2. Price stretched far above the 50DMA — a parabolic move that tends to
+  //    snap back toward the mean.
+  if (sig.dma50 != null && sig.close != null && sig.dma50 > 0) {
+    const ext50 = ((sig.close - sig.dma50) / sig.dma50) * 100;
+    if (ext50 >= 30)      p -= 12;
+    else if (ext50 >= 20) p -= 7;
+    else if (ext50 >= 15) p -= 3;
+  }
+
+  // 3. Vertical 1-week spike — the single move most likely to revert.
+  const r1w = sig.ret1w;
+  if (r1w != null) {
+    if (r1w >= 25)      p -= 12;
+    else if (r1w >= 15) p -= 6;
+  }
+
+  // 4. Blow-off top: at a 52w high AND overbought = exhaustion, not strength.
+  if (sig.near52wHigh?.fired && rsi != null && rsi >= 75) p -= 6;
+
+  return p;
+}
+
+function pullbackBonus(sig) {
+  // Only in a confirmed uptrend: above the 200DMA and not lagging the index.
+  const uptrend = sig.above200DMA && (sig.rsVsNifty3M ?? 0) >= 0;
+  if (!uptrend) return 0;
+
+  let b = 0;
+  const rsi = sig.rsi14;
+  // Healthy RSI band — pulled back but not broken.
+  if (rsi != null && rsi >= 40 && rsi <= 60) b += 8;
+  // Price hugging the 20DMA (a buyable dip) while still above the 50DMA.
+  if (sig.dma20 != null && sig.close != null && sig.dma20 > 0 && sig.above50DMA) {
+    const dist20 = (Math.abs(sig.close - sig.dma20) / sig.dma20) * 100;
+    if (dist20 <= 5) b += 6;
+  }
+  return b;
+}
+
 // Score from signals stable across the trading day
 function eodSignalScore(sig) {
   let s = 0;
@@ -235,7 +300,6 @@ function eodSignalScore(sig) {
   if (sig.macdBullish)              s += 12;
   if (sig.bullishEngulfing)         s += 8;
   if (sig.hammer)                   s += 5;
-  if (sig.rsiSignal === "overbought") s -= 4;
   if (sig.rsiSignal === "oversold")   s += 6;
   if (sig.above20DMA && sig.above50DMA && sig.above200DMA) s += 12;
   else if (sig.above50DMA && sig.above200DMA)              s += 6;
@@ -252,6 +316,9 @@ function eodSignalScore(sig) {
   if (sig.disc?.oiShortCover)       s += 8;
   if (sig.disc?.oiShort)            s -= 10;
   if (sig.disc?.oiLongUnwind)       s -= 6;
+  // Entry-timing corrections — penalize chasing, reward buyable pullbacks.
+  s += overextensionPenalty(sig);
+  s += pullbackBonus(sig);
   return s;
 }
 
@@ -365,6 +432,9 @@ function computeSignals(prices, extra = {}) {
     ...extra,
   };
 
+  // Surface entry-timing adjustments for UI/rationale transparency.
+  sig.overextensionPenalty = overextensionPenalty(sig);
+  sig.pullbackBonus        = pullbackBonus(sig);
   sig.compositeScore = compositeScore(sig);
   sig.signalCount    = countBullishSignals(sig);
   return sig;
@@ -492,4 +562,6 @@ module.exports = {
   buildSignalsLeaderboard,
   eodSignalScore,
   intradaySignalScore,
+  overextensionPenalty,
+  pullbackBonus,
 };
