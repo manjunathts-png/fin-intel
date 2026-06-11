@@ -15,7 +15,7 @@ on:
         required: false
         default: 'all'
         type: choice
-        options: [all, mf, stocks, intraday, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, migrate, restore_persistence]
+        options: [all, mf, stocks, intraday, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, migrate, restore_persistence, signal_backtest]
       backfill_days:
         description: 'Days to backfill for stock_backfill/nifty500_backfill (default 365)'
         required: false
@@ -136,7 +136,8 @@ jobs:
           steps.target.outputs.target == 'stock_backfill' ||
           steps.target.outputs.target == 'nifty500_backfill' ||
           steps.target.outputs.target == 'mf_backfill' ||
-          steps.target.outputs.target == 'mf_train'
+          steps.target.outputs.target == 'mf_train' ||
+          steps.target.outputs.target == 'signal_backtest'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -152,7 +153,8 @@ jobs:
           steps.target.outputs.target == 'stock_backfill' ||
           steps.target.outputs.target == 'nifty500_backfill' ||
           steps.target.outputs.target == 'mf_backfill' ||
-          steps.target.outputs.target == 'mf_train'
+          steps.target.outputs.target == 'mf_train' ||
+          steps.target.outputs.target == 'signal_backtest'
         run: pip install -r ml/requirements.txt -q
 
       - name: Check DB tables exist
@@ -164,7 +166,8 @@ jobs:
           steps.target.outputs.target == 'stock_backfill' ||
           steps.target.outputs.target == 'nifty500_backfill' ||
           steps.target.outputs.target == 'mf_backfill' ||
-          steps.target.outputs.target == 'mf_train'
+          steps.target.outputs.target == 'mf_train' ||
+          steps.target.outputs.target == 'signal_backtest'
         id: dbcheck
         run: |
           python ml/setup_db.py --check && echo "tables_ok=true" >> $GITHUB_OUTPUT || echo "tables_ok=false" >> $GITHUB_OUTPUT
@@ -448,6 +451,16 @@ jobs:
           python ml/train_stock.py --horizon 3m --sharpe-target || echo "Stock 3M Sharpe skipped"
           python ml/train_stock.py --horizon 3m || echo "Stock 3M skipped"
           python ml/train_stock.py --horizon 1m || echo "Stock 1M skipped"
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # ── Signal backtest (diagnostic, trigger manually) ───────────────────
+      # Measures whether each composite-score ingredient actually predicts
+      # forward returns (cross-sectional IC). Read the report in the step log.
+      - name: Backtest stock signals — IC analysis
+        if: steps.target.outputs.target == 'signal_backtest' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: python ml/backtest_stock_signals.py
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
