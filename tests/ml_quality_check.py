@@ -249,10 +249,13 @@ else:
     else:
         ok(f"mf_radar cache age: {mf_age_h:.1f}h (<28h)")
 
-    mf_data = mf_row.get("data") or []
+    mf_data = mf_row.get("data") or {}
     if isinstance(mf_data, dict):
-        mf_data = mf_data.get("funds", mf_data.get("picks", []))
-    mf_fund_count = len(mf_data) if isinstance(mf_data, list) else 0
+        # Structure: { categories: [{ funds: [...] }, ...] }
+        categories = mf_data.get("categories", [])
+        mf_fund_count = sum(len(c.get("funds", [])) for c in categories if isinstance(c, dict))
+    else:
+        mf_fund_count = 0
 
     if mf_fund_count < 60:
         fail(f"mf_radar has only {mf_fund_count} funds (expected ≥60) — MF data is mostly missing")
@@ -265,10 +268,13 @@ if not etf_cache:
     warn("radar_cache has no etf_picks row — ETF refresh may not have run yet")
 else:
     etf_row = etf_cache[0]
-    etf_data = etf_row.get("data") or []
+    etf_data = etf_row.get("data") or {}
     if isinstance(etf_data, dict):
-        etf_data = etf_data.get("picks", [])
-    etf_count = len(etf_data) if isinstance(etf_data, list) else 0
+        # Structure: { types: [{ etfs: [...] }, ...] }
+        etf_types = etf_data.get("types", [])
+        etf_count = sum(len(t.get("etfs", [])) for t in etf_types if isinstance(t, dict))
+    else:
+        etf_count = 0
     if etf_count < 3:
         fail(f"etf_picks has only {etf_count} ETFs (expected ≥3) — ETF refresh may have failed")
     else:
