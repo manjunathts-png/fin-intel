@@ -5,7 +5,8 @@
   "scripts": {
     "refresh": "node refresh-cache.js all",
     "refresh:mf": "node refresh-cache.js mf",
-    "refresh:stocks": "node refresh-cache.js stocks"
+    "refresh:stocks": "node refresh-cache.js stocks",
+    "test": "node --test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.1",

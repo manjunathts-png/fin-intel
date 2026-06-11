@@ -15,7 +15,7 @@ on:
         required: false
         default: 'all'
         type: choice
-        options: [all, mf, stocks, intraday, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, migrate, restore_persistence]
+        options: [all, mf, stocks, intraday, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, migrate, restore_persistence, signal_backtest]
       backfill_days:
         description: 'Days to backfill for stock_backfill/nifty500_backfill (default 365)'
         required: false
@@ -130,12 +130,14 @@ jobs:
       - name: Set up Python (ML pipeline)
         if: >-
           steps.target.outputs.target == 'all' ||
+          steps.target.outputs.target == 'stocks' ||
           steps.target.outputs.target == 'sentiment' ||
           steps.target.outputs.target == 'gdelt_sentiment' ||
           steps.target.outputs.target == 'stock_backfill' ||
           steps.target.outputs.target == 'nifty500_backfill' ||
           steps.target.outputs.target == 'mf_backfill' ||
-          steps.target.outputs.target == 'mf_train'
+          steps.target.outputs.target == 'mf_train' ||
+          steps.target.outputs.target == 'signal_backtest'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -145,23 +147,27 @@ jobs:
       - name: Install ML dependencies
         if: >-
           steps.target.outputs.target == 'all' ||
+          steps.target.outputs.target == 'stocks' ||
           steps.target.outputs.target == 'sentiment' ||
           steps.target.outputs.target == 'gdelt_sentiment' ||
           steps.target.outputs.target == 'stock_backfill' ||
           steps.target.outputs.target == 'nifty500_backfill' ||
           steps.target.outputs.target == 'mf_backfill' ||
-          steps.target.outputs.target == 'mf_train'
+          steps.target.outputs.target == 'mf_train' ||
+          steps.target.outputs.target == 'signal_backtest'
         run: pip install -r ml/requirements.txt -q
 
       - name: Check DB tables exist
         if: >-
           steps.target.outputs.target == 'all' ||
+          steps.target.outputs.target == 'stocks' ||
           steps.target.outputs.target == 'sentiment' ||
           steps.target.outputs.target == 'gdelt_sentiment' ||
           steps.target.outputs.target == 'stock_backfill' ||
           steps.target.outputs.target == 'nifty500_backfill' ||
           steps.target.outputs.target == 'mf_backfill' ||
-          steps.target.outputs.target == 'mf_train'
+          steps.target.outputs.target == 'mf_train' ||
+          steps.target.outputs.target == 'signal_backtest'
         id: dbcheck
         run: |
           python ml/setup_db.py --check && echo "tables_ok=true" >> $GITHUB_OUTPUT || echo "tables_ok=false" >> $GITHUB_OUTPUT
@@ -205,13 +211,20 @@ jobs:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      # ── Stock ML pipeline: nightly ───────────────────────────────────────────
+      # ── Stock ML pipeline: nightly (all) + EOD (stocks) ────────────────────────
+      # Running on 'stocks' (10:15 UTC / 3:45 PM IST) ensures today's EOD prices are
+      # available for feature extraction and inference, fixing the "no feature rows near
+      # today" failure that occurs when 'all' runs at 5 AM IST before market open.
       - name: Build Nifty 500 universe (daily refresh of constituent list)
-        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
+        if: >-
+          (steps.target.outputs.target == 'all' || steps.target.outputs.target == 'stocks') &&
+          steps.dbcheck.outputs.tables_ok == 'true'
         run: python ml/nifty500_universe.py || echo "Nifty 500 universe refresh failed (NSE may be down) — using cached file"
 
       - name: Extract stock features (today) — Nifty 500 universe
-        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
+        if: >-
+          (steps.target.outputs.target == 'all' || steps.target.outputs.target == 'stocks') &&
+          steps.dbcheck.outputs.tables_ok == 'true'
         # Non-blocking: stock extraction failure must not abort MF pipeline.
         # --workers 4: parallel fetch across 4 threads (safe: each stock is independent).
         # Smart cache: stocks whose parquet already has yesterday's close are skipped instantly.
@@ -225,7 +238,9 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       - name: Label stock targets — 3M and 1M
-        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
+        if: >-
+          (steps.target.outputs.target == 'all' || steps.target.outputs.target == 'stocks') &&
+          steps.dbcheck.outputs.tables_ok == 'true'
         run: |
           python ml/label_stock_targets.py --window 90
           python ml/label_stock_targets.py --window 30
@@ -234,7 +249,9 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       - name: Train stock models — 3M and 1M horizons
-        if: steps.target.outputs.target == 'all' && steps.dbcheck.outputs.tables_ok == 'true'
+        if: >-
+          (steps.target.outputs.target == 'all' || steps.target.outputs.target == 'stocks') &&
+          steps.dbcheck.outputs.tables_ok == 'true'
         run: |
           python ml/train_stock.py --horizon 3m || echo "Stock 3M training skipped"
           python ml/train_stock.py --horizon 3m --sharpe-target || echo "Stock 3M sharpe skipped"
@@ -434,6 +451,16 @@ jobs:
           python ml/train_stock.py --horizon 3m --sharpe-target || echo "Stock 3M Sharpe skipped"
           python ml/train_stock.py --horizon 3m || echo "Stock 3M skipped"
           python ml/train_stock.py --horizon 1m || echo "Stock 1M skipped"
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # ── Signal backtest (diagnostic, trigger manually) ───────────────────
+      # Measures whether each composite-score ingredient actually predicts
+      # forward returns (cross-sectional IC). Read the report in the step log.
+      - name: Backtest stock signals — IC analysis
+        if: steps.target.outputs.target == 'signal_backtest' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: python ml/backtest_stock_signals.py
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

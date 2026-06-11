@@ -140,16 +140,22 @@ else:
     else:
         ok(f"stock_picks cache age: {age_h:.1f}h (<28h)")
 
-    # Count stocks in the cache — data can be a list or {"picks": [...]}
-    data = row.get("data") or []
-    if isinstance(data, dict):
-        data = data.get("picks", [])
-    stock_count = len(data) if isinstance(data, list) else 0
+    # data.all = full scanned universe (up to 200); data.picks = top 50 display list
+    # Check the full scan count, not just the display picks
+    raw = row.get("data") or {}
+    if isinstance(raw, dict):
+        all_stocks = raw.get("all", raw.get("picks", []))
+    else:
+        all_stocks = raw if isinstance(raw, list) else []
+    stock_count = len(all_stocks) if isinstance(all_stocks, list) else 0
 
     if stock_count < 100:
-        fail(f"stock_picks cache has only {stock_count} stocks (threshold 100) — refresh scan may have produced too few results")
+        fail(f"stock_picks cache has only {stock_count} stocks in full scan (threshold 100) — refresh scan may have failed")
     else:
         ok(f"stock_picks cache count: {stock_count} stocks")
+
+    # Price coverage uses the display picks (top 50) — those are what the UI shows
+    data = raw.get("picks", all_stocks) if isinstance(raw, dict) else all_stocks
 
     # NEW — 7. Price coverage: check close prices are not missing/zero
     if isinstance(data, list) and data:

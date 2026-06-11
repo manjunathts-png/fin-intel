@@ -79,11 +79,31 @@ jobs:
           path: tests/playwright-report/
           retention-days: 7
 
-  # ── Job 3: Notify on any failure ───────────────────────────────────────────
+  # ── Job 3: Backend unit tests (scoring logic) ───────────────────────────────
+  backend-unit:
+    name: Backend Unit Tests
+    runs-on: ubuntu-latest
+    outputs:
+      passed: ${{ steps.unit.outcome == 'success' && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+        with:
+          node-version: '22'
+
+      - name: Install backend deps
+        run: cd backend && npm ci
+
+      - name: Run backend unit tests
+        id: unit
+        run: cd backend && npm test
+
+  # ── Job 4: Notify on any failure ───────────────────────────────────────────
   notify:
     name: Notify on Failure
     runs-on: ubuntu-latest
-    needs: [ml-quality, frontend-smoke]
+    needs: [ml-quality, frontend-smoke, backend-unit]
     if: failure()
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -110,6 +130,7 @@ jobs:
           FROM_EMAIL:      onboarding@resend.dev
           ML_PASSED:       ${{ needs.ml-quality.result == 'success' && 'true' || 'false' }}
           FRONTEND_PASSED: ${{ needs.frontend-smoke.result == 'success' && 'true' || 'false' }}
+          BACKEND_PASSED:  ${{ needs.backend-unit.result == 'success' && 'true' || 'false' }}
           RUN_URL:         ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python - <<'PYEOF'
@@ -117,6 +138,7 @@ jobs:
 
           ml_passed       = os.environ.get("ML_PASSED", "false") == "true"
           frontend_passed = os.environ.get("FRONTEND_PASSED", "false") == "true"
+          backend_passed  = os.environ.get("BACKEND_PASSED", "false") == "true"
           run_url         = os.environ.get("RUN_URL", "")
 
           failed_jobs = []
@@ -124,6 +146,8 @@ jobs:
               failed_jobs.append("ML Quality")
           if not frontend_passed:
               failed_jobs.append("Frontend Smoke")
+          if not backend_passed:
+              failed_jobs.append("Backend Unit Tests")
 
           subject = f"[Fin Intel] Health check failed: {', '.join(failed_jobs)}"
 
@@ -145,6 +169,13 @@ jobs:
               lines += [
                   "── Frontend Smoke tests ──",
                   "Playwright tests failed. Download the 'playwright-report' artifact from the run URL above.",
+                  "",
+              ]
+
+          if not backend_passed:
+              lines += [
+                  "── Backend Unit Tests ──",
+                  "Scoring-logic unit tests (node --test) failed. See the run URL above.",
                   "",
               ]
 
