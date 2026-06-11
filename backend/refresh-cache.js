@@ -14,6 +14,7 @@ const { getEtfLeaderboard }         = require("./etf_momentum");
 const { buildStockDetail, buildMfDetail, buildEtfDetail, buildBatch } = require("./instrument_details");
 const { buildSignalsLeaderboard, eodSignalScore }   = require("./stock_signals");
 const { loadMlBlend, applyMlBlend } = require("./ml_blend");
+const { computeRegime, applyRegime } = require("./regime");
 const { getDeliveryMap }            = require("./stock_bhavcopy");
 const { getDiscovery, buildSymbolBonuses } = require("./nse_discovery");
 const { getNifty500 }               = require("./nifty500_universe");
@@ -238,6 +239,17 @@ async function main() {
       console.warn(`  ⚠ ML blend skipped: ${e.message}`);
     }
 
+    // ── Market-regime filter ──────────────────────────────────────────────────
+    // In a weak/narrow tape, dock falling-knife names so picks concentrate in
+    // resilient leaders. Applied before smoothing so it persists via the anchor.
+    const regimeInfo = computeRegime({ stocks: signals.all, niftyReturns });
+    const regimePenalized = applyRegime(signals.all, regimeInfo);
+    console.log(
+      `  ${regimeInfo.regime === "risk_off" ? "⚠" : "✓"} regime: ${regimeInfo.regime} ` +
+      `(breadth=${regimeInfo.breadthPct}% above 200DMA, niftyRet3m=${regimeInfo.niftyRet3m ?? "n/a"}` +
+      `, ${regimePenalized} weak names docked)`
+    );
+
     // ── Store EOD base score (before smoothing) for intraday anchoring ────────
     for (const p of signals.all) {
       p.eodBaseScore = Math.max(0, Math.min(100, Math.round(eodSignalScore(p))));
@@ -330,6 +342,7 @@ async function main() {
         all:       signals.all.slice(0, 200),     // top 200 only — cache size
         discovery: discovery ?? null,
         niftyReturns,
+        regime:    regimeInfo,
         warnings:  signals.warnings.slice(0, 20),
       });
       console.log(`  ✓ ${signals.picks.length} top picks ranked (${signals.scanned} of ${signals.universe} stocks scanned)`);
