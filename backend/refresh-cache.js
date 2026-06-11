@@ -13,6 +13,7 @@ const { getStockLeaderboard }       = require("./stock_momentum");
 const { getEtfLeaderboard }         = require("./etf_momentum");
 const { buildStockDetail, buildMfDetail, buildEtfDetail, buildBatch } = require("./instrument_details");
 const { buildSignalsLeaderboard, eodSignalScore }   = require("./stock_signals");
+const { loadMlBlend, applyMlBlend } = require("./ml_blend");
 const { getDeliveryMap }            = require("./stock_bhavcopy");
 const { getDiscovery, buildSymbolBonuses } = require("./nse_discovery");
 const { getNifty500 }               = require("./nifty500_universe");
@@ -218,6 +219,23 @@ async function main() {
       if (f.returnOnEquity != null && f.returnOnEquity >= 20) {
         p.compositeScore = Math.min(100, p.compositeScore + 3);
       }
+    }
+
+    // ── Blend in the ML model (gated on out-of-sample edge) ───────────────────
+    // The LightGBM forward-return model is a separate alpha source. It only moves
+    // the score once it beats chance (CV AUC ≥ gate); a coin-flip model gets
+    // weight 0 and leaves picks untouched. Folded in before smoothing so the EOD
+    // anchor (eodCompositeScore) carries the ML component through intraday runs.
+    try {
+      const mlBlend = await loadMlBlend(supabase);
+      const blended = applyMlBlend(signals.all, mlBlend);
+      const m = mlBlend.meta || {};
+      console.log(
+        `  ${m.active ? "✓" : "○"} ML blend: ${m.reason}` +
+        (m.cvAuc != null ? ` (AUC=${m.cvAuc.toFixed(3)}, w=${mlBlend.weight}, ${blended} stocks)` : "")
+      );
+    } catch (e) {
+      console.warn(`  ⚠ ML blend skipped: ${e.message}`);
     }
 
     // ── Store EOD base score (before smoothing) for intraday anchoring ────────
