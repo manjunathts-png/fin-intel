@@ -112,14 +112,19 @@ def check_freshness(supabase) -> dict:
 def check_ic_drift(supabase) -> dict:
     """Any calibrated reversal signal with a significant sign flip?"""
     try:
+        # Fetch the latest run_date first, then pull all signals for that date.
+        # A limit(50) scan is fragile once signal count grows past the page size.
+        date_resp = (supabase.table("signal_ic_history")
+                     .select("run_date")
+                     .order("run_date", desc=True).limit(1).execute())
+        date_rows = date_resp.data or []
+        if not date_rows:
+            return section("ic_drift", "unknown", "no signal_ic_history rows yet")
+        latest = date_rows[0]["run_date"]
         resp = (supabase.table("signal_ic_history")
                 .select("run_date,horizon,signal,ic_mean,ic_tstat,sign_flipped")
-                .order("run_date", desc=True).limit(50).execute())
-        rows = resp.data or []
-        if not rows:
-            return section("ic_drift", "unknown", "no signal_ic_history rows yet")
-        latest = rows[0]["run_date"]
-        latest_rows = [r for r in rows if r["run_date"] == latest]
+                .eq("run_date", latest).execute())
+        latest_rows = resp.data or []
         flipped = [r for r in latest_rows if r.get("sign_flipped")]
         if flipped:
             names = ", ".join(f"{r['signal']} (t={r.get('ic_tstat', 0):+.1f})" for r in flipped)
@@ -164,8 +169,13 @@ def check_model(supabase, table: str, label: str) -> dict:
         return section(label, "unknown", f"query failed: {e}")
 
 
+# Round-trip cost assumption kept in sync with track_pick_outcomes.COST_PCT.
+# 60d window is intentionally shorter than report_summary's 120d — catches recent
+# regime drift earlier at the cost of higher variance.
+_OUTCOMES_COST_PCT = 0.30
+
 def check_outcomes(supabase) -> dict:
-    """Realized top-50 hit rate over the last 60 days of resolved picks."""
+    """Realized top-50 hit rate (net of round-trip cost) over the last 60 days."""
     try:
         resp = (supabase.table("pick_history")
                 .select("rank,ret_21d")
@@ -179,12 +189,14 @@ def check_outcomes(supabase) -> dict:
                            f"only {len(rows)} resolved top-50 picks in 60d (need {HIT_RATE_MIN_N})",
                            {"n": len(rows)})
         rets = [r["ret_21d"] for r in rows]
-        hit = 100.0 * sum(1 for x in rets if x > 0) / len(rets)
+        gross_hit = 100.0 * sum(1 for x in rets if x > 0) / len(rets)
+        net_hit   = 100.0 * sum(1 for x in rets if x > _OUTCOMES_COST_PCT) / len(rets)
         mean = sum(rets) / len(rets)
-        status = "ok" if hit >= HIT_RATE_WARN_PCT else "warn"
+        status = "ok" if net_hit >= HIT_RATE_WARN_PCT else "warn"
         return section("outcomes", status,
-                       f"top-50 21d: hit-rate={hit:.0f}% mean={mean:+.2f}% (n={len(rets)})",
-                       {"hit_rate_pct": round(hit, 1), "mean_ret": round(mean, 2), "n": len(rets)})
+                       f"top-50 21d: net-hit={net_hit:.0f}% gross-hit={gross_hit:.0f}% mean={mean:+.2f}% (n={len(rets)})",
+                       {"hit_rate_pct": round(net_hit, 1), "gross_hit_rate_pct": round(gross_hit, 1),
+                        "mean_ret": round(mean, 2), "n": len(rets)})
     except Exception as e:
         return section("outcomes", "unknown", f"query failed: {e}")
 

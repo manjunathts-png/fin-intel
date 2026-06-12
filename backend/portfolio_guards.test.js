@@ -36,7 +36,7 @@ test("crowded sector gets docked beyond the cap", () => {
   const capped = stocks.filter((s) => s.sectorCapped);
   assert.strictEqual(capped.length, 10);
   assert.ok(capped.every((s) => s.sector === "IT"));
-  assert.ok(capped.every((s) => s.sectorCapPenalty === -_config.SECTOR_CAP_DOCK));
+  assert.ok(capped.every((s) => s.sectorCapPenalty === _config.SECTOR_CAP_DOCK));
   // The first 15 IT names keep their score
   assert.strictEqual(stocks[14].compositeScore, 100 - 14);
   // The 16th IT name is docked

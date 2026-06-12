@@ -270,13 +270,16 @@ async function main() {
     console.log(
       `  ${regimeInfo.regime === "risk_off" ? "⚠" : "✓"} regime: ${regimeInfo.regime} ` +
       `(breadth=${regimeInfo.breadthPct}% above 200DMA, niftyRet3m=${regimeInfo.niftyRet3m ?? "n/a"}, ` +
-      `vix=${regimeInfo.indiaVix ?? "n/a"}, fii5d=${regimeInfo.fiiNet5d ?? "n/a"}, ` +
+      `vix=${regimeInfo.indiaVix ?? "n/a"}${regimeInfo.macroStale ? " [stale]" : ""}, fii5d=${regimeInfo.fiiNet5d ?? "n/a"}, ` +
       `${regimePenalized} names docked)`
     );
 
-    // ── Store EOD base score (before smoothing) for intraday anchoring ────────
+    // ── Store EOD base score (before EMA smoothing, after regime docking) ────
+    // Used by refresh-intraday.js as the stable EOD component: eodBase + freshIntraday.
+    // Must be set AFTER applyRegime so regime penalties persist through intraday runs;
+    // if set from raw eodSignalScore the 12-pt dock collapses to ~4 pts during the day.
     for (const p of signals.all) {
-      p.eodBaseScore = Math.max(0, Math.min(100, Math.round(eodSignalScore(p))));
+      p.eodBaseScore = p.compositeScore;
     }
 
     // ── EOD-to-EOD score smoothing (EMA α=0.6) ────────────────────────────

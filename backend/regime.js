@@ -87,6 +87,10 @@ function computeRegime({ stocks = [], niftyReturns = null, macro = null } = {}) 
     niftyRet1m,
     indiaVix,
     fiiNet5d,
+    // macroStale=true when macro was provided but filtered out as too old.
+    // Distinguishes "data unavailable" (macroStale=false, vix=null) from
+    // "data present but stale" (macroStale=true, vix=null) for ops debugging.
+    macroStale: macro != null && (macro.ageDays != null && macro.ageDays > MACRO_MAX_AGE_DAYS),
     bearScore,
     bullScore,
     weakPenalty,

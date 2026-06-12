@@ -1114,12 +1114,14 @@ def upsert_features(supabase, rows: list[dict[str, Any]], batch: int = 300) -> i
     for i in range(0, len(cleaned), batch):
         chunk = cleaned[i : i + batch]
         last_exc: Exception | None = None
+        chunk_written = False
         for attempt in range(4):
             try:
                 supabase.table("stock_features").upsert(
                     chunk, on_conflict="symbol,as_of_date"
                 ).execute()
                 total += len(chunk)
+                chunk_written = True
                 last_exc = None
                 break
             except Exception as exc:
@@ -1127,6 +1129,8 @@ def upsert_features(supabase, rows: list[dict[str, Any]], batch: int = 300) -> i
                 # rejects the whole batch. Drop the offending column and keep
                 # going rather than killing the nightly run — the column fills
                 # in once the migration is applied.
+                # Strip from `cleaned` (not just `chunk`) so later batches
+                # don't re-encounter the same error.
                 m = re.search(r"Could not find the '(\w+)' column", str(exc))
                 if m:
                     missing = m.group(1)
@@ -1146,6 +1150,13 @@ def upsert_features(supabase, rows: list[dict[str, Any]], batch: int = 300) -> i
             raise RuntimeError(
                 f"Supabase upsert failed after 4 attempts: {last_exc}"
             ) from last_exc
+        if not chunk_written:
+            # All 4 attempts stripped a missing column — the batch was never
+            # actually sent. Raise so the caller knows data was not written.
+            raise RuntimeError(
+                f"Supabase upsert skipped batch (rows {i}–{i + len(chunk) - 1}): "
+                "exhausted retries stripping missing columns — apply pending migrations"
+            )
     return total
 
 

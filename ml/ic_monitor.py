@@ -159,7 +159,12 @@ def main():
         sys.exit(1)
     supabase = create_client(url, key)
 
-    df = load_recent_labeled(supabase, ret_col)
+    try:
+        df = load_recent_labeled(supabase, ret_col)
+    except Exception as e:
+        log.warning("Could not load labeled rows from stock_features: %s — "
+                    "check that the table exists and fwd_ret columns are populated", str(e)[:200])
+        return
     if df.empty:
         log.info("No labeled rows available — nothing to monitor")
         return

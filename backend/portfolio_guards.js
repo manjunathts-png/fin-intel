@@ -17,8 +17,11 @@ const UNKNOWN_SECTOR  = "Unknown";
 
 /**
  * Walk the list in rank order; within the top `topN` window, names beyond the
- * per-sector cap get `sectorCapped: true` and a -SECTOR_CAP_DOCK score dock.
+ * per-sector cap get `sectorCapped: true` and a SECTOR_CAP_DOCK score dock.
  * Mutates stocks in place and returns the number docked. Caller re-sorts.
+ *
+ * sectorCapPenalty is a positive magnitude (like regimePenalty, liquidityPenalty)
+ * so callers can sum all penalty fields without sign confusion.
  *
  * Stocks outside the top-N window are untouched (the cap protects what gets
  * published, not the long tail).
@@ -41,7 +44,7 @@ function applySectorCap(stocks, { topN = 50, maxFrac = MAX_SECTOR_FRAC, dock = S
     const n = counts[sector] ?? 0;
     if (n >= maxPerSector) {
       s.sectorCapped = true;
-      s.sectorCapPenalty = -dock;
+      s.sectorCapPenalty = dock;                           // positive magnitude
       s.compositeScore = Math.max(0, s.compositeScore - dock);
       docked++;
       // Docked names still consume their slot this pass — the caller's
