@@ -292,6 +292,19 @@ jobs:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
+      # Nightly health digest: rolls probe status, feature freshness, IC drift,
+      # OOS-vs-CV model gap, and realized hit rate into one markdown summary on
+      # the run page + one row per component in system_health (migration 013).
+      - name: System health digest
+        if: >-
+          (steps.target.outputs.target == 'all' || steps.target.outputs.target == 'stocks') &&
+          steps.dbcheck.outputs.tables_ok == 'true'
+        continue-on-error: true
+        run: python ml/health_report.py
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
       # ── Stock historical backfill (one-shot) ──────────────────────────────────
       # Split into two halves to stay within GitHub's per-step limits.
       # First half: recent 365 days (faster — more cache hits).

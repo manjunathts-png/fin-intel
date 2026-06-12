@@ -15,6 +15,7 @@ const { buildStockDetail, buildMfDetail, buildEtfDetail, buildBatch } = require(
 const { buildSignalsLeaderboard, eodSignalScore }   = require("./stock_signals");
 const { loadMlBlend, applyMlBlend } = require("./ml_blend");
 const { computeRegime, applyRegime } = require("./regime");
+const { applySectorCap, sectorBreakdown } = require("./portfolio_guards");
 const { getDeliveryMap }            = require("./stock_bhavcopy");
 const { getDiscovery, buildSymbolBonuses } = require("./nse_discovery");
 const { getNifty500 }               = require("./nifty500_universe");
@@ -323,6 +324,18 @@ async function main() {
     // Re-sort after fundamental adjustments + smoothing + hysteresis
     signals.all.sort((a, b) => b.compositeScore - a.compositeScore || b.signalCount - a.signalCount);
     signals.all.forEach((s, i) => { s.rank = i + 1; });
+
+    // ── Sector concentration cap (soft) ──────────────────────────────────────
+    // Dock top-50 names beyond 30% from a single sector so one sector-wide
+    // reversal can't take down the whole published list. Re-sort after.
+    const sectorDocked = applySectorCap(signals.all, { topN: 50 });
+    if (sectorDocked > 0) {
+      signals.all.sort((a, b) => b.compositeScore - a.compositeScore || b.signalCount - a.signalCount);
+      signals.all.forEach((s, i) => { s.rank = i + 1; });
+    }
+    const topSectors = sectorBreakdown(signals.all, 50).slice(0, 3)
+      .map((s) => `${s.sector} ${s.pct}%`).join(", ");
+    console.log(`  ✓ sector cap: ${sectorDocked} docked · top-50 mix: ${topSectors}`);
 
     // ── Persistence counters (using FINAL ranks) ──────────────────────────────
     // daysInTop50  = consecutive days in current top 50 (including today)

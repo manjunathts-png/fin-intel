@@ -296,6 +296,32 @@ function overextensionPenalty(sig) {
   return p;
 }
 
+// ── Liquidity guard ───────────────────────────────────────────────────────────
+//
+// ADV (average daily traded value) = 20-day avg volume × close, in ₹ crore.
+// Thin names can score high on signals but can't be entered or exited at the
+// quoted price — slippage eats the edge. Dock them so the published picks stay
+// investable. Missing volume data is left undocked (the micro-cap penalty in
+// refresh-cache already covers most of that cohort via market cap).
+
+const ADV_FLOOR_CR   = 1;   // < ₹1 Cr/day — effectively untradeable for picks
+const ADV_THIN_CR    = 3;   // ₹1-3 Cr/day — heavy slippage on entry/exit
+const ADV_OK_CR      = 5;   // ₹3-5 Cr/day — borderline, mild caution
+
+function advCrore(sig) {
+  if (sig.volumeAvg20 == null || sig.close == null) return null;
+  return (sig.volumeAvg20 * sig.close) / 1e7;   // ₹ → crore
+}
+
+function liquidityPenalty(sig) {
+  const adv = sig.advCr ?? advCrore(sig);
+  if (adv == null) return 0;
+  if (adv < ADV_FLOOR_CR) return -15;
+  if (adv < ADV_THIN_CR)  return -8;
+  if (adv < ADV_OK_CR)    return -3;
+  return 0;
+}
+
 function pullbackBonus(sig) {
   // Only in a confirmed uptrend: above the 200DMA and not lagging the index.
   const uptrend = sig.above200DMA && (sig.rsVsNifty3M ?? 0) >= 0;
@@ -339,6 +365,8 @@ function eodSignalScore(sig) {
   // Entry-timing corrections — penalize chasing, reward buyable pullbacks.
   s += overextensionPenalty(sig);
   s += pullbackBonus(sig);
+  // Investability — dock thin names regardless of how good the signals look.
+  s += liquidityPenalty(sig);
   return s;
 }
 
@@ -469,8 +497,11 @@ function computeSignals(prices, extra = {}) {
   };
 
   // Surface entry-timing adjustments for UI/rationale transparency.
+  const adv = advCrore(sig);
+  sig.advCr = adv != null ? round(adv, 2) : null;
   sig.overextensionPenalty = overextensionPenalty(sig);
   sig.pullbackBonus        = pullbackBonus(sig);
+  sig.liquidityPenalty     = liquidityPenalty(sig);
   sig.compositeScore = compositeScore(sig);
   sig.signalCount    = countBullishSignals(sig);
   return sig;
@@ -600,4 +631,6 @@ module.exports = {
   intradaySignalScore,
   overextensionPenalty,
   pullbackBonus,
+  liquidityPenalty,
+  advCrore,
 };

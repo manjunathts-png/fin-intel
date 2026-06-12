@@ -48,6 +48,16 @@ log = logging.getLogger("track_pick_outcomes")
 CACHE_DIR = Path(__file__).parent / ".cache_stock"
 HORIZONS = {"ret_5d": 5, "ret_10d": 10, "ret_21d": 21}   # trading days after entry
 
+# Round-trip transaction cost in % (brokerage + STT + impact for liquid NSE
+# names). Gross hit rates flatter the system; the net numbers are what an
+# investor actually keeps.
+COST_PCT = 0.30
+
+
+def net_of_cost(returns: pd.Series, cost_pct: float = COST_PCT) -> pd.Series:
+    """Realized returns minus the round-trip transaction cost."""
+    return returns - cost_pct
+
 
 def compute_outcomes(closes: pd.Series, pick_date: date) -> dict[str, Any] | None:
     """Compute entry close + forward returns for one pick from a close series.
@@ -173,11 +183,16 @@ def report_summary(supabase) -> None:
         df = pd.DataFrame(rows)
         top50 = df[df["rank"] <= 50]["ret_21d"]
         rest  = df[df["rank"] > 50]["ret_21d"]
+        net50 = net_of_cost(top50)
         log.info(
             "Outcome summary (last 120d, 21d fwd): top-50 mean=%.2f%% median=%.2f%% "
             "hit-rate(>0)=%.0f%% (n=%d)  |  ranks 51-100 mean=%.2f%% (n=%d)",
             top50.mean(), top50.median(), (top50 > 0).mean() * 100, len(top50),
             rest.mean() if len(rest) else float("nan"), len(rest),
+        )
+        log.info(
+            "Net of %.2f%% round-trip cost: top-50 mean=%.2f%% hit-rate=%.0f%%",
+            COST_PCT, net50.mean(), (net50 > 0).mean() * 100,
         )
     except Exception as e:
         log.debug("Outcome summary failed: %s", e)

@@ -16,6 +16,8 @@ const {
   overextensionPenalty,
   pullbackBonus,
   eodSignalScore,
+  liquidityPenalty,
+  advCrore,
 } = require("./stock_signals");
 
 test("overextension penalty scales with RSI", () => {
@@ -90,5 +92,39 @@ test("exhausted breakout scores below a clean breakout (entry timing inverted)",
   assert.ok(
     eodSignalScore(exhausted) < eodSignalScore(clean),
     `exhausted (${eodSignalScore(exhausted)}) should score below clean (${eodSignalScore(clean)})`,
+  );
+});
+
+// ── Liquidity guard ───────────────────────────────────────────────────────────
+
+test("advCrore converts avg volume × price to ₹ crore", () => {
+  // 100,000 shares/day × ₹500 = ₹5 Cr/day
+  assert.strictEqual(advCrore({ volumeAvg20: 100000, close: 500 }), 5);
+  assert.strictEqual(advCrore({ volumeAvg20: null, close: 500 }), null);
+  assert.strictEqual(advCrore({ volumeAvg20: 100000, close: null }), null);
+});
+
+test("liquidity penalty scales with ADV tiers", () => {
+  assert.strictEqual(liquidityPenalty({ volumeAvg20: 10000,  close: 50 }),  -15, "₹0.05 Cr/day → untradeable");
+  assert.strictEqual(liquidityPenalty({ volumeAvg20: 40000,  close: 500 }), -8,  "₹2 Cr/day → thin");
+  assert.strictEqual(liquidityPenalty({ volumeAvg20: 80000,  close: 500 }), -3,  "₹4 Cr/day → borderline");
+  assert.strictEqual(liquidityPenalty({ volumeAvg20: 200000, close: 500 }), 0,   "₹10 Cr/day → liquid");
+});
+
+test("missing volume data is not punished", () => {
+  assert.strictEqual(liquidityPenalty({ volumeAvg20: null, close: 500 }), 0);
+  assert.strictEqual(liquidityPenalty({}), 0);
+});
+
+test("thin name scores below an identical liquid name", () => {
+  const base = {
+    rsi14: 55, close: 100, dma20: 98, dma50: 95, ret1w: 2,
+    above20DMA: true, above50DMA: true, above200DMA: true, rsVsNifty3M: 8,
+  };
+  const liquid = { ...base, volumeAvg20: 2000000 };   // ₹20 Cr/day
+  const thin   = { ...base, volumeAvg20: 20000 };     // ₹0.2 Cr/day
+  assert.strictEqual(
+    eodSignalScore(liquid) - eodSignalScore(thin), 15,
+    "identical signals, only liquidity differs → exactly the -15 dock"
   );
 });
