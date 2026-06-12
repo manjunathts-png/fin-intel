@@ -407,6 +407,32 @@ def _fetch_ohlcv_bhavcopy(symbol: str, start: str = "2022-01-01") -> pd.DataFram
 
 # ─── Delivery map builder ─────────────────────────────────────────────────────
 
+DELIVERY_LOOKBACK_DAYS = 95   # calendar days of bhavcopy history to load
+
+
+def compute_delivery_z(del_series: pd.Series | None) -> float | None:
+    """Delivery-spike z-score: recent 5-session mean DELIV_PER vs its own
+    63-session baseline (mean/std of the sessions BEFORE the recent 5).
+
+    The spike is more informative than the level — a stock jumping from 15%
+    to 30% delivery signals fresh institutional accumulation, while a stock
+    that always prints 35% is just its normal ownership pattern.
+
+    Returns None when history is too short (<25 sessions) or the baseline
+    has no variance.
+    """
+    if del_series is None or len(del_series) < 25:
+        return None
+    recent = del_series.iloc[-5:]
+    base   = del_series.iloc[:-5].iloc[-63:]
+    if len(base) < 20:
+        return None
+    std = float(base.std(ddof=1))
+    if not np.isfinite(std) or std <= 0:
+        return None
+    return round(float((recent.mean() - base.mean()) / std), 4)
+
+
 def _build_delivery_map(
     stocks: list[Stock],
     dates: list[pd.Timestamp],
@@ -419,10 +445,12 @@ def _build_delivery_map(
     """
     sym_set = {s.symbol for s in stocks}
 
-    # Include a 7-day lookback window so we can compute 5-day rolling averages
+    # 95-day lookback: 5-day rolling average needs ~8 days, but the
+    # delivery_z spike signal needs a 63-session baseline (~90 calendar days).
+    # Only dates with a cached bhavcopy parquet are read — no extra HTTP.
     all_dates: set[pd.Timestamp] = set()
     for d in dates:
-        for i in range(8):
+        for i in range(DELIVERY_LOOKBACK_DAYS):
             candidate = d - pd.Timedelta(days=i)
             if candidate.weekday() < 5:
                 all_dates.add(candidate)
@@ -970,6 +998,7 @@ def build_stock_features(
     # ── Delivery volume % (from bhavcopy DELIV_PER — already cached) ─────────
     del_pct: float | None = None
     del_pct_5d: float | None = None
+    del_z: float | None = None
     if delivery_map and stock.symbol in delivery_map:
         del_ser = delivery_map[stock.symbol]
         sub_del = del_ser[del_ser.index <= as_of]
@@ -977,8 +1006,10 @@ def build_stock_features(
             del_pct = float(sub_del.iloc[-1])
             recent5 = sub_del.iloc[-5:]
             del_pct_5d = float(recent5.mean()) if len(recent5) >= 3 else None
+            del_z = compute_delivery_z(sub_del)
     feats["delivery_pct"]     = del_pct
     feats["delivery_pct_5d_avg"] = del_pct_5d
+    feats["delivery_z"]       = del_z
 
     return feats
 
@@ -1083,15 +1114,31 @@ def upsert_features(supabase, rows: list[dict[str, Any]], batch: int = 300) -> i
     for i in range(0, len(cleaned), batch):
         chunk = cleaned[i : i + batch]
         last_exc: Exception | None = None
+        chunk_written = False
         for attempt in range(4):
             try:
                 supabase.table("stock_features").upsert(
                     chunk, on_conflict="symbol,as_of_date"
                 ).execute()
                 total += len(chunk)
+                chunk_written = True
                 last_exc = None
                 break
             except Exception as exc:
+                # Schema drift (new feature column not yet migrated): PostgREST
+                # rejects the whole batch. Drop the offending column and keep
+                # going rather than killing the nightly run — the column fills
+                # in once the migration is applied.
+                # Strip from `cleaned` (not just `chunk`) so later batches
+                # don't re-encounter the same error.
+                m = re.search(r"Could not find the '(\w+)' column", str(exc))
+                if m:
+                    missing = m.group(1)
+                    log.warning("Column '%s' missing in stock_features — dropping it "
+                                "from this run (apply migrate_012 to enable)", missing)
+                    cleaned = [{k: v for k, v in r.items() if k != missing} for r in cleaned]
+                    chunk   = [{k: v for k, v in r.items() if k != missing} for r in chunk]
+                    continue
                 last_exc = exc
                 wait = 5 * (3 ** attempt)
                 log.warning(
@@ -1103,6 +1150,13 @@ def upsert_features(supabase, rows: list[dict[str, Any]], batch: int = 300) -> i
             raise RuntimeError(
                 f"Supabase upsert failed after 4 attempts: {last_exc}"
             ) from last_exc
+        if not chunk_written:
+            # All 4 attempts stripped a missing column — the batch was never
+            # actually sent. Raise so the caller knows data was not written.
+            raise RuntimeError(
+                f"Supabase upsert skipped batch (rows {i}–{i + len(chunk) - 1}): "
+                "exhausted retries stripping missing columns — apply pending migrations"
+            )
     return total
 
 
@@ -1283,4 +1337,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    from script_runner import run
+    run(main)

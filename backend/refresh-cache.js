@@ -15,6 +15,7 @@ const { buildStockDetail, buildMfDetail, buildEtfDetail, buildBatch } = require(
 const { buildSignalsLeaderboard, eodSignalScore }   = require("./stock_signals");
 const { loadMlBlend, applyMlBlend } = require("./ml_blend");
 const { computeRegime, applyRegime } = require("./regime");
+const { applySectorCap, sectorBreakdown } = require("./portfolio_guards");
 const { getDeliveryMap }            = require("./stock_bhavcopy");
 const { getDiscovery, buildSymbolBonuses } = require("./nse_discovery");
 const { getNifty500 }               = require("./nifty500_universe");
@@ -242,17 +243,43 @@ async function main() {
     // ── Market-regime filter ──────────────────────────────────────────────────
     // In a weak/narrow tape, dock falling-knife names so picks concentrate in
     // resilient leaders. Applied before smoothing so it persists via the anchor.
-    const regimeInfo = computeRegime({ stocks: signals.all, niftyReturns });
+    // VIX + FII flows (written daily by ml/macro_features.py into stock_features)
+    // make the regime adaptive: stress amplifies the overextension docks.
+    let macroSnap = null;
+    try {
+      const { data: macroRows } = await supabase
+        .from("stock_features")
+        .select("as_of_date,india_vix,fii_net_5d")
+        .not("india_vix", "is", null)
+        .order("as_of_date", { ascending: false })
+        .limit(1);
+      if (macroRows?.length) {
+        const ageDays = (Date.now() - new Date(macroRows[0].as_of_date + "T00:00:00Z").getTime()) / 86400000;
+        macroSnap = {
+          indiaVix: macroRows[0].india_vix,
+          fiiNet5d: macroRows[0].fii_net_5d,
+          ageDays:  Math.round(ageDays * 10) / 10,
+        };
+        console.log(`  ✓ macro snapshot: VIX=${macroSnap.indiaVix} fiiNet5d=${macroSnap.fiiNet5d ?? "n/a"} (${macroSnap.ageDays}d old)`);
+      }
+    } catch (e) {
+      console.warn(`  ⚠ macro snapshot unavailable: ${e.message}`);
+    }
+    const regimeInfo = computeRegime({ stocks: signals.all, niftyReturns, macro: macroSnap });
     const regimePenalized = applyRegime(signals.all, regimeInfo);
     console.log(
       `  ${regimeInfo.regime === "risk_off" ? "⚠" : "✓"} regime: ${regimeInfo.regime} ` +
-      `(breadth=${regimeInfo.breadthPct}% above 200DMA, niftyRet3m=${regimeInfo.niftyRet3m ?? "n/a"}` +
-      `, ${regimePenalized} weak names docked)`
+      `(breadth=${regimeInfo.breadthPct}% above 200DMA, niftyRet3m=${regimeInfo.niftyRet3m ?? "n/a"}, ` +
+      `vix=${regimeInfo.indiaVix ?? "n/a"}${regimeInfo.macroStale ? " [stale]" : ""}, fii5d=${regimeInfo.fiiNet5d ?? "n/a"}, ` +
+      `${regimePenalized} names docked)`
     );
 
-    // ── Store EOD base score (before smoothing) for intraday anchoring ────────
+    // ── Store EOD base score (before EMA smoothing, after regime docking) ────
+    // Used by refresh-intraday.js as the stable EOD component: eodBase + freshIntraday.
+    // Must be set AFTER applyRegime so regime penalties persist through intraday runs;
+    // if set from raw eodSignalScore the 12-pt dock collapses to ~4 pts during the day.
     for (const p of signals.all) {
-      p.eodBaseScore = Math.max(0, Math.min(100, Math.round(eodSignalScore(p))));
+      p.eodBaseScore = p.compositeScore;
     }
 
     // ── EOD-to-EOD score smoothing (EMA α=0.6) ────────────────────────────
@@ -301,6 +328,18 @@ async function main() {
     signals.all.sort((a, b) => b.compositeScore - a.compositeScore || b.signalCount - a.signalCount);
     signals.all.forEach((s, i) => { s.rank = i + 1; });
 
+    // ── Sector concentration cap (soft) ──────────────────────────────────────
+    // Dock top-50 names beyond 30% from a single sector so one sector-wide
+    // reversal can't take down the whole published list. Re-sort after.
+    const sectorDocked = applySectorCap(signals.all, { topN: 50 });
+    if (sectorDocked > 0) {
+      signals.all.sort((a, b) => b.compositeScore - a.compositeScore || b.signalCount - a.signalCount);
+      signals.all.forEach((s, i) => { s.rank = i + 1; });
+    }
+    const topSectors = sectorBreakdown(signals.all, 50).slice(0, 3)
+      .map((s) => `${s.sector} ${s.pct}%`).join(", ");
+    console.log(`  ✓ sector cap: ${sectorDocked} docked · top-50 mix: ${topSectors}`);
+
     // ── Persistence counters (using FINAL ranks) ──────────────────────────────
     // daysInTop50  = consecutive days in current top 50 (including today)
     // daysInTop100 = consecutive days in current top 100 (including today)
@@ -347,6 +386,30 @@ async function main() {
       });
       console.log(`  ✓ ${signals.picks.length} top picks ranked (${signals.scanned} of ${signals.universe} stocks scanned)`);
       if (signals.warnings?.length) console.warn(`  warnings (${signals.warnings.length} total, first 5):`, signals.warnings.slice(0, 5));
+
+      // ── Realized-P&L feedback loop: snapshot today's top 100 ─────────────
+      // ml/track_pick_outcomes.py later backfills ret_5d/10d/21d from the
+      // OHLCV cache. Without this snapshot there is no ground truth on
+      // whether the published picks actually made money.
+      try {
+        const pickDate = new Date().toISOString().slice(0, 10);
+        const histRows = signals.all.slice(0, 100).map((p) => ({
+          pick_date:       pickDate,
+          symbol:          p.symbol,
+          rank:            p.rank,
+          composite_score: p.compositeScore ?? null,
+          eod_base_score:  p.eodBaseScore ?? null,
+          ml_score:        p.mlScore ?? null,
+          days_in_top50:   p.daysInTop50 ?? null,
+        }));
+        const { error: histErr } = await supabase
+          .from("pick_history")
+          .upsert(histRows, { onConflict: "pick_date,symbol" });
+        if (histErr) console.warn(`  ⚠ pick_history snapshot failed: ${histErr.message} (run migrate_012?)`);
+        else console.log(`  ✓ pick_history snapshot: ${histRows.length} rows for ${pickDate}`);
+      } catch (e) {
+        console.warn(`  ⚠ pick_history snapshot failed: ${e.message}`);
+      }
     }
 
     console.log("Generating rule-based stock rationales…");

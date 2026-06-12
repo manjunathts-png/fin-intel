@@ -36,6 +36,8 @@ import pandas as pd
 from dotenv import load_dotenv
 from supabase import create_client
 
+from config import max_label_gap_days
+
 load_dotenv()
 load_dotenv(Path(__file__).parent.parent / "backend" / ".env", override=False)
 logging.basicConfig(
@@ -139,6 +141,8 @@ def compute_labels(
 
     cache_dir = Path(__file__).parent / ".cache_nav"
     total_labeled = 0
+    max_gap = max_label_gap_days(fwd_days)
+    stale_skipped = 0
 
     # Group by as_of_date for efficient batch processing
     date_groups = unlabeled.groupby("as_of_date")
@@ -205,10 +209,12 @@ def compute_labels(
                         nav_past = float(past.iloc[-1]["nav"])
                         nav_fut  = float(fut.iloc[-1]["nav"])
                         actual_fut_date = fut.iloc[-1]["date"]
-                        # Staleness guard: if the closest future NAV is >30 days
-                        # away from target_date, the label measures the wrong window.
+                        # Staleness guard: if the closest future NAV is too far
+                        # from target_date, the label measures the wrong window
+                        # (14d tolerance for 3M labels, 7d for 1M — see config).
                         gap_days = abs((pd.Timestamp(target_date) - actual_fut_date).days)
-                        if gap_days > 30:
+                        if gap_days > max_gap:
+                            stale_skipped += 1
                             log.debug(
                                 "Skipping stale label for %s as_of=%s: "
                                 "future NAV date %s is %d days from target %s",
@@ -265,6 +271,11 @@ def compute_labels(
             update["fwd_top_sharpe_q_3m"] = top_sharpe_q_map.get(code)
 
             updates.append(update)
+
+    if stale_skipped:
+        log.warning("Skipped %d stale labels (NAV gap > %dd from target date) — "
+                    "they will retry on future runs as fresher NAV arrives",
+                    stale_skipped, max_gap)
 
     if not updates:
         log.info("No rows ready to label")
@@ -458,7 +469,7 @@ def main():
         df = load_sharpe_unlabeled(supabase, cutoff)
         if df.empty:
             log.info("All labeled rows already have Sharpe labels — nothing to do.")
-            sys.exit(0)
+            return
         n = backfill_sharpe_labels(df, supabase, fwd_days=args.window, dry_run=args.dry_run)
         log.info("Done. Sharpe backfill: %d rows processed.", n)
         return
@@ -468,7 +479,7 @@ def main():
 
     if unlabeled.empty:
         log.info("Nothing to label — run extract_features.py --backfill 365 first")
-        sys.exit(0)
+        return
 
     n = compute_labels(
         unlabeled, supabase,
@@ -482,4 +493,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    from script_runner import run
+    run(main)

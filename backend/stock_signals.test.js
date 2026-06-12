@@ -16,6 +16,8 @@ const {
   overextensionPenalty,
   pullbackBonus,
   eodSignalScore,
+  liquidityPenalty,
+  advCrore,
 } = require("./stock_signals");
 
 test("overextension penalty scales with RSI", () => {
@@ -25,13 +27,32 @@ test("overextension penalty scales with RSI", () => {
   assert.strictEqual(overextensionPenalty({ rsi14: 82 }), -15, "RSI 82 → -15");
 });
 
-test("overextension penalty stacks RSI + stretch + spike + blow-off", () => {
+test("overextension penalty stacks RSI + stretch + spike + blow-off + BB + 3M", () => {
   const exhausted = {
-    rsi14: 82, close: 135, dma50: 100, dma20: 120, ret1w: 28,
+    rsi14: 82, close: 135, dma50: 100, dma20: 120, ret1w: 28, ret3m: 40, bbPct: 0.97,
     above50DMA: true, above200DMA: true, near52wHigh: { fired: true }, rsVsNifty3M: 20,
   };
-  // -15 (RSI≥80) -12 (≥30% above 50DMA) -12 (≥25% week) -6 (blow-off top) = -45
-  assert.strictEqual(overextensionPenalty(exhausted), -45);
+  // -15 (RSI≥80) -12 (≥30% above 50DMA) -12 (≥25% week) -6 (blow-off) -6 (bbPct≥0.95) -8 (ret3m≥35) = -59
+  assert.strictEqual(overextensionPenalty(exhausted), -59);
+});
+
+test("overextension: 1-week threshold fires at 10%, raised middle tier", () => {
+  assert.strictEqual(overextensionPenalty({ ret1w: 8 }),  0,   "ret1w 8% → below new threshold");
+  assert.strictEqual(overextensionPenalty({ ret1w: 10 }), -4,  "ret1w 10% → -4 (new tier)");
+  assert.strictEqual(overextensionPenalty({ ret1w: 16 }), -8,  "ret1w 16% → -8 (raised from -6)");
+  assert.strictEqual(overextensionPenalty({ ret1w: 25 }), -12, "ret1w 25% → -12 (unchanged)");
+});
+
+test("overextension: upper Bollinger Band penalty fires above 0.85", () => {
+  assert.strictEqual(overextensionPenalty({ bbPct: 0.80 }), 0,  "bbPct 0.80 → 0");
+  assert.strictEqual(overextensionPenalty({ bbPct: 0.88 }), -3, "bbPct 0.88 → -3");
+  assert.strictEqual(overextensionPenalty({ bbPct: 0.96 }), -6, "bbPct 0.96 → -6");
+});
+
+test("overextension: 3M momentum reversal fires above 20% (IC = -0.033, t = -4.22)", () => {
+  assert.strictEqual(overextensionPenalty({ ret3m: 15 }), 0,  "ret3m 15% → 0");
+  assert.strictEqual(overextensionPenalty({ ret3m: 25 }), -4, "ret3m 25% → -4");
+  assert.strictEqual(overextensionPenalty({ ret3m: 40 }), -8, "ret3m 40% → -8");
 });
 
 test("clean early breakout is not penalised", () => {
@@ -71,5 +92,39 @@ test("exhausted breakout scores below a clean breakout (entry timing inverted)",
   assert.ok(
     eodSignalScore(exhausted) < eodSignalScore(clean),
     `exhausted (${eodSignalScore(exhausted)}) should score below clean (${eodSignalScore(clean)})`,
+  );
+});
+
+// ── Liquidity guard ───────────────────────────────────────────────────────────
+
+test("advCrore converts avg volume × price to ₹ crore", () => {
+  // 100,000 shares/day × ₹500 = ₹5 Cr/day
+  assert.strictEqual(advCrore({ volumeAvg20: 100000, close: 500 }), 5);
+  assert.strictEqual(advCrore({ volumeAvg20: null, close: 500 }), null);
+  assert.strictEqual(advCrore({ volumeAvg20: 100000, close: null }), null);
+});
+
+test("liquidity penalty scales with ADV tiers", () => {
+  assert.strictEqual(liquidityPenalty({ volumeAvg20: 10000,  close: 50 }),  -15, "₹0.05 Cr/day → untradeable");
+  assert.strictEqual(liquidityPenalty({ volumeAvg20: 40000,  close: 500 }), -8,  "₹2 Cr/day → thin");
+  assert.strictEqual(liquidityPenalty({ volumeAvg20: 80000,  close: 500 }), -3,  "₹4 Cr/day → borderline");
+  assert.strictEqual(liquidityPenalty({ volumeAvg20: 200000, close: 500 }), 0,   "₹10 Cr/day → liquid");
+});
+
+test("missing volume data is not punished", () => {
+  assert.strictEqual(liquidityPenalty({ volumeAvg20: null, close: 500 }), 0);
+  assert.strictEqual(liquidityPenalty({}), 0);
+});
+
+test("thin name scores below an identical liquid name", () => {
+  const base = {
+    rsi14: 55, close: 100, dma20: 98, dma50: 95, ret1w: 2,
+    above20DMA: true, above50DMA: true, above200DMA: true, rsVsNifty3M: 8,
+  };
+  const liquid = { ...base, volumeAvg20: 2000000 };   // ₹20 Cr/day
+  const thin   = { ...base, volumeAvg20: 20000 };     // ₹0.2 Cr/day
+  assert.strictEqual(
+    eodSignalScore(liquid) - eodSignalScore(thin), 15,
+    "identical signals, only liquidity differs → exactly the -15 dock"
   );
 });

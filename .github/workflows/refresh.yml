@@ -72,6 +72,13 @@ jobs:
             echo "target=intraday" >> $GITHUB_OUTPUT
           fi
 
+      # Fast stdlib-only connectivity check on all external sources — surfaces
+      # an outage at the TOP of the log instead of as fetch errors 20 min in.
+      # Writes ml/source_status.json. Never blocks the run.
+      - name: Pre-flight data source probe
+        continue-on-error: true
+        run: python3 ml/probe_sources.py
+
       - name: Restore persistence counters (one-time recovery)
         if: steps.target.outputs.target == 'restore_persistence'
         run: node backend/restore-persistence.js
@@ -248,6 +255,31 @@ jobs:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
+      # Realized-P&L feedback loop: backfill forward returns for past pick
+      # snapshots (pick_history) from the OHLCV cache, and log the headline
+      # top-50 hit rate. Non-blocking.
+      - name: Track pick outcomes (realized P&L)
+        if: >-
+          (steps.target.outputs.target == 'all' || steps.target.outputs.target == 'stocks') &&
+          steps.dbcheck.outputs.tables_ok == 'true'
+        continue-on-error: true
+        run: python ml/track_pick_outcomes.py
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # Signal-drift detection: rolling 30-date IC per scored signal vs the
+      # calibration backtest's expected sign. Warns when a penalty's edge flips.
+      - name: Monitor rolling signal IC (drift detection)
+        if: >-
+          (steps.target.outputs.target == 'all' || steps.target.outputs.target == 'stocks') &&
+          steps.dbcheck.outputs.tables_ok == 'true'
+        continue-on-error: true
+        run: python ml/ic_monitor.py --horizon 1m
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
       - name: Train stock models — 3M and 1M horizons
         if: >-
           (steps.target.outputs.target == 'all' || steps.target.outputs.target == 'stocks') &&
@@ -256,6 +288,19 @@ jobs:
           python ml/train_stock.py --horizon 3m || echo "Stock 3M training skipped"
           python ml/train_stock.py --horizon 3m --sharpe-target || echo "Stock 3M sharpe skipped"
           python ml/train_stock.py --horizon 1m || echo "Stock 1M training skipped"
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # Nightly health digest: rolls probe status, feature freshness, IC drift,
+      # OOS-vs-CV model gap, and realized hit rate into one markdown summary on
+      # the run page + one row per component in system_health (migration 013).
+      - name: System health digest
+        if: >-
+          (steps.target.outputs.target == 'all' || steps.target.outputs.target == 'stocks') &&
+          steps.dbcheck.outputs.tables_ok == 'true'
+        continue-on-error: true
+        run: python ml/health_report.py
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

@@ -138,6 +138,33 @@ class TestStockFeatureSafety:
             "The fwd_ prefix rule should catch this automatically."
         )
 
+    def test_snapshot_fundamentals_excluded_from_training(self):
+        """Yahoo fundamentals are fetched TODAY and stamped on historical rows
+        — a point-in-time violation. They must not be model features (they
+        remain in the DB for the JS scoring layer, where today's value is
+        correct)."""
+        snapshot_cols = {
+            "pe_ratio": [22.5, 30.1], "pb_ratio": [3.2, 8.1], "roe": [0.18, 0.42],
+            "revenue_growth": [0.12, 0.08], "earnings_growth": [0.25, 0.15],
+            "profit_margins": [0.09, 0.22], "debt_to_equity": [45.0, 2.0],
+            "dividend_yield": [0.005, 0.012],
+            "eps_beat_rate_4q": [0.75, 1.0], "eps_surprise_avg_4q": [4.2, 8.1],
+            "eps_qoq_slope": [0.5, 1.2], "eps_rev_30d": [1.1, -0.4], "eps_rev_90d": [2.3, 0.8],
+        }
+        df = _stock_df(**snapshot_cols)
+        features = get_stock_feature_cols(df)
+        for col in snapshot_cols:
+            assert col not in features, (
+                f"Snapshot fundamental '{col}' leaked into training features — "
+                "point-in-time violation (today's value stamped on historical rows)"
+            )
+
+    def test_delivery_z_is_a_feature(self):
+        """delivery_z is computed point-in-time from bhavcopy history — it IS a
+        legitimate feature and must auto-discover."""
+        df = _stock_df(delivery_z=[2.1, -0.3])
+        assert "delivery_z" in get_stock_feature_cols(df)
+
 
 # ─── MF feature safety tests ──────────────────────────────────────────────────
 

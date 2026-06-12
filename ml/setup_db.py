@@ -109,4 +109,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    from script_runner import run
+    run(main)

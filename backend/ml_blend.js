@@ -55,6 +55,28 @@ function daysBetween(aIso, b = new Date()) {
 }
 
 /**
+ * Recent model runs, newest first. Prefers selecting oos_auc alongside cv_auc;
+ * pre-migration-012 DBs lack the column, so retry with cv_auc only.
+ * Throws on a hard query error.
+ */
+async function fetchModelRuns(supabase, limit = 8) {
+  let r = await supabase
+    .from("stock_model_runs")
+    .select("cv_auc,oos_auc,trained_at")
+    .order("trained_at", { ascending: false })
+    .limit(limit);
+  if (r.error) {
+    r = await supabase
+      .from("stock_model_runs")
+      .select("cv_auc,trained_at")
+      .order("trained_at", { ascending: false })
+      .limit(limit);
+    if (r.error) throw new Error(`model_runs error: ${r.error.message}`);
+  }
+  return r.data ?? [];
+}
+
+/**
  * Load the gated ML blend from Supabase. Never throws — on any problem it
  * returns a zero-weight blend so the pick build proceeds untouched.
  *
@@ -98,15 +120,25 @@ async function loadMlBlend(supabase) {
     }
     if (scored.length < MIN_PREDS) return inert(`too few scored stocks (${scored.length})`, { predDate });
 
-    // 3. Measured edge — best CV AUC among recent model runs
-    const { data: runs, error: e3 } = await supabase
-      .from("stock_model_runs")
-      .select("cv_auc,trained_at")
-      .order("trained_at", { ascending: false })
-      .limit(8);
-    if (e3) return inert(`model_runs error: ${e3.message}`, { predDate });
-    const aucs = (runs ?? []).map((r) => r.cv_auc).filter((a) => a != null && isFinite(a));
-    const bestAuc = aucs.length ? Math.max(...aucs) : null;
+    // 3. Measured edge among recent model runs.
+    // Prefer the walk-forward out-of-sample AUC (last 90d of labels held out
+    // from training — see ml/oos.py): CV folds overlap the training
+    // distribution and overstate live edge. Runs predating migration 012 only
+    // have cv_auc, so fall back per-run.
+    let runs;
+    try {
+      runs = await fetchModelRuns(supabase);
+    } catch (e) {
+      return inert(e.message, { predDate });
+    }
+    const effective = runs
+      .map((r) => ({ auc: r.oos_auc ?? r.cv_auc, source: r.oos_auc != null ? "oos" : "cv" }))
+      .filter((x) => x.auc != null && isFinite(x.auc));
+    const best = effective.length
+      ? effective.reduce((a, b) => (b.auc > a.auc ? b : a))
+      : null;
+    const bestAuc = best?.auc ?? null;
+    const aucSource = best?.source ?? null;
 
     const weight = blendWeightForAuc(bestAuc);
     const bySymbol = toPercentileMap(scored);
@@ -116,7 +148,7 @@ async function loadMlBlend(supabase) {
       meta: {
         active: weight > 0,
         reason: weight > 0 ? "blended" : `AUC ${bestAuc?.toFixed(3) ?? "n/a"} < gate ${AUC_GATE}`,
-        predDate, probCol, cvAuc: bestAuc, scored: scored.length, weight,
+        predDate, probCol, cvAuc: bestAuc, aucSource, scored: scored.length, weight,
       },
     };
   } catch (e) {

@@ -40,6 +40,22 @@ _MF_NON_FEATURE_COLS: frozenset[str] = frozenset({
     "id", "created_at", "updated_at",
 })
 
+# Snapshot fundamentals: fetched TODAY (Yahoo quoteSummary) and stamped onto
+# every historical feature row during backfills. In training, the model sees
+# a stock's CURRENT P/E / ROE / analyst revisions attached to rows from up to
+# 2 years ago — a point-in-time violation that both leaks future information
+# into CV metrics and degrades the live signal (the training relationship
+# "current fundamentals → past-period forward return" doesn't exist live).
+# Excluded from MODEL features only: the columns are still written to the DB
+# and the JS scoring layer still applies fundamentals bonuses at inference,
+# where "today's value" is exactly right.
+_STOCK_SNAPSHOT_FUNDAMENTAL_COLS: frozenset[str] = frozenset({
+    "pe_ratio", "pb_ratio", "roe", "revenue_growth", "earnings_growth",
+    "profit_margins", "debt_to_equity", "dividend_yield",
+    "eps_beat_rate_4q", "eps_surprise_avg_4q", "eps_qoq_slope",
+    "eps_rev_30d", "eps_rev_90d",
+})
+
 _STOCK_NON_FEATURE_COLS: frozenset[str] = frozenset({
     # ── Identifiers ────────────────────────────────────────────────────────
     "symbol", "as_of_date", "sector", "stock_name",
@@ -92,8 +108,9 @@ def get_stock_feature_cols(df) -> list[str]:
     """
     numeric = df.select_dtypes(include=["number"]).columns.tolist()
     return [c for c in numeric
-            if not c.startswith("fwd_")             # Layer 1: prefix rule
-            and c not in _STOCK_NON_FEATURE_COLS]   # Layer 2: explicit blocklist
+            if not c.startswith("fwd_")                       # Layer 1: prefix rule
+            and c not in _STOCK_NON_FEATURE_COLS              # Layer 2: explicit blocklist
+            and c not in _STOCK_SNAPSHOT_FUNDAMENTAL_COLS]    # Layer 3: point-in-time unsafe
 
 
 # ─── MF model targets ─────────────────────────────────────────────────────────
@@ -158,6 +175,24 @@ CATEGORY_GROUPS: dict[str, str] = {
 
 RISK_FREE_RATE = 0.07   # India 10Y G-Sec rough proxy
 TRADING_DAYS   = 252
+
+# Round-trip transaction cost in % (brokerage + STT + impact for liquid NSE
+# names). Gross hit rates flatter the system; the net numbers are what an
+# investor actually keeps. Single source of truth — used by both
+# track_pick_outcomes.py (120d summary) and health_report.py (60d digest).
+ROUND_TRIP_COST_PCT = 0.30
+
+
+def max_label_gap_days(fwd_days: int) -> int:
+    """Max allowed distance between the label's target date and the nearest
+    available price/NAV when computing a forward return.
+
+    The old flat 30-day tolerance let a "90-day" label measure a 60-day
+    window — a 33% horizon error silently entering the training set.
+    Tightened to 14d for the 3M window and 7d for the 1M window (a 1M label
+    with a 30d gap would measure a near-zero-length window).
+    """
+    return 14 if fwd_days >= 60 else 7
 
 
 # ─── Backwards compatibility ──────────────────────────────────────────────────
