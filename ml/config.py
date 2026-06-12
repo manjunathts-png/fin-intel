@@ -176,6 +176,12 @@ CATEGORY_GROUPS: dict[str, str] = {
 RISK_FREE_RATE = 0.07   # India 10Y G-Sec rough proxy
 TRADING_DAYS   = 252
 
+# Round-trip transaction cost in % (brokerage + STT + impact for liquid NSE
+# names). Gross hit rates flatter the system; the net numbers are what an
+# investor actually keeps. Single source of truth — used by both
+# track_pick_outcomes.py (120d summary) and health_report.py (60d digest).
+ROUND_TRIP_COST_PCT = 0.30
+
 
 def max_label_gap_days(fwd_days: int) -> int:
     """Max allowed distance between the label's target date and the nearest

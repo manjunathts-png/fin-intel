@@ -48,10 +48,7 @@ log = logging.getLogger("track_pick_outcomes")
 CACHE_DIR = Path(__file__).parent / ".cache_stock"
 HORIZONS = {"ret_5d": 5, "ret_10d": 10, "ret_21d": 21}   # trading days after entry
 
-# Round-trip transaction cost in % (brokerage + STT + impact for liquid NSE
-# names). Gross hit rates flatter the system; the net numbers are what an
-# investor actually keeps.
-COST_PCT = 0.30
+from config import ROUND_TRIP_COST_PCT as COST_PCT
 
 
 def net_of_cost(returns: pd.Series, cost_pct: float = COST_PCT) -> pd.Series:
@@ -227,12 +224,5 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except SystemExit as e:
-        os._exit(e.code if isinstance(e.code, int) else 1)
-    except Exception:
-        import traceback
-        traceback.print_exc()
-        os._exit(1)
-    os._exit(0)
+    from script_runner import run
+    run(main)

@@ -807,12 +807,5 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except SystemExit as e:
-        os._exit(e.code if isinstance(e.code, int) else 1)
-    except Exception:
-        import traceback
-        traceback.print_exc()
-        os._exit(1)
-    os._exit(0)
+    from script_runner import run
+    run(main)

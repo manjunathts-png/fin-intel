@@ -55,6 +55,28 @@ function daysBetween(aIso, b = new Date()) {
 }
 
 /**
+ * Recent model runs, newest first. Prefers selecting oos_auc alongside cv_auc;
+ * pre-migration-012 DBs lack the column, so retry with cv_auc only.
+ * Throws on a hard query error.
+ */
+async function fetchModelRuns(supabase, limit = 8) {
+  let r = await supabase
+    .from("stock_model_runs")
+    .select("cv_auc,oos_auc,trained_at")
+    .order("trained_at", { ascending: false })
+    .limit(limit);
+  if (r.error) {
+    r = await supabase
+      .from("stock_model_runs")
+      .select("cv_auc,trained_at")
+      .order("trained_at", { ascending: false })
+      .limit(limit);
+    if (r.error) throw new Error(`model_runs error: ${r.error.message}`);
+  }
+  return r.data ?? [];
+}
+
+/**
  * Load the gated ML blend from Supabase. Never throws — on any problem it
  * returns a zero-weight blend so the pick build proceeds untouched.
  *
@@ -102,28 +124,14 @@ async function loadMlBlend(supabase) {
     // Prefer the walk-forward out-of-sample AUC (last 90d of labels held out
     // from training — see ml/oos.py): CV folds overlap the training
     // distribution and overstate live edge. Runs predating migration 012 only
-    // have cv_auc, so fall back per-run; pre-migration DBs lack the column
-    // entirely, so fall back per-query too.
-    let runs = null;
-    {
-      const r1 = await supabase
-        .from("stock_model_runs")
-        .select("cv_auc,oos_auc,trained_at")
-        .order("trained_at", { ascending: false })
-        .limit(8);
-      if (r1.error) {
-        const r2 = await supabase
-          .from("stock_model_runs")
-          .select("cv_auc,trained_at")
-          .order("trained_at", { ascending: false })
-          .limit(8);
-        if (r2.error) return inert(`model_runs error: ${r2.error.message}`, { predDate });
-        runs = r2.data;
-      } else {
-        runs = r1.data;
-      }
+    // have cv_auc, so fall back per-run.
+    let runs;
+    try {
+      runs = await fetchModelRuns(supabase);
+    } catch (e) {
+      return inert(e.message, { predDate });
     }
-    const effective = (runs ?? [])
+    const effective = runs
       .map((r) => ({ auc: r.oos_auc ?? r.cv_auc, source: r.oos_auc != null ? "oos" : "cv" }))
       .filter((x) => x.auc != null && isFinite(x.auc));
     const best = effective.length

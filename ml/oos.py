@@ -117,3 +117,24 @@ def evaluate_oos(
             metrics["oos_auc"], metrics["oos_precision_top_q"],
         )
     return metrics
+
+
+OOS_RUN_COLS = ("oos_auc", "oos_precision_top_q", "oos_samples")
+
+
+def insert_model_run(supabase, table: str, row: dict) -> None:
+    """Insert a model-run row; if the oos_* columns don't exist yet
+    (migration 012 not applied), retry without them.
+
+    Shared by train.py (mf_model_runs) and train_stock.py (stock_model_runs)
+    so the fallback behavior can't drift between the two trainers.
+    """
+    try:
+        supabase.table(table).insert(row).execute()
+    except Exception as e:
+        if "oos_" not in str(e):
+            raise
+        for k in OOS_RUN_COLS:
+            row.pop(k, None)
+        supabase.table(table).insert(row).execute()
+        log.warning("%s lacks oos_* columns — run migrate_012 (dispatch target=migrate)", table)

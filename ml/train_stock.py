@@ -39,7 +39,7 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 from config import STOCK_SHARPE_TARGET_COL, STOCK_TARGET_COL, get_stock_feature_cols
-from oos import evaluate_oos
+from oos import evaluate_oos, insert_model_run
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -375,16 +375,7 @@ def write_model_run(supabase, model_version, feature_count, training_samples,
         "feature_importance": feature_importance,
         "notes":              notes,
     }
-    try:
-        supabase.table("stock_model_runs").insert(row).execute()
-    except Exception as e:
-        if "oos_" not in str(e):
-            raise
-        # oos_* columns missing — migration 012 not applied yet. Log without them.
-        for k in ("oos_auc", "oos_precision_top_q", "oos_samples"):
-            row.pop(k, None)
-        supabase.table("stock_model_runs").insert(row).execute()
-        log.warning("stock_model_runs lacks oos_* columns — run migrate_012 (dispatch target=migrate)")
+    insert_model_run(supabase, "stock_model_runs", row)
     log.info("Logged model run: %s  AUC=%.3f  OOS-AUC=%s", model_version,
              cv_metrics.get("cv_auc") or 0,
              f"{cv_metrics['oos_auc']:.3f}" if cv_metrics.get("oos_auc") is not None else "n/a")
@@ -540,12 +531,5 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except SystemExit as e:
-        os._exit(e.code if isinstance(e.code, int) else 1)
-    except Exception:
-        import traceback
-        traceback.print_exc()
-        os._exit(1)
-    os._exit(0)
+    from script_runner import run
+    run(main)

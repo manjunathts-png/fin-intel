@@ -39,6 +39,8 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from config import ROUND_TRIP_COST_PCT
+
 load_dotenv()
 load_dotenv(Path(__file__).parent.parent / "backend" / ".env", override=False)
 logging.basicConfig(
@@ -169,10 +171,8 @@ def check_model(supabase, table: str, label: str) -> dict:
         return section(label, "unknown", f"query failed: {e}")
 
 
-# Round-trip cost assumption kept in sync with track_pick_outcomes.COST_PCT.
 # 60d window is intentionally shorter than report_summary's 120d — catches recent
 # regime drift earlier at the cost of higher variance.
-_OUTCOMES_COST_PCT = 0.30
 
 def check_outcomes(supabase) -> dict:
     """Realized top-50 hit rate (net of round-trip cost) over the last 60 days."""
@@ -190,7 +190,7 @@ def check_outcomes(supabase) -> dict:
                            {"n": len(rows)})
         rets = [r["ret_21d"] for r in rows]
         gross_hit = 100.0 * sum(1 for x in rets if x > 0) / len(rets)
-        net_hit   = 100.0 * sum(1 for x in rets if x > _OUTCOMES_COST_PCT) / len(rets)
+        net_hit   = 100.0 * sum(1 for x in rets if x > ROUND_TRIP_COST_PCT) / len(rets)
         mean = sum(rets) / len(rets)
         status = "ok" if net_hit >= HIT_RATE_WARN_PCT else "warn"
         return section("outcomes", status,
@@ -286,12 +286,5 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except SystemExit as e:
-        os._exit(e.code if isinstance(e.code, int) else 1)
-    except Exception:
-        import traceback
-        traceback.print_exc()
-        os._exit(1)
-    os._exit(0)
+    from script_runner import run
+    run(main)
