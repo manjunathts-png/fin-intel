@@ -279,7 +279,7 @@ def main():
 
     if unlabeled.empty:
         log.info("Nothing to label — run extract_stock_features.py --backfill 730 first")
-        sys.exit(0)
+        return
 
     n = compute_labels(
         unlabeled,
@@ -295,3 +295,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    os._exit(0)

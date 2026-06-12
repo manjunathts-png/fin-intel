@@ -458,7 +458,7 @@ def main():
         df = load_sharpe_unlabeled(supabase, cutoff)
         if df.empty:
             log.info("All labeled rows already have Sharpe labels — nothing to do.")
-            sys.exit(0)
+            return
         n = backfill_sharpe_labels(df, supabase, fwd_days=args.window, dry_run=args.dry_run)
         log.info("Done. Sharpe backfill: %d rows processed.", n)
         return
@@ -468,7 +468,7 @@ def main():
 
     if unlabeled.empty:
         log.info("Nothing to label — run extract_features.py --backfill 365 first")
-        sys.exit(0)
+        return
 
     n = compute_labels(
         unlabeled, supabase,
@@ -483,3 +483,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # supabase-py 2.x starts background threads (gotrue token-refresh timer,
+    # realtime client) whose C++ teardown crashes the interpreter on exit.
+    # os._exit() bypasses teardown; sys.exit(1) errors still propagate normally.
+    os._exit(0)
