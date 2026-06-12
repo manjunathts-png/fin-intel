@@ -482,8 +482,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-    # supabase-py 2.x starts background threads (gotrue token-refresh timer,
-    # realtime client) whose C++ teardown crashes the interpreter on exit.
-    # os._exit() bypasses teardown; sys.exit(1) errors still propagate normally.
+    try:
+        main()
+    except SystemExit as e:
+        os._exit(e.code if isinstance(e.code, int) else 1)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        os._exit(1)
     os._exit(0)
