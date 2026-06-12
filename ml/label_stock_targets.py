@@ -40,6 +40,8 @@ import pandas as pd
 from dotenv import load_dotenv
 from supabase import create_client
 
+from config import max_label_gap_days
+
 load_dotenv()
 load_dotenv(Path(__file__).parent.parent / "backend" / ".env", override=False)
 logging.basicConfig(
@@ -135,6 +137,8 @@ def compute_labels(
     (6-7 per sector) it was 1-2 stocks — far too noisy.
     """
     total_labeled = 0
+    max_gap = max_label_gap_days(fwd_days)
+    stale_skipped = 0
     date_groups = unlabeled.groupby("as_of_date")
     log.info("Processing %d distinct as_of_dates (horizon=%dd)", len(date_groups), fwd_days)
 
@@ -163,7 +167,8 @@ def compute_labels(
                         price_fut  = float(fut_sub["close"].iloc[-1])
                         actual_fut = fut_sub.index[-1]
                         gap_days   = abs((pd.Timestamp(target_date) - actual_fut).days)
-                        if gap_days > 30:
+                        if gap_days > max_gap:
+                            stale_skipped += 1
                             log.debug(
                                 "Stale label skipped %s %s: future close %s is %dd from target",
                                 sym, as_of, actual_fut.date(), gap_days,
@@ -230,6 +235,11 @@ def compute_labels(
             update["fwd_sharpe_q_3m"]     = sharpe_q_map.get(sym)
             update["fwd_top_sharpe_q_3m"] = top_sharpe_q_map.get(sym)
             updates.append(update)
+
+    if stale_skipped:
+        log.warning("Skipped %d stale labels (close gap > %dd from target date) — "
+                    "they will retry on future runs as fresher prices arrive",
+                    stale_skipped, max_gap)
 
     if not updates:
         log.info("No rows ready to label")

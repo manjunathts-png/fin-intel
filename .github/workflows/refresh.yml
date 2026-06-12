@@ -72,6 +72,13 @@ jobs:
             echo "target=intraday" >> $GITHUB_OUTPUT
           fi
 
+      # Fast stdlib-only connectivity check on all external sources — surfaces
+      # an outage at the TOP of the log instead of as fetch errors 20 min in.
+      # Writes ml/source_status.json. Never blocks the run.
+      - name: Pre-flight data source probe
+        continue-on-error: true
+        run: python3 ml/probe_sources.py
+
       - name: Restore persistence counters (one-time recovery)
         if: steps.target.outputs.target == 'restore_persistence'
         run: node backend/restore-persistence.js
@@ -244,6 +251,31 @@ jobs:
         run: |
           python ml/label_stock_targets.py --window 90
           python ml/label_stock_targets.py --window 30
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # Realized-P&L feedback loop: backfill forward returns for past pick
+      # snapshots (pick_history) from the OHLCV cache, and log the headline
+      # top-50 hit rate. Non-blocking.
+      - name: Track pick outcomes (realized P&L)
+        if: >-
+          (steps.target.outputs.target == 'all' || steps.target.outputs.target == 'stocks') &&
+          steps.dbcheck.outputs.tables_ok == 'true'
+        continue-on-error: true
+        run: python ml/track_pick_outcomes.py
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # Signal-drift detection: rolling 30-date IC per scored signal vs the
+      # calibration backtest's expected sign. Warns when a penalty's edge flips.
+      - name: Monitor rolling signal IC (drift detection)
+        if: >-
+          (steps.target.outputs.target == 'all' || steps.target.outputs.target == 'stocks') &&
+          steps.dbcheck.outputs.tables_ok == 'true'
+        continue-on-error: true
+        run: python ml/ic_monitor.py --horizon 1m
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

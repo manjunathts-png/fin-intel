@@ -242,12 +242,35 @@ async function main() {
     // ── Market-regime filter ──────────────────────────────────────────────────
     // In a weak/narrow tape, dock falling-knife names so picks concentrate in
     // resilient leaders. Applied before smoothing so it persists via the anchor.
-    const regimeInfo = computeRegime({ stocks: signals.all, niftyReturns });
+    // VIX + FII flows (written daily by ml/macro_features.py into stock_features)
+    // make the regime adaptive: stress amplifies the overextension docks.
+    let macroSnap = null;
+    try {
+      const { data: macroRows } = await supabase
+        .from("stock_features")
+        .select("as_of_date,india_vix,fii_net_5d")
+        .not("india_vix", "is", null)
+        .order("as_of_date", { ascending: false })
+        .limit(1);
+      if (macroRows?.length) {
+        const ageDays = (Date.now() - new Date(macroRows[0].as_of_date + "T00:00:00Z").getTime()) / 86400000;
+        macroSnap = {
+          indiaVix: macroRows[0].india_vix,
+          fiiNet5d: macroRows[0].fii_net_5d,
+          ageDays:  Math.round(ageDays * 10) / 10,
+        };
+        console.log(`  ✓ macro snapshot: VIX=${macroSnap.indiaVix} fiiNet5d=${macroSnap.fiiNet5d ?? "n/a"} (${macroSnap.ageDays}d old)`);
+      }
+    } catch (e) {
+      console.warn(`  ⚠ macro snapshot unavailable: ${e.message}`);
+    }
+    const regimeInfo = computeRegime({ stocks: signals.all, niftyReturns, macro: macroSnap });
     const regimePenalized = applyRegime(signals.all, regimeInfo);
     console.log(
       `  ${regimeInfo.regime === "risk_off" ? "⚠" : "✓"} regime: ${regimeInfo.regime} ` +
-      `(breadth=${regimeInfo.breadthPct}% above 200DMA, niftyRet3m=${regimeInfo.niftyRet3m ?? "n/a"}` +
-      `, ${regimePenalized} weak names docked)`
+      `(breadth=${regimeInfo.breadthPct}% above 200DMA, niftyRet3m=${regimeInfo.niftyRet3m ?? "n/a"}, ` +
+      `vix=${regimeInfo.indiaVix ?? "n/a"}, fii5d=${regimeInfo.fiiNet5d ?? "n/a"}, ` +
+      `${regimePenalized} names docked)`
     );
 
     // ── Store EOD base score (before smoothing) for intraday anchoring ────────
@@ -347,6 +370,30 @@ async function main() {
       });
       console.log(`  ✓ ${signals.picks.length} top picks ranked (${signals.scanned} of ${signals.universe} stocks scanned)`);
       if (signals.warnings?.length) console.warn(`  warnings (${signals.warnings.length} total, first 5):`, signals.warnings.slice(0, 5));
+
+      // ── Realized-P&L feedback loop: snapshot today's top 100 ─────────────
+      // ml/track_pick_outcomes.py later backfills ret_5d/10d/21d from the
+      // OHLCV cache. Without this snapshot there is no ground truth on
+      // whether the published picks actually made money.
+      try {
+        const pickDate = new Date().toISOString().slice(0, 10);
+        const histRows = signals.all.slice(0, 100).map((p) => ({
+          pick_date:       pickDate,
+          symbol:          p.symbol,
+          rank:            p.rank,
+          composite_score: p.compositeScore ?? null,
+          eod_base_score:  p.eodBaseScore ?? null,
+          ml_score:        p.mlScore ?? null,
+          days_in_top50:   p.daysInTop50 ?? null,
+        }));
+        const { error: histErr } = await supabase
+          .from("pick_history")
+          .upsert(histRows, { onConflict: "pick_date,symbol" });
+        if (histErr) console.warn(`  ⚠ pick_history snapshot failed: ${histErr.message} (run migrate_012?)`);
+        else console.log(`  ✓ pick_history snapshot: ${histRows.length} rows for ${pickDate}`);
+      } catch (e) {
+        console.warn(`  ⚠ pick_history snapshot failed: ${e.message}`);
+      }
     }
 
     console.log("Generating rule-based stock rationales…");

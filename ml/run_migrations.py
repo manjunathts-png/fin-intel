@@ -28,6 +28,7 @@ MIGRATIONS = [
     "migrate_009_stock_sentiment_gdelt.sql",
     "migrate_010_stock_feature_enhancements.sql",
     "migrate_011_earnings_momentum.sql",
+    "migrate_012_oos_outcomes_ic.sql",
 ]
 
 ML_DIR = Path(__file__).parent

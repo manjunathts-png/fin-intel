@@ -98,15 +98,39 @@ async function loadMlBlend(supabase) {
     }
     if (scored.length < MIN_PREDS) return inert(`too few scored stocks (${scored.length})`, { predDate });
 
-    // 3. Measured edge — best CV AUC among recent model runs
-    const { data: runs, error: e3 } = await supabase
-      .from("stock_model_runs")
-      .select("cv_auc,trained_at")
-      .order("trained_at", { ascending: false })
-      .limit(8);
-    if (e3) return inert(`model_runs error: ${e3.message}`, { predDate });
-    const aucs = (runs ?? []).map((r) => r.cv_auc).filter((a) => a != null && isFinite(a));
-    const bestAuc = aucs.length ? Math.max(...aucs) : null;
+    // 3. Measured edge among recent model runs.
+    // Prefer the walk-forward out-of-sample AUC (last 90d of labels held out
+    // from training — see ml/oos.py): CV folds overlap the training
+    // distribution and overstate live edge. Runs predating migration 012 only
+    // have cv_auc, so fall back per-run; pre-migration DBs lack the column
+    // entirely, so fall back per-query too.
+    let runs = null;
+    {
+      const r1 = await supabase
+        .from("stock_model_runs")
+        .select("cv_auc,oos_auc,trained_at")
+        .order("trained_at", { ascending: false })
+        .limit(8);
+      if (r1.error) {
+        const r2 = await supabase
+          .from("stock_model_runs")
+          .select("cv_auc,trained_at")
+          .order("trained_at", { ascending: false })
+          .limit(8);
+        if (r2.error) return inert(`model_runs error: ${r2.error.message}`, { predDate });
+        runs = r2.data;
+      } else {
+        runs = r1.data;
+      }
+    }
+    const effective = (runs ?? [])
+      .map((r) => ({ auc: r.oos_auc ?? r.cv_auc, source: r.oos_auc != null ? "oos" : "cv" }))
+      .filter((x) => x.auc != null && isFinite(x.auc));
+    const best = effective.length
+      ? effective.reduce((a, b) => (b.auc > a.auc ? b : a))
+      : null;
+    const bestAuc = best?.auc ?? null;
+    const aucSource = best?.source ?? null;
 
     const weight = blendWeightForAuc(bestAuc);
     const bySymbol = toPercentileMap(scored);
@@ -116,7 +140,7 @@ async function loadMlBlend(supabase) {
       meta: {
         active: weight > 0,
         reason: weight > 0 ? "blended" : `AUC ${bestAuc?.toFixed(3) ?? "n/a"} < gate ${AUC_GATE}`,
-        predDate, probCol, cvAuc: bestAuc, scored: scored.length, weight,
+        predDate, probCol, cvAuc: bestAuc, aucSource, scored: scored.length, weight,
       },
     };
   } catch (e) {

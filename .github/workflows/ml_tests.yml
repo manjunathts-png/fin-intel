@@ -22,7 +22,9 @@ jobs:
           cache-dependency-path: 'ml/requirements.txt'
 
       - name: Install dependencies
-        run: pip install pandas numpy pytest -q
+        # Subset of ml/requirements.txt needed by the test suite — keeps CI
+        # fast (no shap/optuna/yfinance/supabase compile time).
+        run: pip install pandas numpy scipy scikit-learn lightgbm pytest python-dotenv requests urllib3 tqdm pyarrow supabase -q
 
-      - name: Run ML safety tests
-        run: python -m pytest ml/tests/test_feature_safety.py -v
+      - name: Run ML test suite
+        run: python -m pytest ml/tests -v

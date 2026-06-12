@@ -39,6 +39,7 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 from config import STOCK_SHARPE_TARGET_COL, STOCK_TARGET_COL, get_stock_feature_cols
+from oos import evaluate_oos
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -365,14 +366,28 @@ def write_model_run(supabase, model_version, feature_count, training_samples,
         "feature_count":      feature_count,
         "training_samples":   training_samples,
         "training_window":    training_window,
-        "cv_auc":             cv_metrics.get("cv_auc"),
-        "cv_precision_top_q": cv_metrics.get("cv_precision_top_q"),
-        "hyperparams":        params,
+        "cv_auc":              cv_metrics.get("cv_auc"),
+        "cv_precision_top_q":  cv_metrics.get("cv_precision_top_q"),
+        "oos_auc":             cv_metrics.get("oos_auc"),
+        "oos_precision_top_q": cv_metrics.get("oos_precision_top_q"),
+        "oos_samples":         cv_metrics.get("oos_samples"),
+        "hyperparams":         params,
         "feature_importance": feature_importance,
         "notes":              notes,
     }
-    supabase.table("stock_model_runs").insert(row).execute()
-    log.info("Logged model run: %s  AUC=%.3f", model_version, cv_metrics.get("cv_auc") or 0)
+    try:
+        supabase.table("stock_model_runs").insert(row).execute()
+    except Exception as e:
+        if "oos_" not in str(e):
+            raise
+        # oos_* columns missing — migration 012 not applied yet. Log without them.
+        for k in ("oos_auc", "oos_precision_top_q", "oos_samples"):
+            row.pop(k, None)
+        supabase.table("stock_model_runs").insert(row).execute()
+        log.warning("stock_model_runs lacks oos_* columns — run migrate_012 (dispatch target=migrate)")
+    log.info("Logged model run: %s  AUC=%.3f  OOS-AUC=%s", model_version,
+             cv_metrics.get("cv_auc") or 0,
+             f"{cv_metrics['oos_auc']:.3f}" if cv_metrics.get("oos_auc") is not None else "n/a")
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
@@ -451,6 +466,11 @@ def main():
     cv_metrics = cross_val_metrics(X_train, y_train, params)
     log.info("CV AUC=%.4f  Precision@Q1=%.4f",
              cv_metrics.get("cv_auc") or 0, cv_metrics.get("cv_precision_top_q") or 0)
+
+    # ── 3b. Walk-forward out-of-sample check (last 90d of labels held out) ─
+    # CV folds overlap the training distribution; oos_auc is the honest live
+    # estimate and the ML blend gate (backend/ml_blend.js) prefers it.
+    cv_metrics.update(evaluate_oos(train_df, target_col, params, prepare_X))
 
     # ── 4. Train on full labeled set ───────────────────────────────────────
     model = train_model(X_train, y_train, params, calibrate=not args.no_calibrate)
