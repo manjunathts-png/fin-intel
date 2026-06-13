@@ -5,6 +5,23 @@ import { useAuth } from "../hooks/useAuth";
 
 const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL ?? "";
 
+const STATUS_ICON  = { ok: "✅", warn: "⚠️", critical: "🔴", unknown: "❔" };
+const STATUS_COLOR = {
+  ok:       "border-green-800/50 bg-green-900/10 text-green-400",
+  warn:     "border-yellow-700/50 bg-yellow-900/10 text-yellow-400",
+  critical: "border-red-800/50 bg-red-900/10 text-red-400",
+  unknown:  "border-gray-700/50 bg-gray-800/40 text-gray-400",
+};
+const COMPONENT_LABEL = {
+  sources:      "Data Sources",
+  mfapi_data:   "mfapi.in NAV Data",
+  freshness:    "Feature Freshness",
+  ic_drift:     "Signal IC Drift",
+  stock_model:  "Stock Model",
+  mf_model:     "MF Model",
+  outcomes:     "Realized P&L",
+};
+
 function timeAgo(iso) {
   const mins = Math.round((Date.now() - new Date(iso)) / 60000);
   if (mins < 1)   return "just now";
@@ -66,9 +83,10 @@ export default function Admin() {
   const { user } = useAuth();
   const [profiles,    setProfiles]    = useState([]);
   const [events,      setEvents]      = useState([]);
+  const [health,      setHealth]      = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [evtLoading,  setEvtLoading]  = useState(false);
-  const [tab,         setTab]         = useState("users");
+  const [tab,         setTab]         = useState("health");
 
   const today = toLocalDateStr(new Date());
   const [dateFrom, setDateFrom] = useState("2025-01-01");
@@ -93,12 +111,18 @@ export default function Admin() {
 
   useEffect(() => {
     async function load() {
-      const { data: p } = await supabase
-        .from("profiles")
-        .select("*")
-        .neq("email", ADMIN_EMAIL)
-        .order("created_at", { ascending: false });
+      const [{ data: p }, { data: h }] = await Promise.all([
+        supabase.from("profiles").select("*").neq("email", ADMIN_EMAIL).order("created_at", { ascending: false }),
+        // latest run_date only — get the most recent date first, then filter
+        supabase.from("system_health").select("*").order("run_date", { ascending: false }).limit(50),
+      ]);
       setProfiles(p ?? []);
+      // Keep only the most recent run per component
+      const byComponent = {};
+      for (const row of (h ?? [])) {
+        if (!byComponent[row.component]) byComponent[row.component] = row;
+      }
+      setHealth(Object.values(byComponent));
       setLoading(false);
     }
     load();
@@ -161,7 +185,7 @@ export default function Admin() {
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-gray-800 pb-0">
-        {["users", "activity"].map((t) => (
+        {["health", "users", "activity"].map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -171,10 +195,14 @@ export default function Admin() {
                 : "border-transparent text-gray-500 hover:text-gray-300"
             }`}
           >
-            {t === "users" ? `Users (${profiles.length})` : `Activity (${evtLoading ? "…" : events.length})`}
+            {t === "users"    ? `Users (${profiles.length})`
+           : t === "activity" ? `Activity (${evtLoading ? "…" : events.length})`
+           : "System Health"}
           </button>
         ))}
       </div>
+
+      {tab === "health" && <HealthTab health={health} />}
 
       {tab === "users" && (
         <div className="overflow-hidden rounded-2xl border border-gray-800">
@@ -282,6 +310,110 @@ export default function Admin() {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+function HealthTab({ health }) {
+  if (!health.length) {
+    return (
+      <div className="rounded-2xl border border-dashed border-gray-800 p-10 text-center space-y-2">
+        <p className="text-sm text-gray-500">No health data yet.</p>
+        <p className="text-xs text-gray-600">
+          The nightly pipeline writes here after each run (5:00 AM IST).
+          Dispatch <code className="text-gray-400">all</code> or <code className="text-gray-400">stocks</code> manually to populate it now.
+        </p>
+      </div>
+    );
+  }
+
+  const ORDER = ["sources","mfapi_data","freshness","ic_drift","stock_model","mf_model","outcomes"];
+  const sorted = [...health].sort((a, b) => {
+    const ia = ORDER.indexOf(a.component), ib = ORDER.indexOf(b.component);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+
+  const SORDER = { critical: 0, warn: 1, unknown: 2, ok: 3 };
+  const overall = sorted.reduce((worst, r) =>
+    (SORDER[r.status] ?? 2) < (SORDER[worst] ?? 2) ? r.status : worst, "ok");
+
+  const runDate = sorted[0]?.run_date;
+
+  return (
+    <div className="space-y-4">
+      {/* overall banner */}
+      <div className={`rounded-2xl border px-5 py-3 flex items-center gap-3 ${STATUS_COLOR[overall]}`}>
+        <span className="text-xl">{STATUS_ICON[overall]}</span>
+        <div>
+          <div className="font-semibold text-sm capitalize">{overall === "ok" ? "All systems healthy" : `System status: ${overall}`}</div>
+          {runDate && <div className="text-xs opacity-70">Last run: {runDate}</div>}
+        </div>
+      </div>
+
+      {/* component cards */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {sorted.map((row) => {
+          const m = row.metrics ?? {};
+          return (
+            <div key={row.component} className={`rounded-2xl border p-4 space-y-2 ${STATUS_COLOR[row.status]}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <span className="text-base mr-1.5">{STATUS_ICON[row.status]}</span>
+                  <span className="font-semibold text-sm text-gray-100">
+                    {COMPONENT_LABEL[row.component] ?? row.component}
+                  </span>
+                </div>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide border ${STATUS_COLOR[row.status]}`}>
+                  {row.status}
+                </span>
+              </div>
+              <p className="text-xs leading-relaxed opacity-80">{row.detail}</p>
+              {/* key metrics chips */}
+              {Object.keys(m).length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {row.component === "stock_model" || row.component === "mf_model" ? (
+                    <>
+                      {m.oos_auc  != null && <Chip label="OOS AUC"  value={m.oos_auc.toFixed(3)} />}
+                      {m.cv_auc   != null && <Chip label="CV AUC"   value={m.cv_auc.toFixed(3)} />}
+                      {m.oos_samples != null && <Chip label="OOS n" value={m.oos_samples} />}
+                      {m.trained_at  && <Chip label="Trained" value={m.trained_at} />}
+                    </>
+                  ) : row.component === "outcomes" ? (
+                    <>
+                      {m.hit_rate_pct      != null && <Chip label="Net hit rate"   value={`${m.hit_rate_pct}%`} />}
+                      {m.gross_hit_rate_pct != null && <Chip label="Gross hit rate" value={`${m.gross_hit_rate_pct}%`} />}
+                      {m.mean_ret != null && <Chip label="Mean ret" value={`${m.mean_ret > 0 ? "+" : ""}${m.mean_ret}%`} />}
+                      {m.n        != null && <Chip label="n" value={m.n} />}
+                    </>
+                  ) : row.component === "freshness" ? (
+                    <>
+                      {m.latest   && <Chip label="Latest date" value={m.latest} />}
+                      {m.age_days != null && <Chip label="Age" value={`${m.age_days}d`} />}
+                    </>
+                  ) : row.component === "mfapi_data" ? (
+                    <>
+                      {m.nav_count != null && <Chip label="NAV rows" value={m.nav_count} />}
+                    </>
+                  ) : row.component === "ic_drift" ? (
+                    <>
+                      {m.n_signals != null && <Chip label="Signals" value={m.n_signals} />}
+                      {m.flipped?.length > 0 && <Chip label="Flipped" value={m.flipped.join(", ")} warn />}
+                    </>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Chip({ label, value, warn }) {
+  return (
+    <div className={`rounded-lg px-2 py-0.5 text-[10px] ${warn ? "bg-yellow-900/30 text-yellow-300" : "bg-gray-800/60 text-gray-400"}`}>
+      <span className="text-gray-600">{label}: </span>{value}
     </div>
   );
 }
