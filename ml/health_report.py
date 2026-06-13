@@ -33,6 +33,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import urllib.error
+import urllib.request
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -201,6 +203,38 @@ def check_outcomes(supabase) -> dict:
         return section("outcomes", "unknown", f"query failed: {e}")
 
 
+def check_mfapi_data() -> dict:
+    """Fetch a known fund's full NAV history and validate the response body.
+
+    probe_sources.py checks HTTP 200 for /mf/<code>/latest; this checks that
+    the full history endpoint actually returns nav rows — catching cases where
+    the API is reachable but serving empty or malformed responses.
+    """
+    url = "https://api.mfapi.in/mf/119598"  # Mirae Asset Large Cap — a stable, long-history fund
+    ua  = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": ua, "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = resp.read(8192).decode("utf-8", errors="replace")
+        data = json.loads(body)
+        nav_rows = data.get("data", [])
+        if not nav_rows:
+            return section("mfapi_data", "warn",
+                           "mfapi.in responded HTTP 200 but returned 0 NAV rows — Deep Dive will show empty",
+                           {"fund_code": 119598, "nav_count": 0})
+        return section("mfapi_data", "ok",
+                       f"mfapi.in returned {len(nav_rows)} NAV rows for fund 119598",
+                       {"fund_code": 119598, "nav_count": len(nav_rows)})
+    except urllib.error.HTTPError as e:
+        return section("mfapi_data", "critical",
+                       f"mfapi.in HTTP {e.code} — Deep Dive NAV fetch will fail for all funds",
+                       {"http_status": e.code})
+    except Exception as e:
+        return section("mfapi_data", "critical",
+                       f"mfapi.in unreachable: {e} — Deep Dive NAV fetch will fail",
+                       {"error": str(e)[:120]})
+
+
 # ─── Aggregation + output ─────────────────────────────────────────────────────
 
 def overall_status(sections: list[dict]) -> str:
@@ -262,7 +296,7 @@ def main():
     else:
         log.warning("SUPABASE_URL/SUPABASE_SERVICE_KEY not set — DB checks will be 'unknown'")
 
-    sections = [check_sources()]
+    sections = [check_sources(), check_mfapi_data()]
     if supabase is not None:
         sections += [
             check_freshness(supabase),
