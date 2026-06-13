@@ -1,6 +1,7 @@
 ## Node
 node_modules/
 npm-debug.log*
+mobile/package-lock.json
 
 ## Local env files (never commit keys)
 backend/.env
