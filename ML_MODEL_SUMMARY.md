@@ -284,7 +284,16 @@ eps_beat_rate_4q, eps_surprise_avg_4q, eps_qoq_slope, eps_rev_30d, eps_rev_90d
 ```
 These are applied as bonuses/penalties in `stock_signals.js` at inference time, where "today's value" is correct. Using them in model training would create point-in-time leakage (current P/E attached to 2-year-old rows).
 
-### 4.3 Secondary Target — Sharpe-Quartile (LIVE)
+### 4.3 Per-Date Rank Transform (stocks only)
+
+Before training, stock-level features are converted to **within-date cross-sectional percentile ranks** (0–1) in `prepare_X()`. The label is cross-sectional (quartile within sector per date), but raw feature levels (volatility, returns, RSI) drift with market regime — tree splits learned on one regime's levels stop separating stocks in the next. Per-date ranking removes that drift.
+
+- Market-wide columns (`india_vix`, `nifty_ret*`, `usd_inr`, `us_10y_yield`, FII/DII flows) are identical for every stock on a date, so they stay on their raw scale.
+- The transform is self-contained per date — no fitted state, so it cannot leak across the train/holdout boundary, and inference (a single date's cross-section) ranks identically.
+
+The Optuna search space is also constrained for financial noise: `max_depth` 2–4, `min_child_samples` 50–150, `colsample_bytree` 0.3–0.6 — shallow trees and aggressive column subsampling prevent memorizing per-stock anomalies.
+
+### 4.4 Secondary Target — Sharpe-Quartile (LIVE)
 
 The stock model now trains two targets:
 
@@ -295,7 +304,7 @@ The stock model now trains two targets:
 
 The ML blend gate (`ml_blend.js`) **prefers `p_top_sharpe_q_3m`** over `p_top_quartile_3m`. The Sharpe-quartile target de-emphasises high-beta names that post big raw returns but with large drawdowns — exactly the names that hurt on short holding periods.
 
-### 4.4 Stock Universe (17 Sectors, ~500 Stocks)
+### 4.5 Stock Universe (17 Sectors, ~500 Stocks)
 
 | Sector | Stocks |
 |---|---|
@@ -348,31 +357,38 @@ A pytest suite in `ml/tests/` enforces these constraints on every CI run.
 
 ---
 
-## 6. Walk-Forward OOS Evaluation
+## 6. Walk-Forward OOS Evaluation (Embargoed, Multi-Window)
 
 *Implemented in `ml/oos.py` — used by both `train.py` and `train_stock.py`.*
 
-Time-series cross-validation (TimeSeriesSplit) still overlaps the training distribution and overstates live edge. The honest estimate is a true holdout — the most recent 90 days of labeled history, **never seen during fitting**.
+Time-series cross-validation (TimeSeriesSplit) still overlaps the training distribution and overstates live edge. The honest estimate is a true holdout — recent labeled history **never seen during fitting** — with two extra controls:
+
+**Label-horizon embargo.** A row at date T carries a label computed from prices up to T+90. Without an embargo, fit rows just before the holdout cutoff embed information about the exact period the holdout evaluates. Fit rows within `embargo_days` (90d for 3M targets, 30d for 1M) of the holdout start are dropped.
+
+**Multiple rolling windows.** A single 90-day holdout is one regime window — high variance. The evaluator walks back through up to 3 consecutive 90-day windows and reports the **mean** AUC, so the blend gate sees a stabler estimate. Older windows activate automatically as labeled history grows.
 
 ```
-All labeled rows  ──────────────────────────────────────────────
-                  │◄── fit set ─────────────────►│◄─ holdout ─►│
-                                            cutoff          max_date
-                                        (max_date − 90d)
+All labeled rows ──────────────────────────────────────────────────────
+   │◄── fit (win 1) ──►│ embargo │◄ hold 1 ►│◄ hold 0 ►│
+   │◄────── fit (win 0) ─────────►│ embargo │◄ hold 0 ►│ (per window)
+                                                     max_date
 ```
 
-- A **separate** LightGBM is trained on the fit set and evaluated on the holdout. The production model is still refit on **all** labeled data afterwards — the holdout model exists only to measure.
+- A **separate** LightGBM is trained per window. The production model is still refit on **all** labeled data afterwards — holdout models exist only to measure.
 - Holdout imputation uses **fit-set medians** — no information leaks from holdout into preprocessing.
-- Results logged to `stock_model_runs` as `oos_auc` and `oos_precision_top_q` (requires migration 012).
-- If fewer than 30 holdout rows or fewer than 100 fit rows, OOS is skipped (too noisy to report).
+- Mean results logged to `stock_model_runs` as `oos_auc` / `oos_precision_top_q` (requires migration 012); per-window AUCs go to the run log.
+- Windows with fewer than 30 holdout rows or 100 fit rows are skipped (too noisy to report).
 
 ```python
 # Called from train.py and train_stock.py
-from oos import evaluate_oos
-metrics = evaluate_oos(train_df, target_col="fwd_top_q_3m", params=params,
-                       prepare_X_fn=prepare_X, holdout_days=90)
-# → {"oos_auc": 0.61, "oos_precision_top_q": 0.37, "oos_samples": 412}
+from oos import evaluate_oos_windows
+metrics = evaluate_oos_windows(train_df, target_col="fwd_top_q_3m", params=params,
+                               prepare_X_fn=prepare_X)   # embargo inferred: 90d
+# → {"oos_auc": 0.58, "oos_precision_top_q": 0.35, "oos_samples": 812,
+#    "oos_windows": [{"window": 0, "oos_auc": 0.60, ...}, {"window": 1, ...}]}
 ```
+
+> Note: adding the embargo typically **lowers** the reported OOS AUC vs the pre-embargo number — the old figure was inflated by label overlap. The new number is the honest one the blend gate should act on.
 
 ---
 

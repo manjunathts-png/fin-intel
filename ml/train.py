@@ -41,7 +41,7 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 from config import CATEGORY_GROUPS, SHARPE_TARGET_COL, TARGET_COL, get_mf_feature_cols
-from oos import evaluate_oos, insert_model_run
+from oos import evaluate_oos_windows, insert_model_run
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -805,8 +805,10 @@ def main():
              cv_metrics.get("cv_auc") or 0,
              cv_metrics.get("cv_precision_top_q") or 0)
 
-    # ── 3b. Walk-forward out-of-sample check (last 90d of labels held out) ─
-    cv_metrics.update(evaluate_oos(train_df, target_col, params, prepare_X))
+    # ── 3b. Walk-forward out-of-sample check (rolling embargoed windows) ───
+    oos = evaluate_oos_windows(train_df, target_col, params, prepare_X)
+    oos.pop("oos_windows", None)  # per-window detail is logged, not persisted
+    cv_metrics.update(oos)
 
     # ── 4. Train on full labeled set ───────────────────────────────────────
     model = train_model(X_train, y_train, params, calibrate=not args.no_calibrate)

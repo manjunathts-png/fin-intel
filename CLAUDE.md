@@ -199,7 +199,6 @@ All penalty fields (`regimePenalty`, `liquidityPenalty`, `sectorCapPenalty`, `re
 | `15 10 * * 1-5` | 3:45 PM | `stocks` — EOD final prices |
 | `10 4 * * 1-5` | 9:40 AM | `intraday` — market open |
 | `0 7 * * 1-5` | 12:30 PM | `intraday` — midday |
-| `0 10 * * 1-5` | 3:30 PM | `intraday` — pre-close |
 
 Manual dispatch via `workflow_dispatch` accepts a `target` input (see `.github/workflows/refresh.yml` for full option list including `signal_backtest`, `migrate`, `restore_persistence`).
 
