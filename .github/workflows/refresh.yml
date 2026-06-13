@@ -6,7 +6,7 @@ on:
     - cron: '15 10 * * 1-5'     # 3:45 PM IST weekdays     — Stocks EOD (final prices)
     - cron: '10 4 * * 1-5'      # 9:40 AM IST weekdays     — Stocks intraday (open)
     - cron: '0 7 * * 1-5'       # 12:30 PM IST weekdays    — Stocks intraday (midday)
-    - cron: '0 10 * * 1-5'      # 3:30 PM IST weekdays     — Stocks intraday (pre-close)
+    # 3:30 PM IST intraday removed — redundant with the 3:45 PM EOD run 15 min later
     # - cron: '30 18 * * 0'     # 12:00 AM IST Mondays — Weekly GDELT sentiment (disabled: needs ANTHROPIC_API_KEY secret)
   workflow_dispatch:
     inputs:

@@ -39,7 +39,7 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 from config import STOCK_SHARPE_TARGET_COL, STOCK_TARGET_COL, get_stock_feature_cols
-from oos import evaluate_oos, insert_model_run
+from oos import evaluate_oos_windows, insert_model_run
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -118,9 +118,32 @@ def load_latest_features(supabase, prediction_date: date) -> pd.DataFrame:
 
 # ─── Feature preparation ─────────────────────────────────────────────────────
 
+# Market-wide columns carry the same value for every stock on a given date —
+# a per-date cross-sectional rank would collapse them to a constant 0.5, so
+# they are kept on their raw scale.
+_MACRO_COLS = frozenset({
+    "nifty_ret1m", "nifty_ret3m", "india_vix", "usd_inr", "us_10y_yield",
+    "fii_net_5d", "fii_net_20d", "dii_net_5d", "dii_net_20d",
+    "fiidii_net_5d", "fiidii_net_20d",
+})
+
+
 def prepare_X(df: pd.DataFrame, fit_medians: dict | None = None) -> tuple[pd.DataFrame, dict]:
+    """Select model features, rank-transform, and impute.
+
+    Stock-level features are converted to within-date percentile ranks (0–1):
+    the label is cross-sectional (quartile within sector per date), but raw
+    levels (vol, returns, RSI) drift with market regime, so global tree splits
+    learned on one regime stop separating stocks in the next. Per-date ranking
+    removes that drift. The transform is self-contained per date — no state is
+    fitted, so it cannot leak across the train/holdout boundary, and inference
+    (a single date's cross-section) ranks identically.
+    """
     available = get_stock_feature_cols(df)
     X = df[available].copy().astype(float)
+    rank_cols = [c for c in X.columns if c not in _MACRO_COLS]
+    if rank_cols and "as_of_date" in df.columns:
+        X[rank_cols] = X[rank_cols].groupby(df["as_of_date"]).rank(pct=True)
     medians: dict[str, float] = {}
     for col in X.columns:
         med = fit_medians[col] if (fit_medians and col in fit_medians) else float(X[col].median())
@@ -203,14 +226,19 @@ def tune_hyperparams(X_train: pd.DataFrame, y_train: pd.Series, n_trials: int = 
         optuna.logging.set_verbosity(optuna.logging.WARNING)
 
         def objective(trial):
+            # Search space is deliberately tighter than typical LightGBM
+            # defaults: cross-sectional equity data has a far lower
+            # signal-to-noise ratio, so shallow trees, large leaves, and
+            # aggressive column subsampling act as regularizers against
+            # memorizing per-stock anomalies.
             params = {
                 "n_estimators":      trial.suggest_int("n_estimators", 200, 800),
                 "learning_rate":     trial.suggest_float("learning_rate", 0.01, 0.1, log=True),
-                "max_depth":         trial.suggest_int("max_depth", 3, 7),
-                "num_leaves":        trial.suggest_int("num_leaves", 15, 63),
-                "min_child_samples": trial.suggest_int("min_child_samples", 10, 50),
+                "max_depth":         trial.suggest_int("max_depth", 2, 4),
+                "num_leaves":        trial.suggest_int("num_leaves", 7, 15),
+                "min_child_samples": trial.suggest_int("min_child_samples", 50, 150),
                 "subsample":         trial.suggest_float("subsample", 0.6, 1.0),
-                "colsample_bytree":  trial.suggest_float("colsample_bytree", 0.6, 1.0),
+                "colsample_bytree":  trial.suggest_float("colsample_bytree", 0.3, 0.6),
                 "reg_alpha":         trial.suggest_float("reg_alpha", 1e-3, 1.0, log=True),
                 "reg_lambda":        trial.suggest_float("reg_lambda", 1e-3, 1.0, log=True),
                 "class_weight": "balanced", "random_state": 42, "verbose": -1,
@@ -458,10 +486,13 @@ def main():
     log.info("CV AUC=%.4f  Precision@Q1=%.4f",
              cv_metrics.get("cv_auc") or 0, cv_metrics.get("cv_precision_top_q") or 0)
 
-    # ── 3b. Walk-forward out-of-sample check (last 90d of labels held out) ─
+    # ── 3b. Walk-forward out-of-sample check (rolling embargoed windows) ───
     # CV folds overlap the training distribution; oos_auc is the honest live
     # estimate and the ML blend gate (backend/ml_blend.js) prefers it.
-    cv_metrics.update(evaluate_oos(train_df, target_col, params, prepare_X))
+    # Multi-window mean with a label-horizon embargo — see ml/oos.py.
+    oos = evaluate_oos_windows(train_df, target_col, params, prepare_X)
+    oos.pop("oos_windows", None)  # per-window detail is logged, not persisted
+    cv_metrics.update(oos)
 
     # ── 4. Train on full labeled set ───────────────────────────────────────
     model = train_model(X_train, y_train, params, calibrate=not args.no_calibrate)
