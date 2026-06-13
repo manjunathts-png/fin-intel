@@ -105,11 +105,20 @@ ALTER TABLE stock_predictions  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stock_model_runs   ENABLE ROW LEVEL SECURITY;
 
 -- Allow anyone (anon + authenticated) to SELECT — same as MF tables
-CREATE POLICY "Allow public read on stock_features"
-  ON stock_features FOR SELECT USING (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='stock_features' AND policyname='Allow public read on stock_features') THEN
+    CREATE POLICY "Allow public read on stock_features" ON stock_features FOR SELECT USING (true);
+  END IF;
+END $$;
 
-CREATE POLICY "Allow public read on stock_predictions"
-  ON stock_predictions FOR SELECT USING (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='stock_predictions' AND policyname='Allow public read on stock_predictions') THEN
+    CREATE POLICY "Allow public read on stock_predictions" ON stock_predictions FOR SELECT USING (true);
+  END IF;
+END $$;
 
-CREATE POLICY "Allow public read on stock_model_runs"
-  ON stock_model_runs FOR SELECT USING (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='stock_model_runs' AND policyname='Allow public read on stock_model_runs') THEN
+    CREATE POLICY "Allow public read on stock_model_runs" ON stock_model_runs FOR SELECT USING (true);
+  END IF;
+END $$;
