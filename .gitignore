@@ -36,6 +36,12 @@ ml/.cache_stock/
 ml/.cache_fundamentals/
 ml/.cache_bhavcopy/
 
+## Claude Code local settings (contains secrets — never commit)
+.claude/settings.local.json
+
+## Generated migration bundles
+ml/all_migrations_combined.sql
+
 ## Python
 __pycache__/
 *.py[cod]

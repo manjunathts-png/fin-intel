@@ -36,5 +36,8 @@ CREATE TABLE IF NOT EXISTS stock_fundamentals_history (
 
 ALTER TABLE stock_fundamentals_history ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow public read on stock_fundamentals_history"
-  ON stock_fundamentals_history FOR SELECT USING (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='stock_fundamentals_history' AND policyname='Allow public read on stock_fundamentals_history') THEN
+    CREATE POLICY "Allow public read on stock_fundamentals_history" ON stock_fundamentals_history FOR SELECT USING (true);
+  END IF;
+END $$;
