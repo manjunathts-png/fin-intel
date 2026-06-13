@@ -36,6 +36,9 @@ ml/.cache_stock/
 ml/.cache_fundamentals/
 ml/.cache_bhavcopy/
 
+## Claude Code local settings (contains secrets — never commit)
+.claude/settings.local.json
+
 ## Python
 __pycache__/
 *.py[cod]
