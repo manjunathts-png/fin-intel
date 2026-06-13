@@ -34,6 +34,7 @@
     "experiments": {
       "typedRoutes": true
     },
-    "scheme": "finintel"
+    "scheme": "finintel",
+    "sdkVersion": "54.0.0"
   }
 }
