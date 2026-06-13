@@ -15,7 +15,7 @@ on:
         required: false
         default: 'all'
         type: choice
-        options: [all, mf, stocks, intraday, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, migrate, restore_persistence, signal_backtest]
+        options: [all, mf, stocks, intraday, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, tune_stock, migrate, restore_persistence, signal_backtest]
       backfill_days:
         description: 'Days to backfill for stock_backfill/nifty500_backfill (default 365)'
         required: false
@@ -348,6 +348,31 @@ jobs:
           python ml/train_stock.py --horizon 3m || echo "Stock 3M skipped (insufficient data)"
           python ml/train_stock.py --horizon 3m --sharpe-target || echo "Stock 3M sharpe skipped"
           python ml/train_stock.py --horizon 1m || echo "Stock 1M skipped (insufficient data)"
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      # ── Optuna hyperparameter search for stock models ────────────────────────
+      - name: Set up Python (tune_stock)
+        if: steps.target.outputs.target == 'tune_stock' && steps.dbcheck.outputs.tables_ok == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install ML deps (tune_stock)
+        if: steps.target.outputs.target == 'tune_stock' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: pip install -r ml/requirements.txt -q
+
+      - name: Tune stock models — Optuna search (3M Sharpe + 3M raw + 1M)
+        if: steps.target.outputs.target == 'tune_stock' && steps.dbcheck.outputs.tables_ok == 'true'
+        run: |
+          python ml/train_stock.py --horizon 3m --sharpe-target --tune --n-trials 50 \
+            || echo "Stock 3M Sharpe tune skipped"
+          python ml/train_stock.py --horizon 3m --tune --n-trials 50 \
+            || echo "Stock 3M tune skipped"
+          python ml/train_stock.py --horizon 1m --tune --n-trials 50 \
+            || echo "Stock 1M tune skipped"
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
