@@ -47,11 +47,18 @@ function parseDate(str) { // "DD-MM-YYYY"
 // ── fetch full NAV history ────────────────────────────────────────────────────
 
 async function fetchNavs(code) {
-  const res = await fetch(`https://api.mfapi.in/mf/${code}`);
-  const json = await res.json();
-  // newest first → reverse to oldest first
-  const navs = (json.data ?? []).reverse();
-  return navs.map(e => ({ date: parseDate(e.date), nav: parseFloat(e.nav) }));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const res = await fetch(`https://api.mfapi.in/mf/${code}`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    // newest first → reverse to oldest first
+    const navs = (json.data ?? []).reverse();
+    return navs.map(e => ({ date: parseDate(e.date), nav: parseFloat(e.nav) }));
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── analytics ─────────────────────────────────────────────────────────────────
@@ -318,6 +325,8 @@ export default function DeepDive() {
   const [navs,       setNavs]       = useState(null);   // oldest-first
   const [loadingNav, setLoadingNav] = useState(false);
   const [error,      setError]      = useState(null);
+  const [navError,   setNavError]   = useState(null);  // fetch error (vs empty data)
+  const [retryKey,   setRetryKey]   = useState(0);     // increment to force retry
 
   // Call this on explicit user clicks — selects fund AND scrolls to analysis
   function selectAndScroll(fund) {
@@ -368,12 +377,17 @@ export default function DeepDive() {
 
   useEffect(() => {
     if (!selected) return;
-    setNavs(null); setLoadingNav(true);
+    setNavs(null); setLoadingNav(true); setNavError(null);
     fetchNavs(selected.code)
-      .then(setNavs)
-      .catch(() => setNavs([]))
+      .then(data => setNavs(data))
+      .catch(err => {
+        setNavs([]);
+        setNavError(err.name === "AbortError" ? "Request timed out" : (err.message || "Network error"));
+      })
       .finally(() => setLoadingNav(false));
-  }, [selected]);
+  // retryKey is intentional — incrementing it re-triggers this effect
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, retryKey]);
 
   // computed analytics (only when navs loaded)
   const monthly  = navs?.length ? monthlyReturns(navs) : null;
@@ -632,9 +646,21 @@ export default function DeepDive() {
             </div>
           )}
 
-          {navs.length === 0 && (
+          {navs.length === 0 && navError && (
+            <div className="rounded-2xl border border-red-900/40 bg-red-900/10 p-6 text-center space-y-3">
+              <p className="text-sm text-red-400">Could not load NAV history — {navError}</p>
+              <p className="text-xs text-gray-600">mfapi.in may be temporarily unavailable.</p>
+              <button
+                onClick={() => setRetryKey(k => k + 1)}
+                className="rounded-lg bg-gray-800 px-4 py-1.5 text-xs text-gray-300 hover:bg-gray-700 transition"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {navs.length === 0 && !navError && (
             <div className="rounded-2xl border border-dashed border-gray-800 p-8 text-center text-sm text-gray-600">
-              Could not fetch NAV history for this fund.
+              No NAV history available for this fund.
             </div>
           )}
         </div>
