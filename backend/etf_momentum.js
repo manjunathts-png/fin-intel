@@ -24,7 +24,7 @@ const path = require("path");
 const https = require("https");
 const YahooFinance = require("yahoo-finance2").default;
 const { ETF_TYPES, flatUniverse } = require("./etf_universe");
-const { atomicWrite, daysAgo, mean, stddev, median, round2 } = require("./utils");
+const { atomicWrite, daysAgo, mean, stddev, median, round2, sleep } = require("./utils");
 
 const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
 
@@ -107,6 +107,7 @@ async function fetchSchemeNav(code) {
   };
   navCache.schemes[code] = entry;
   saveNavCache();
+  await sleep(50); // gentle rate limit: ~20 req/sec max toward mfapi.in
   return entry;
 }
 
