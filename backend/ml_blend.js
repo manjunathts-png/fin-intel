@@ -23,10 +23,10 @@
  * that hurt on a short holding period.
  */
 
-const AUC_GATE   = 0.55;   // below this, ML is ignored entirely
-const AUC_FLOOR  = 0.55;   // auc at which blend weight starts ramping
-const AUC_FULL   = 0.62;   // auc at which blend weight is maxed
-const MAX_WEIGHT = 0.35;   // ceiling on ML influence over the final score
+const AUC_GATE   = 0.51;   // below this, ML is ignored entirely
+const AUC_FLOOR  = 0.51;   // auc at which blend weight starts ramping
+const AUC_FULL   = 0.60;   // auc at which blend weight is maxed
+const MAX_WEIGHT = 0.20;   // ceiling on ML influence (conservative at low OOS AUC)
 const FRESH_DAYS = 5;      // predictions older than this (calendar days) are ignored
 const MIN_PREDS  = 30;     // need at least this many scored stocks to blend
 

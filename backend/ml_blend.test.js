@@ -11,17 +11,16 @@ const { blendWeightForAuc, toPercentileMap, applyMlBlend, _config } = require(".
 
 test("a chance-level model is gated off (weight 0)", () => {
   assert.strictEqual(blendWeightForAuc(0.50), 0);
-  assert.strictEqual(blendWeightForAuc(0.528), 0, "current real AUC stays inert");
-  assert.strictEqual(blendWeightForAuc(0.549), 0, "just below the gate");
+  assert.strictEqual(blendWeightForAuc(0.509), 0, "just below the gate");
   assert.strictEqual(blendWeightForAuc(null), 0);
   assert.strictEqual(blendWeightForAuc(NaN), 0);
 });
 
 test("blend weight ramps with edge above the gate", () => {
-  assert.strictEqual(blendWeightForAuc(0.55), 0, "at the floor weight starts at 0");
-  assert.ok(blendWeightForAuc(0.58) > 0, "above gate gets positive weight");
-  assert.ok(blendWeightForAuc(0.58) < _config.MAX_WEIGHT, "mid-range is below the cap");
-  assert.strictEqual(blendWeightForAuc(0.62), _config.MAX_WEIGHT, "at AUC_FULL hits the cap");
+  assert.strictEqual(blendWeightForAuc(0.51), 0, "at the floor weight starts at 0");
+  assert.ok(blendWeightForAuc(0.55) > 0, "above gate gets positive weight");
+  assert.ok(blendWeightForAuc(0.55) < _config.MAX_WEIGHT, "mid-range is below the cap");
+  assert.strictEqual(blendWeightForAuc(0.60), _config.MAX_WEIGHT, "at AUC_FULL hits the cap");
   assert.strictEqual(blendWeightForAuc(0.80), _config.MAX_WEIGHT, "never exceeds the cap");
 });
 
