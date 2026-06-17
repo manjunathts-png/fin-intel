@@ -20,7 +20,8 @@ const fs = require("fs");
 const path = require("path");
 const https = require("https");
 const { atomicWrite, daysAgo, mean, stddev, median, round2 } = require("./utils");
-const { CATEGORIES } = require("./mf_universe");
+const { CATEGORIES: STATIC_CATEGORIES } = require("./mf_universe");
+const { getDynamicMfCategories } = require("./amfi_discovery");
 
 const CACHE_FILE   = path.join(__dirname, "mf_history_cache.json");
 const AMFI_URL     = "https://www.amfiindia.com/spages/NAVAll.txt";
@@ -431,6 +432,9 @@ async function buildLeaderboard({ benchmarks = null } = {}) {
     console.warn("AMFI list fetch failed (will skip latest NAV):", e.message);
   }
 
+  // Expand static universe with AMFI-discovered funds (falls back to static on failure)
+  const CATEGORIES = await getDynamicMfCategories(STATIC_CATEGORIES);
+
   const categories = [];
   const warnings = [];
 
@@ -475,13 +479,15 @@ async function buildLeaderboard({ benchmarks = null } = {}) {
     aggregate.alpha5y  = round2(median(funds.map((f) => f.alpha5y).filter((v) => v != null)));
     aggregate.alpha10y = round2(median(funds.map((f) => f.alpha10y).filter((v) => v != null)));
 
-    categories.push({
-      category:  categoryName,
-      benchmark: bench,
-      fundCount: funds.length,
-      median:    aggregate,
-      funds,
-    });
+    if (funds.length > 0) {
+      categories.push({
+        category:  categoryName,
+        benchmark: bench,
+        fundCount: funds.length,
+        median:    aggregate,
+        funds,
+      });
+    }
   }
 
   // Hottest categories first (by 1w z-score)

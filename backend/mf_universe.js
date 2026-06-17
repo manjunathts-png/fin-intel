@@ -122,4 +122,8 @@ module.exports.CATEGORIES = {
     { code: "118285", label: "Canara Robeco ELSS Tax Saver" },
     { code: "147481", label: "Parag Parikh ELSS Tax Saver" },
   ],
+
+  // NOTE: "International / Global" and "Focused" categories are populated
+  // entirely by amfi_discovery.js from the AMFI NAVAll.txt file. They are not
+  // seeded here so they only appear when AMFI fetch succeeds.
 };
