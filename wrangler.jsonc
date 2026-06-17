@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fin-intel",
+  "compatibility_date": "2026-05-24",
+  "observability": {
+    "enabled": true
+  },
+  // Vite builds the frontend to frontend/dist — that's the directory to serve
+  "assets": {
+    "directory": "frontend/dist"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
