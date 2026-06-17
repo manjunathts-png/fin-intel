@@ -19,7 +19,7 @@
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
-const { atomicWrite, daysAgo, mean, stddev, median, round2 } = require("./utils");
+const { atomicWrite, daysAgo, mean, stddev, median, round2, sleep } = require("./utils");
 const { CATEGORIES: STATIC_CATEGORIES } = require("./mf_universe");
 const { getDynamicMfCategories } = require("./amfi_discovery");
 
@@ -204,6 +204,7 @@ async function fetchSchemeHistory(code) {
     };
     cache.schemes[code] = entry;
     saveCache();
+    await sleep(50); // gentle rate limit: ~20 req/sec max toward mfapi.in
     return entry;
   } catch (e) {
     // Stale-on-error: if mfapi.in is down but we have any cached data (even expired),

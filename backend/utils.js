@@ -40,4 +40,6 @@ const round = (v, d = 2) => (v == null || !isFinite(v) ? null : parseFloat(v.toF
 
 const round2 = (v) => round(v, 2);
 
-module.exports = { atomicWrite, daysAgo, mean, stddev, median, round, round2 };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+module.exports = { atomicWrite, daysAgo, mean, stddev, median, round, round2, sleep };
