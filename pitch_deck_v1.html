@@ -280,31 +280,6 @@
     letter-spacing: 1px;
   }
 
-  /* ── SUPPLEMENTARY (added slides: proof / mf-etf / value / pricing) ── */
-  .lead { font-size: 17px; color: var(--muted); max-width: 780px; margin-top: 6px; font-weight: 400; }
-  .foot { margin-top: 20px; font-size: 12px; color: var(--muted); }
-  .badge-muted { background: rgba(148,163,184,.15); color: var(--muted); }
-  .badge-red   { background: rgba(239,68,68,.15);  color: var(--red); }
-  .pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; white-space: nowrap; }
-  .pill-green { background: rgba(34,197,94,.15); color: var(--green); }
-  .pill-amber { background: rgba(245,158,11,.15); color: var(--amber); }
-  .pill-red   { background: rgba(239,68,68,.15);  color: var(--red); }
-  .pill-blue  { background: rgba(59,130,246,.15); color: var(--blue); }
-  .data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .data-table tfoot td { font-weight: 700; color: var(--white); border-top: 2px solid var(--border); border-bottom: none; }
-  .flow { display: flex; align-items: stretch; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
-  .flow-step { flex: 1; min-width: 150px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
-  .flow-step .n { font-size: 11px; color: var(--teal); font-weight: 700; letter-spacing: 1px; }
-  .flow-step strong { display: block; color: var(--white); margin: 4px 0; font-size: 15px; }
-  .flow-step span { font-size: 12px; color: var(--muted); }
-  ul.clean { list-style: none; margin-top: 6px; padding: 0; }
-  ul.clean li { padding: 6px 0; font-size: 13.5px; display: flex; gap: 9px; align-items: flex-start; color: var(--muted); }
-  ul.clean li::before { content: '✓'; color: var(--green); font-weight: 700; flex-shrink: 0; }
-  .callout.amber { border-left-color: var(--amber); background: rgba(245,158,11,.07); }
-  .card.featured { border-color: var(--amber); background: linear-gradient(135deg, rgba(245,158,11,.10) 0%, var(--card) 100%); }
-  .price { font-size: 30px; font-weight: 800; color: var(--white); line-height: 1; margin-top: 4px; }
-  .price span { font-size: 14px; font-weight: 500; color: var(--muted); }
-
   @media print {
     .slide { page-break-after: always; min-height: 100vh; }
   }
@@ -316,7 +291,7 @@
 <!-- ║  SLIDE 1 — COVER               ║ -->
 <!-- ╚══════════════════════════════════╝ -->
 <section class="slide cover-bg">
-  <span class="slide-num">01 / 16</span>
+  <span class="slide-num">01 / 12</span>
 
   <div class="logo-mark">
     <div class="logo-icon">F</div>
@@ -355,7 +330,7 @@
 <!-- ║  SLIDE 2 — PROBLEM             ║ -->
 <!-- ╚══════════════════════════════════╝ -->
 <section class="slide">
-  <span class="slide-num">02 / 16</span>
+  <span class="slide-num">02 / 12</span>
   <p class="eyebrow">The Problem</p>
   <h2>90 Million Demat Accounts.<br/>No Edge.</h2>
 
@@ -396,7 +371,7 @@
 <!-- ║  SLIDE 3 — MARKET OPPORTUNITY  ║ -->
 <!-- ╚══════════════════════════════════╝ -->
 <section class="slide">
-  <span class="slide-num">03 / 16</span>
+  <span class="slide-num">03 / 12</span>
   <p class="eyebrow">Market Opportunity</p>
   <h2>India's Equity Market Is at<br/><span class="accent">an Inflection Point</span></h2>
 
@@ -444,7 +419,7 @@
 <!-- ║  SLIDE 4 — SOLUTION / PRODUCT  ║ -->
 <!-- ╚══════════════════════════════════╝ -->
 <section class="slide">
-  <span class="slide-num">04 / 16</span>
+  <span class="slide-num">04 / 12</span>
   <p class="eyebrow">The Solution</p>
   <h2>A Complete, Accountable<br/><span class="accent">AI Intelligence Layer</span></h2>
 
@@ -512,7 +487,7 @@
 <!-- ║  SLIDE 5 — HOW IT WORKS        ║ -->
 <!-- ╚══════════════════════════════════╝ -->
 <section class="slide">
-  <span class="slide-num">05 / 16</span>
+  <span class="slide-num">05 / 12</span>
   <p class="eyebrow">Signal Architecture</p>
   <h2>Six Layers of Alpha,<br/><span class="accent">One Accountable Score</span></h2>
 
@@ -555,7 +530,7 @@
 <!-- ║  SLIDE 6 — VALIDATION / MOAT   ║ -->
 <!-- ╚══════════════════════════════════╝ -->
 <section class="slide">
-  <span class="slide-num">06 / 16</span>
+  <span class="slide-num">06 / 12</span>
   <p class="eyebrow">Validation & Defensibility</p>
   <h2>Built-In Accountability.<br/><span class="accent">No Black-Box Promises.</span></h2>
 
@@ -603,49 +578,10 @@
 
 
 <!-- ╔══════════════════════════════════╗ -->
-<!-- ║  SLIDE 7 — TRACK RECORD (NEW)  ║ -->
+<!-- ║  SLIDE 7 — TECH STACK          ║ -->
 <!-- ╚══════════════════════════════════╝ -->
 <section class="slide">
-  <span class="slide-num">07 / 16</span>
-  <p class="eyebrow">Track Record</p>
-  <h2>"No Lookahead" Convinces No One.<br/>A <span class="accent">Live, Timestamped Log</span> Does.</h2>
-  <p class="lead">Every pick is published with a server timestamp before market open, frozen, and scored against the actual filled price. Nothing is back-edited. The public ledger is the trust moat — and the honest answer to "yesterday's winners don't hold."</p>
-
-  <div class="grid g4" style="margin-top:28px;">
-    <div class="card highlight" style="text-align:center;"><div class="big-stat">52%</div><div class="big-label">21d net hit rate</div></div>
-    <div class="card" style="text-align:center;"><div class="big-stat">0.60</div><div class="big-label">Out-of-sample AUC</div></div>
-    <div class="card" style="text-align:center;"><div class="big-stat accent-amber">37%</div><div class="big-label">Top-quartile precision</div></div>
-    <div class="card" style="text-align:center;"><div class="big-stat accent-blue">100%</div><div class="big-label">Timestamped pre-open</div></div>
-  </div>
-
-  <div class="grid g2" style="margin-top:20px; gap:24px;">
-    <div class="card" style="padding:0; overflow:hidden;">
-      <table class="data-table" style="margin-top:0;">
-        <thead><tr><th>Published</th><th>Pick</th><th>Thesis</th><th style="text-align:right;">21d net</th></tr></thead>
-        <tbody>
-          <tr><td style="color:var(--muted);">02 Jun · 09:05</td><td>Stock A</td><td><span class="pill pill-green">intact</span></td><td class="num accent-green">+6.4%</td></tr>
-          <tr><td style="color:var(--muted);">02 Jun · 09:05</td><td>Stock B</td><td><span class="pill pill-red">stopped</span></td><td class="num" style="color:var(--red);">&minus;2.1%</td></tr>
-          <tr><td style="color:var(--muted);">26 May · 09:05</td><td>Stock C</td><td><span class="pill pill-green">intact</span></td><td class="num accent-green">+3.8%</td></tr>
-          <tr><td style="color:var(--muted);">26 May · 09:05</td><td>Stock D</td><td><span class="pill pill-amber">held</span></td><td class="num">+0.3%</td></tr>
-          <tr><td style="color:var(--muted);">19 May · 09:05</td><td>Stock E</td><td><span class="pill pill-green">intact</span></td><td class="num accent-green">+5.1%</td></tr>
-        </tbody>
-        <tfoot><tr><td colspan="3" style="padding:12px 16px;">Cohort realized · net of 0.30% cost</td><td class="num accent" style="padding:12px 16px;">+2.7%</td></tr></tfoot>
-      </table>
-    </div>
-    <div style="display:flex; flex-direction:column; gap:14px;">
-      <div class="callout" style="margin-top:0;"><strong class="accent">We win on horizon, not the next tick.</strong> Picks carry a 1&ndash;3 month thesis; a stability layer (top-decile for N days to enter, deep stop to exit) cuts turnover so the list doesn't reshuffle on intraday noise.</div>
-      <div class="callout amber" style="margin-top:0;"><strong class="accent-amber">Intraday updates manage exits, not entries.</strong> "Thesis broken &mdash; stop hit / regime flipped" is the only thing that moves a name out same-day. That ends "yesterday's pick is gone today."</div>
-    </div>
-  </div>
-  <p class="foot">Illustrative ledger layout — populate with live, hash-stamped entries. Past performance is not indicative of future results.</p>
-</section>
-
-
-<!-- ╔══════════════════════════════════╗ -->
-<!-- ║  SLIDE 8 — TECH STACK          ║ -->
-<!-- ╚══════════════════════════════════╝ -->
-<section class="slide">
-  <span class="slide-num">08 / 16</span>
+  <span class="slide-num">07 / 12</span>
   <p class="eyebrow">Technology</p>
   <h2>Production-Grade Stack.<br/><span class="accent">Built to Scale.</span></h2>
 
@@ -708,10 +644,10 @@
 
 
 <!-- ╔══════════════════════════════════╗ -->
-<!-- ║  SLIDE 9 — PRODUCT SCREENSHOTS ║ -->
+<!-- ║  SLIDE 8 — PRODUCT SCREENSHOTS ║ -->
 <!-- ╚══════════════════════════════════╝ -->
 <section class="slide">
-  <span class="slide-num">09 / 16</span>
+  <span class="slide-num">08 / 12</span>
   <p class="eyebrow">Product Experience</p>
   <h2>Institutional Depth.<br/><span class="accent">Retail Simplicity.</span></h2>
 
@@ -767,81 +703,10 @@
 
 
 <!-- ╔══════════════════════════════════╗ -->
-<!-- ║  SLIDE 10 — MF/ETF DOWN-MARKET (NEW) ║ -->
+<!-- ║  SLIDE 9 — BUSINESS MODEL      ║ -->
 <!-- ╚══════════════════════════════════╝ -->
 <section class="slide">
-  <span class="slide-num">10 / 16</span>
-  <p class="eyebrow">Mutual Fund &amp; ETF Intelligence</p>
-  <h2>The Down Market Is When<br/>We're <span class="accent">Most Valuable.</span></h2>
-  <p class="lead">"Buy / Hold / Avoid" is trading vocabulary wrongly applied to allocation vehicles — which is why it goes quiet in a sell-off. We give regime-aware, <em>relative</em>, portfolio-specific actions that get <strong style="color:var(--white);">more</strong> useful as markets fall.</p>
-
-  <table class="data-table" style="margin-top:28px;">
-    <thead><tr><th>Market regime</th><th>Old vocab</th><th>What Fin Intel actually says</th></tr></thead>
-    <tbody>
-      <tr><td><span class="pill pill-red">Risk-off / down</span></td><td style="color:var(--muted);">All "Hold / Avoid" 😴</td><td><strong class="accent-green">Increase your SIP</strong> — buying units ~18% cheaper than January. <span style="color:var(--muted);">+ harvest ₹12K of losses against booked gains.</span></td></tr>
-      <tr><td><span class="pill pill-amber">Choppy / sideways</span></td><td style="color:var(--muted);">"Hold"</td><td><strong class="accent">Switch A → B</strong>, same category, 0.9% lower TER &amp; better downside capture. Rotate to debt/gold per regime filter.</td></tr>
-      <tr><td><span class="pill pill-green">Risk-on / up</span></td><td style="color:var(--muted);">"Buy"</td><td><strong class="accent-blue">Trim overlap</strong> — your 6 funds hold 70% the same stocks. Rebalance drift back to target allocation.</td></tr>
-    </tbody>
-  </table>
-
-  <div class="grid g3" style="margin-top:24px;">
-    <div class="card"><span class="badge badge-teal">Always relative</span><h3>Never a dead "Hold"</h3><p>Every fund ranked <em>against its category peers</em> on Sharpe, TER, AUM &amp; downside capture — so there's always a better/worse, in every regime.</p></div>
-    <div class="card"><span class="badge badge-amber">Down-market alpha</span><h3>Tax-loss harvesting</h3><p>"Sell Fund X, book ₹40K loss, re-enter an equivalent index fund." Pure rupee value that only exists when markets are red.</p></div>
-    <div class="card"><span class="badge badge-blue">Personalised</span><h3>Tied to real holdings</h3><p>Overlap detection, drift, Regular→Direct, SIP discipline — computed on the user's actual portfolio, not a generic Top-10 list.</p></div>
-  </div>
-
-  <div class="callout amber" style="margin-top:24px;">📉 <strong>Retention insight:</strong> pick products churn when markets drop. A portfolio copilot retains <em>because</em> they dropped — the down market is our acquisition and renewal engine, not our weakness.</div>
-</section>
-
-
-<!-- ╔══════════════════════════════════╗ -->
-<!-- ║  SLIDE 11 — WHY CONSUMERS PAY (NEW) ║ -->
-<!-- ╚══════════════════════════════════╝ -->
-<section class="slide">
-  <span class="slide-num">11 / 16</span>
-  <p class="eyebrow">Why Consumers Pay</p>
-  <h2>We Don't Sell Predictions.<br/>We Find Money You're <span class="accent">Already Losing.</span></h2>
-  <p class="lead">A 2% edge over 21 days is real but invisible to a retail investor. Verifiable rupees are not. Connect your portfolio once — we show the leakage, then fix it. The stock engine is a feature inside this, not the whole pitch.</p>
-
-  <div class="flow">
-    <div class="flow-step"><div class="n">01</div><strong>Connect</strong><span>MF Central / broker API / CAS upload. 90 seconds, read-only.</span></div>
-    <div class="flow-step"><div class="n">02</div><strong>Diagnose</strong><span>Scan every holding for cost, tax, overlap &amp; drift leakage.</span></div>
-    <div class="flow-step"><div class="n">03</div><strong>Fix</strong><span>One-tap actions, each with the rupee impact attached.</span></div>
-    <div class="flow-step"><div class="n">04</div><strong>Track</strong><span>Realized savings logged against your real statements.</span></div>
-  </div>
-
-  <div class="grid g2" style="margin-top:24px; gap:24px;">
-    <div class="card" style="padding:0; overflow:hidden;">
-      <table class="data-table" style="margin-top:0;">
-        <thead><tr><th>Fix — ₹10L portfolio</th><th style="text-align:right;">Recovered / yr</th></tr></thead>
-        <tbody>
-          <tr><td>Regular → Direct switch <span class="pill pill-green">guaranteed</span></td><td class="num">₹8,000</td></tr>
-          <tr><td>Cheaper same-category fund (lower TER)</td><td class="num">₹4,500</td></tr>
-          <tr><td>Tax-loss harvesting (down-market)</td><td class="num">₹12,000</td></tr>
-          <tr><td>Overlap &amp; drift rebalancing</td><td class="num">₹3,000+</td></tr>
-        </tbody>
-        <tfoot><tr><td style="padding:12px 16px;">Verifiable savings</td><td class="num accent" style="padding:12px 16px;">₹27,500 / yr</td></tr></tfoot>
-      </table>
-    </div>
-    <div style="display:flex; flex-direction:column; gap:16px;">
-      <div class="card highlight">
-        <div class="eyebrow" style="margin-bottom:6px;">The unlock</div>
-        <div class="big-stat">4.6&times;</div>
-        <div class="big-label">Savings vs Pro subscription cost</div>
-        <p style="margin-top:10px;">₹27,500 recovered vs ₹5,988/yr (Pro). The product pays for itself before any alpha — so we retain even when markets fall.</p>
-      </div>
-      <div class="callout" style="margin-top:0;"><strong class="accent">Every number is auditable.</strong> Each recommendation ties to a line item on the user's own statement. That is what a consumer renews for.</div>
-    </div>
-  </div>
-  <p class="foot">Advice delivered under SEBI RIA partner of record · read-only access · no custody, no execution.</p>
-</section>
-
-
-<!-- ╔══════════════════════════════════╗ -->
-<!-- ║  SLIDE 12 — BUSINESS MODEL     ║ -->
-<!-- ╚══════════════════════════════════╝ -->
-<section class="slide">
-  <span class="slide-num">12 / 16</span>
+  <span class="slide-num">09 / 12</span>
   <p class="eyebrow">Business Model</p>
   <h2>Three Monetisation Paths.<br/><span class="accent">One Platform.</span></h2>
 
@@ -890,51 +755,10 @@
 
 
 <!-- ╔══════════════════════════════════╗ -->
-<!-- ║  SLIDE 13 — PRICING (NEW)      ║ -->
+<!-- ║  SLIDE 10 — COMPETITIVE MAP    ║ -->
 <!-- ╚══════════════════════════════════╝ -->
 <section class="slide">
-  <span class="slide-num">13 / 16</span>
-  <p class="eyebrow">Pricing &amp; Packaging</p>
-  <h2>Priced on <span class="accent">Portfolio Value Unlocked</span>,<br/>Not on Pick Counts.</h2>
-  <p class="lead">Tiers ladder by how much of your money we protect and grow — the copilot is the spine, picks are an add-on. Anchored to verifiable savings, every paid tier pays for itself.</p>
-
-  <div class="grid g4" style="margin-top:28px; align-items:stretch;">
-    <div class="card">
-      <span class="badge badge-muted">Free</span>
-      <div class="price">₹0</div>
-      <p style="margin:8px 0 12px;">Hook &amp; trust-builder</p>
-      <ul class="clean"><li>Market regime signal</li><li>Top 10 picks (daily)</li><li>Portfolio health score</li><li>Public track-record ledger</li></ul>
-    </div>
-    <div class="card highlight">
-      <span class="badge badge-teal">Copilot · Pro</span>
-      <div class="price">₹499<span> / mo</span></div>
-      <p style="margin:8px 0 12px; color:var(--teal);">Pays for itself ~4.6&times;</p>
-      <ul class="clean"><li>Everything in Free</li><li>Full portfolio leakage scan</li><li>Regular→Direct + TER fixes</li><li>Overlap &amp; drift rebalancing</li><li>Full Top-50 + score decomposition</li></ul>
-    </div>
-    <div class="card featured">
-      <span class="badge badge-amber">Copilot · Premium</span>
-      <div class="price">₹1,499<span> / mo</span></div>
-      <p style="margin:8px 0 12px; color:var(--amber);">Active, larger portfolios</p>
-      <ul class="clean"><li>Everything in Pro</li><li>Tax-loss harvesting engine</li><li>Intraday exit alerts</li><li>Full MF/ETF regime intelligence</li><li>Multi-account / family view</li></ul>
-    </div>
-    <div class="card">
-      <span class="badge badge-muted">B2B &amp; RIA</span>
-      <div class="price">₹50K+<span> / mo</span></div>
-      <p style="margin:8px 0 12px;">Most defensible line</p>
-      <ul class="clean"><li>White-label signal API</li><li>RIA research workbench</li><li>₹50K–₹5L brokers/fintech</li><li>₹5K–₹25K per RIA</li></ul>
-    </div>
-  </div>
-
-  <div class="callout" style="margin-top:24px;">💡 <strong class="accent">Conversion logic:</strong> Free proves the ledger → the portfolio scan surfaces a personalised "you're losing ₹27,500/yr" number → that number, not a model score, drives the upgrade. Down markets <em>raise</em> the savings figure, pulling users up the ladder instead of churning them.</div>
-  <p class="foot">Year-3 target unchanged: ₹25 Cr ARR at ~75% gross margin — now underwritten by copilot retention + B2B/RIA, not pick accuracy alone.</p>
-</section>
-
-
-<!-- ╔══════════════════════════════════╗ -->
-<!-- ║  SLIDE 14 — COMPETITIVE MAP    ║ -->
-<!-- ╚══════════════════════════════════╝ -->
-<section class="slide">
-  <span class="slide-num">14 / 16</span>
+  <span class="slide-num">10 / 12</span>
   <p class="eyebrow">Competitive Landscape</p>
   <h2>We Occupy an Uncontested<br/><span class="accent">Middle Ground</span></h2>
 
@@ -1006,10 +830,10 @@
 
 
 <!-- ╔══════════════════════════════════╗ -->
-<!-- ║  SLIDE 15 — ROADMAP            ║ -->
+<!-- ║  SLIDE 11 — ROADMAP            ║ -->
 <!-- ╚══════════════════════════════════╝ -->
 <section class="slide">
-  <span class="slide-num">15 / 16</span>
+  <span class="slide-num">11 / 12</span>
   <p class="eyebrow">Roadmap</p>
   <h2>From Signal Engine to<br/><span class="accent">Full Investment Platform</span></h2>
 
@@ -1090,10 +914,10 @@
 
 
 <!-- ╔══════════════════════════════════╗ -->
-<!-- ║  SLIDE 16 — ASK / CLOSE        ║ -->
+<!-- ║  SLIDE 12 — ASK / CLOSE        ║ -->
 <!-- ╚══════════════════════════════════╝ -->
 <section class="slide cover-bg">
-  <span class="slide-num">16 / 16</span>
+  <span class="slide-num">12 / 12</span>
   <p class="eyebrow">The Ask</p>
   <h2>Join Us in Democratising<br/><span class="accent">Investment Intelligence</span></h2>
 

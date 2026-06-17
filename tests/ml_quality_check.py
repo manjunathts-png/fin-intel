@@ -177,23 +177,23 @@ else:
 # ════════════════════════════════════════════════════════════════════════════════
 print("\n── Stock features (core columns) ─────────────────────────────────────────")
 
-# 9. Core feature null rates
-feat_date = pred_date
-feat_rows = get(
-    "stock_features",
-    f"select=symbol,ret1m,ret3m,vol_30d,vol_90d"
-    f"&as_of_date=eq.{feat_date}&limit=600",
-)
-if not feat_rows:
-    feat_date = pred_date - timedelta(days=1)
-    feat_rows = get(
+# 9. Core feature null rates — look back up to 4 days to cover weekends + holidays
+feat_date = None
+feat_rows = []
+for days_back in range(5):
+    candidate = pred_date - timedelta(days=days_back)
+    rows = get(
         "stock_features",
         f"select=symbol,ret1m,ret3m,vol_30d,vol_90d"
-        f"&as_of_date=eq.{feat_date}&limit=600",
+        f"&as_of_date=eq.{candidate}&limit=600",
     )
+    if rows:
+        feat_date = candidate
+        feat_rows = rows
+        break
 
 if not feat_rows:
-    fail(f"No stock_features rows found for {pred_date} or {pred_date - timedelta(1)}")
+    fail(f"No stock_features rows found in last 5 days (checked back to {pred_date - timedelta(4)})")
 else:
     ok(f"{len(feat_rows)} stock_features rows for {feat_date}")
     CORE = ["ret1m", "ret3m", "vol_30d", "vol_90d"]
