@@ -20,7 +20,7 @@
 
 // 5-window weighting (renormalised from fin-intel's MF formula when cagr5y/sharpe missing)
 const WINDOW_WEIGHTS_BASIC = {
-  ret1w: 0.30, ret1m: 0.25, ret3m: 0.20, ret6m: 0.15, ret1y: 0.10,
+  ret1w: 0.30, ret1m: 0.25, ret3m: 0.25, ret6m: 0.15, ret1y: 0.05,
 };
 
 // 7-window weighting (matches MfPicks.jsx exactly — used when extras are present)
