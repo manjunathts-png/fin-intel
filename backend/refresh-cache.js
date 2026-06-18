@@ -282,37 +282,36 @@ async function main() {
       p.eodBaseScore = p.compositeScore;
     }
 
-    // ── EOD-to-EOD score smoothing (EMA α=0.6) ────────────────────────────
-    // Blends today's raw EOD score with yesterday's EOD score so a stock
-    // needs consistent signals across days to hold a top rank.
-    //   eodSmoothed = 0.6 × todayRaw + 0.4 × prevEodSmoothed
-    // This is pure EOD-to-EOD: prevScoreMap holds eodCompositeScore values,
-    // so intraday updates during the day don't leak into this calculation.
+    // ── EOD-to-EOD score smoothing (EMA α=0.5) ────────────────────────────
+    // Equal weight on today vs yesterday: a stock needs 2+ days of consistent
+    // signals to move rank meaningfully. α was 0.6 (today-heavy); lowering to
+    // 0.5 reduces day-to-day churn while still responding to genuine momentum.
     // New stocks (no prior entry) enter at full raw score — no penalty.
     let smoothedCount = 0;
     for (const p of signals.all) {
       p.rawScore = p.compositeScore;          // preserve today's raw signal score
       const prev = prevScoreMap[p.symbol];
       if (prev != null) {
-        p.compositeScore = Math.round(0.6 * p.rawScore + 0.4 * prev);
+        p.compositeScore = Math.round(0.5 * p.rawScore + 0.5 * prev);
         smoothedCount++;
       }
       // else new stock: compositeScore stays as rawScore (no prior to blend with)
       p.eodCompositeScore = p.compositeScore;  // fixed anchor used by intraday runs
     }
-    console.log(`  ✓ score smoothing applied (EMA α=0.6): ${smoothedCount} stocks blended with yesterday`);
+    console.log(`  ✓ score smoothing applied (EMA α=0.5): ${smoothedCount} stocks blended with yesterday`);
 
-    // ── Incumbent hysteresis: +5 bonus to stocks that were in yesterday's top 50 ──
-    // Prevents 50↔51 boundary churn. Stocks legitimately losing momentum will still
-    // fall enough for +5 not to save them. Bonus is stored separately for transparency.
+    // ── Incumbent hysteresis: +10 bonus to stocks that were in yesterday's top 50 ──
+    // Prevents boundary churn. +10 means a stock needs a ~10pt net swing (roughly
+    // 2 signals flipping) to lose its place, not just a single OI/delivery change.
+    // Bonus was +5; raised to +10 to match typical single-signal volatility (~8–12pt).
     let incumbentCount = 0;
     for (const p of signals.all) {
       const prev = prevPersistenceMap[p.symbol];
       const wasTop50  = prev && prev.rank != null && prev.rank <= 50;
       const wasTop100 = prev && prev.rank != null && prev.rank <= 100;
-      p.incumbentBonus = wasTop50 ? 5 : 0;
+      p.incumbentBonus = wasTop50 ? 10 : 0;
       if (wasTop50) {
-        p.compositeScore = Math.min(100, p.compositeScore + 5);
+        p.compositeScore = Math.min(100, p.compositeScore + 10);
         incumbentCount++;
       }
       // Track persistence for downstream sort + UI badges
@@ -322,10 +321,30 @@ async function main() {
       p.prevDaysInTop50  = prev?.daysInTop50  ?? 0;
       p.prevDaysInTop100 = prev?.daysInTop100 ?? 0;
     }
-    console.log(`  ✓ incumbent hysteresis: +5 applied to ${incumbentCount} stocks from yesterday's top 50`);
+    console.log(`  ✓ incumbent hysteresis: +10 applied to ${incumbentCount} stocks from yesterday's top 50`);
 
-    // Re-sort after fundamental adjustments + smoothing + hysteresis
-    signals.all.sort((a, b) => b.compositeScore - a.compositeScore || b.signalCount - a.signalCount);
+    // ── Entry gate: new stocks need a top-100 "audition" before entering top 50 ──
+    // A stock with no prior history (or prior rank >100) is blocked from the top-50
+    // slice. Without this, a single big signal day can rocket a newcomer straight
+    // into the published list before it has proven sustained momentum.
+    // We sort blocked stocks below all others, then restore their true compositeScore
+    // so the stored data reflects actual momentum (just not a top-50 position).
+    let entryGateDocked = 0;
+    for (const p of signals.all) {
+      p.blockedByEntryGate = !p.wasInTop100 && !p.wasInTop50;
+      if (p.blockedByEntryGate) entryGateDocked++;
+    }
+    if (entryGateDocked > 0) {
+      console.log(`  ✓ entry gate: ${entryGateDocked} first-time stocks blocked from top 50`);
+    }
+
+    // Re-sort after fundamental adjustments + smoothing + hysteresis + entry gate
+    // Blocked stocks sort after all non-blocked stocks; within each group use score.
+    signals.all.sort((a, b) => {
+      if (a.blockedByEntryGate !== b.blockedByEntryGate)
+        return a.blockedByEntryGate ? 1 : -1;
+      return b.compositeScore - a.compositeScore || b.signalCount - a.signalCount;
+    });
     signals.all.forEach((s, i) => { s.rank = i + 1; });
 
     // ── Sector concentration cap (soft) ──────────────────────────────────────
@@ -357,6 +376,7 @@ async function main() {
       delete p.prevDaysInTop100;
       delete p.wasInTop50;
       delete p.wasInTop100;
+      delete p.blockedByEntryGate;
     }
     const coreCount = signals.all.filter((p) => p.rank <= 50 && p.daysInTop50 >= 7).length;
     console.log(`  ✓ persistence tracked: ${coreCount} of top 50 are Core (≥7 days)`);
