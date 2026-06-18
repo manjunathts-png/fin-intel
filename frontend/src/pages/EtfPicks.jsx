@@ -150,10 +150,20 @@ export default function EtfPicks() {
   const allTypes = ["All", ...types.map((t) => t.type)];
   const filtered = activeType === "All" ? types : types.filter((t) => t.type === activeType);
 
-  // Two hot strips
-  const topByScore = scored.overallRanked
-    .filter((e) => e.recommendable)
-    .slice(0, 10);
+  // Two hot strips — max 2 per type to prevent commodity runs from sweeping all 10 slots
+  const topByScore = (() => {
+    const typeCounts = {};
+    const result = [];
+    for (const etf of scored.overallRanked) {
+      if (result.length >= 10) break;
+      if (!etf.recommendable) continue;
+      const count = typeCounts[etf.type] ?? 0;
+      if (count >= 2) continue;
+      typeCounts[etf.type] = count + 1;
+      result.push(etf);
+    }
+    return result;
+  })();
 
   const topByRet1w = [...scored.overallRanked]
     .filter((e) => e.ret1w != null)
