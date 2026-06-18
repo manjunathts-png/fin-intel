@@ -351,11 +351,23 @@ function eodSignalScore(sig) {
   else if (sig.above50DMA && sig.above200DMA)              s += 6;
   else if (!sig.above200DMA && !sig.above50DMA)            s -= 5;
   if (sig.rsVsNifty3M != null) {
-    if (sig.rsVsNifty3M >= 15)      s += 10;
-    else if (sig.rsVsNifty3M >= 5)  s += 5;
+    if (sig.rsVsNifty3M >= 15)       s += 10;
+    else if (sig.rsVsNifty3M >= 5)   s += 5;
     else if (sig.rsVsNifty3M <= -10) s -= 4;
   }
-  if (sig.highDelivery)             s += 8;
+  // 6-month RS: sustained medium-term outperformance; changes slowly → stabilises ranking
+  if (sig.rsVsNifty6M != null) {
+    if (sig.rsVsNifty6M >= 15)       s += 8;
+    else if (sig.rsVsNifty6M >= 5)   s += 4;
+    else if (sig.rsVsNifty6M <= -10) s -= 4;
+  }
+  // 1-year RS: long-term quality filter; rarely flips → strongest consistency anchor
+  if (sig.rsVsNifty1Y != null) {
+    if (sig.rsVsNifty1Y >= 20)       s += 6;
+    else if (sig.rsVsNifty1Y >= 8)   s += 3;
+    else if (sig.rsVsNifty1Y <= -10) s -= 3;
+  }
+  if (sig.highDelivery)              s += 8;
   if (sig.disc?.bulkBuy)            s += 12;
   if (sig.disc?.blockBuy)           s += 18;
   if (sig.disc?.oiLong)             s += 10;
@@ -569,13 +581,15 @@ async function buildSignalsLeaderboard({
       const baseSymbol = symbol.replace(".NS", "");
 
       // Relative strength vs Nifty
-      let rsVsNifty1M = null, rsVsNifty3M = null, rsVsNifty1Y = null;
+      let rsVsNifty1M = null, rsVsNifty3M = null, rsVsNifty6M = null, rsVsNifty1Y = null;
       if (niftyReturns) {
         const r1m = pctReturn(entry.prices, 30);
         const r3m = pctReturn(entry.prices, 90);
+        const r6m = pctReturn(entry.prices, 180);
         const r1y = pctReturn(entry.prices, 365);
         if (r1m != null && niftyReturns.ret1m != null) rsVsNifty1M = round(r1m - niftyReturns.ret1m, 2);
         if (r3m != null && niftyReturns.ret3m != null) rsVsNifty3M = round(r3m - niftyReturns.ret3m, 2);
+        if (r6m != null && niftyReturns.ret6m != null) rsVsNifty6M = round(r6m - niftyReturns.ret6m, 2);
         if (r1y != null && niftyReturns.ret1y != null) rsVsNifty1Y = round(r1y - niftyReturns.ret1y, 2);
       }
 
@@ -583,7 +597,7 @@ async function buildSignalsLeaderboard({
         symbol, label, sector,
         deliveryPct: deliveryMap[baseSymbol] ?? null,
         disc:        discBonuses[baseSymbol] ?? null,
-        rsVsNifty1M, rsVsNifty3M, rsVsNifty1Y,
+        rsVsNifty1M, rsVsNifty3M, rsVsNifty6M, rsVsNifty1Y,
       });
       if (sig) {
         // Apply delivery flag (used by composite via highDelivery)
