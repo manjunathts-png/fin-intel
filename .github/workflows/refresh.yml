@@ -15,7 +15,7 @@ on:
         required: false
         default: 'all'
         type: choice
-        options: [all, mf, stocks, intraday, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, tune_stock, migrate, restore_persistence, signal_backtest]
+        options: [all, mf, stocks, intraday, gen_mf_rationales, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, tune_stock, migrate, restore_persistence, signal_backtest]
       backfill_days:
         description: 'Days to backfill for stock_backfill/nifty500_backfill (default 365)'
         required: false
@@ -82,6 +82,13 @@ jobs:
       - name: Restore persistence counters (one-time recovery)
         if: steps.target.outputs.target == 'restore_persistence'
         run: node backend/restore-persistence.js
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      - name: Generate MF AI rationales (no ANTHROPIC_API_KEY needed)
+        if: steps.target.outputs.target == 'gen_mf_rationales'
+        run: node backend/seed-ai-rationales-jun18.js
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
