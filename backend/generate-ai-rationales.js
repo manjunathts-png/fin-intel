@@ -37,16 +37,26 @@ async function fetchTopPicks() {
 
   const mfData = data.data;
   // One best fund per category, sorted by composite score — mirrors MfPicks.jsx
-  const picks = mfData.categories
+  const picks = (mfData.categories || [])
     .map((cat) => {
-      const top = [...cat.funds].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0];
+      const top = [...(cat.funds || [])].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0];
       if (!top) return null;
       return { ...top, category: cat.category, catZ: cat.median?.z1w ?? 0, catMedian: cat.median };
     })
     .filter(Boolean)
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
-  return picks;
+  // De-dup funds that appear in more than one category (same AMFI code) so we
+  // don't burn a Claude call and clobber the upsert under the same fund_code.
+  const seen = new Set();
+  const deduped = picks.filter((p) => {
+    if (p.code == null) return true;
+    if (seen.has(p.code)) return false;
+    seen.add(p.code);
+    return true;
+  });
+
+  return deduped;
 }
 
 // ─── Build prompt for a single pick ──────────────────────────────────────────
@@ -118,12 +128,21 @@ Keep prose tight — each bullet ≤20 words. No filler phrases.`;
 async function generateAnalysis(pick, nextPick, rank, total) {
   const prompt = buildPrompt(pick, nextPick, rank, total);
 
-  const msg = await anthropic.messages.create({
+  // max_tokens is a ceiling that INCLUDES adaptive-thinking tokens. At 1024 the
+  // thinking budget could swallow most of it and truncate the JSON mid-object
+  // (stop_reason "max_tokens" → JSON.parse fails → pick silently skipped). Give
+  // ample headroom and stream so long turns don't hit the request timeout.
+  const stream = anthropic.messages.stream({
     model: "claude-opus-4-8",
-    max_tokens: 1024,
+    max_tokens: 4096,
     thinking: { type: "adaptive" },
     messages: [{ role: "user", content: prompt }],
   });
+  const msg = await stream.finalMessage();
+
+  if (msg.stop_reason === "max_tokens") {
+    throw new Error("response hit max_tokens — output likely truncated");
+  }
 
   const text = msg.content.find((b) => b.type === "text")?.text ?? "";
 
