@@ -116,11 +116,6 @@ create policy "authenticated read ai rationales"
   on pick_ai_rationales for select
   to authenticated
   using (true);
-
-create policy "authenticated read rationales"
-  on pick_rationales for select
-  to authenticated
-  using (true);
 -- Service role (used by script) bypasses RLS for inserts.
 
 -- ─── Stock pick rationales ────────────────────────────────────────────────────
