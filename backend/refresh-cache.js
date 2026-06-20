@@ -338,21 +338,26 @@ async function main() {
       console.log(`  ✓ entry gate: ${entryGateDocked} first-time stocks blocked from top 50`);
     }
 
-    // Re-sort after fundamental adjustments + smoothing + hysteresis + entry gate
-    // Blocked stocks sort after all non-blocked stocks; within each group use score.
-    signals.all.sort((a, b) => {
+    // Rank comparator: blocked (entry-gate) stocks always sort after non-blocked
+    // ones; within each group, by compositeScore then signalCount. Used for every
+    // re-sort below so the entry gate survives later passes (e.g. the sector cap).
+    const rankCompare = (a, b) => {
       if (a.blockedByEntryGate !== b.blockedByEntryGate)
         return a.blockedByEntryGate ? 1 : -1;
       return b.compositeScore - a.compositeScore || b.signalCount - a.signalCount;
-    });
+    };
+
+    // Re-sort after fundamental adjustments + smoothing + hysteresis + entry gate
+    signals.all.sort(rankCompare);
     signals.all.forEach((s, i) => { s.rank = i + 1; });
 
     // ── Sector concentration cap (soft) ──────────────────────────────────────
     // Dock top-50 names beyond 30% from a single sector so one sector-wide
-    // reversal can't take down the whole published list. Re-sort after.
+    // reversal can't take down the whole published list. Re-sort after — using
+    // rankCompare so docking can't float a gated newcomer back into the top 50.
     const sectorDocked = applySectorCap(signals.all, { topN: 50 });
     if (sectorDocked > 0) {
-      signals.all.sort((a, b) => b.compositeScore - a.compositeScore || b.signalCount - a.signalCount);
+      signals.all.sort(rankCompare);
       signals.all.forEach((s, i) => { s.rank = i + 1; });
     }
     const topSectors = sectorBreakdown(signals.all, 50).slice(0, 3)

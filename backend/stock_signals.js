@@ -532,6 +532,11 @@ function pctReturn(prices, days) {
     if (prices[mid].date <= tStr) lo = mid;
     else hi = mid - 1;
   }
+  // Insufficient history: even the oldest price is more recent than the target
+  // date, so this would compare a short window against the benchmark's full one
+  // (e.g. a 100-day-old stock's "180-day" return vs Nifty's true 180-day return).
+  // Return null so the relative-strength signal simply doesn't fire.
+  if (prices[lo].date > tStr) return null;
   const past = prices[lo].close;
   if (!past || past <= 0) return null;
   return ((latest - past) / past) * 100;

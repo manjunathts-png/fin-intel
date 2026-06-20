@@ -494,12 +494,20 @@ async function fetchFundCodeMap() {
 
 function resolveCode(analysis, codeMap) {
   const matchKey = normalize(analysis._match);
+  if (!matchKey) return null;
+  // Match only when the live fund name contains the (specific) _match fragment.
+  // Prefer an exact normalized hit; otherwise the shortest containing name, which
+  // is the most precise (fewest extra words). The previous `key.slice(0,10)`
+  // fallback matched on the shared AMC prefix ("bankofindi", "adityabirl"), so
+  // sibling funds from one AMC all collapsed onto whichever appeared first.
+  let best = null;
   for (const [key, val] of Object.entries(codeMap)) {
-    if (key.includes(matchKey) || matchKey.includes(key.slice(0, 10))) {
-      return val;
+    if (key === matchKey) return val;
+    if (key.includes(matchKey) && (!best || key.length < best.key.length)) {
+      best = { key, val };
     }
   }
-  return null;
+  return best ? best.val : null;
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
