@@ -167,7 +167,9 @@ function applyMlBlend(stocks, blend) {
   const map = blend?.bySymbol ?? new Map();
   let n = 0;
   for (const s of stocks) {
-    const ml = map.has(s.symbol) ? map.get(s.symbol) : null;
+    // stock_predictions stores bare NSE symbols ("TCS"); the JS universe uses "TCS.NS"
+    const sym = s.symbol ? s.symbol.replace(/\.(NS|BO)$/, "") : s.symbol;
+    const ml = map.has(sym) ? map.get(sym) : null;
     s.mlScore = ml;
     if (w > 0 && ml != null && s.compositeScore != null) {
       s.mlBlendWeight = w;

@@ -63,3 +63,13 @@ test("applyMlBlend skips stocks with no ML score", () => {
   assert.strictEqual(stocks[1].compositeScore, 30, "unscored stock untouched");
   assert.strictEqual(stocks[1].mlScore, null);
 });
+
+test("applyMlBlend matches .NS universe symbols to bare prediction symbols", () => {
+  // JS universe uses "TCS.NS"; stock_predictions stores "TCS" (Python strips suffix)
+  const stocks = [{ symbol: "TCS.NS", compositeScore: 60 }, { symbol: "RELIANCE.BO", compositeScore: 50 }];
+  const map = new Map([["TCS", 100], ["RELIANCE", 0]]);
+  const n = applyMlBlend(stocks, { weight: 0.5, bySymbol: map });
+  assert.strictEqual(n, 2, "both .NS and .BO symbols matched after stripping");
+  assert.strictEqual(stocks[0].compositeScore, 80, "TCS.NS: 0.5*60 + 0.5*100 = 80");
+  assert.strictEqual(stocks[1].compositeScore, 25, "RELIANCE.BO: 0.5*50 + 0.5*0 = 25");
+});
