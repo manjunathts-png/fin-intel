@@ -36,7 +36,18 @@ $$;
 
 ALTER TABLE pick_ai_rationales ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "authenticated read ai rationales"
-  ON pick_ai_rationales FOR SELECT
-  TO authenticated
-  USING (true);
+-- CREATE POLICY has no IF NOT EXISTS — guard with a DO block.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'pick_ai_rationales'
+      AND policyname = 'authenticated read ai rationales'
+  ) THEN
+    EXECUTE 'CREATE POLICY "authenticated read ai rationales"
+      ON pick_ai_rationales FOR SELECT
+      TO authenticated
+      USING (true)';
+  END IF;
+END
+$$;
