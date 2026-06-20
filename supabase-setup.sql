@@ -71,7 +71,7 @@ create policy "admin read events"
   using ((auth.jwt() ->> 'email') = 'manjunathts@gmail.com');
 
 -- ─── Pick rationales ──────────────────────────────────────────────────────────
--- AI-generated investment analysis for top MF picks. One row per fund per day.
+-- Rule-based daily MF verdict. One row per fund per run_date.
 
 create table if not exists pick_rationales (
   id           bigserial   primary key,
@@ -89,6 +89,33 @@ create unique index if not exists pick_rationales_fund_date
   on pick_rationales (fund_code, run_date);
 
 alter table pick_rationales enable row level security;
+
+create policy "authenticated read rationales"
+  on pick_rationales for select
+  to authenticated
+  using (true);
+
+-- ─── Pick AI rationales ───────────────────────────────────────────────────────
+-- AI-generated investment rationale for top MF picks. One row per fund
+-- (latest run wins). Upserted with onConflict:'fund_code' — the unique
+-- constraint below is required for that to work.
+
+create table if not exists pick_ai_rationales (
+  id           bigserial    primary key,
+  fund_code    text         unique not null,
+  fund_name    text         not null,
+  category     text         not null,
+  rank         int,
+  analysis     jsonb        not null,
+  generated_at timestamptz  not null default now()
+);
+
+alter table pick_ai_rationales enable row level security;
+
+create policy "authenticated read ai rationales"
+  on pick_ai_rationales for select
+  to authenticated
+  using (true);
 
 create policy "authenticated read rationales"
   on pick_rationales for select
