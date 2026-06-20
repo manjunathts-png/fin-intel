@@ -50,7 +50,7 @@ async function fetchNavs(code) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12000);
   try {
-    const res = await fetch(`https://api.mfapi.in/mf/${code}`, { signal: controller.signal });
+    const res = await fetch(`/api/nav/${code}`, { signal: controller.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
     // newest first → reverse to oldest first
