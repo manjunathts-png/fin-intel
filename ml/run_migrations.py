@@ -30,6 +30,7 @@ MIGRATIONS = [
     "migrate_011_earnings_momentum.sql",
     "migrate_012_oos_outcomes_ic.sql",
     "migrate_013_system_health.sql",
+    "migrate_014_rls_read_policies.sql",
 ]
 
 ML_DIR = Path(__file__).parent
