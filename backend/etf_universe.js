@@ -30,7 +30,6 @@ module.exports.ETF_TYPES = {
     { code: "102885", ticker: "NIFTYBEES",   label: "Nippon Nifty 50 BeES",        aumCr: 39000, ter: 0.04, benchmark: "Nifty 50" },
     { code: "102934", ticker: "JUNIORBEES",  label: "Nippon Nifty Next 50 BeES",   aumCr: 6500,  ter: 0.15, benchmark: "Nifty Next 50" },
     { code: null,     ticker: "MIDCAPIETF",  label: "ICICI Pru Midcap 150 ETF",    aumCr: 600,   ter: 0.15, benchmark: "Nifty Midcap 150" },
-    { code: null,     ticker: "SMALLCAP",    label: "Nippon Nifty Smallcap 250",   aumCr: 900,   ter: 0.32, benchmark: "Nifty Smallcap 250" },
     { code: null,     ticker: "NIF100IETF",  label: "ICICI Pru Nifty 100 ETF",     aumCr: 1500,  ter: 0.07, benchmark: "Nifty 100" },
     { code: null,     ticker: "IVZINNIFTY",  label: "Invesco India Nifty 100 ETF", aumCr: 700,   ter: 0.15, benchmark: "Nifty 100" },
     { code: null,     ticker: "UTINIFTETF",  label: "UTI Nifty 50 ETF",            aumCr: 5000,  ter: 0.06, benchmark: "Nifty 50" },
