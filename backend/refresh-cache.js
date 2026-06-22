@@ -439,7 +439,7 @@ async function main() {
 
     console.log("Generating rule-based stock rationales…");
     const today = new Date().toISOString().slice(0, 10);
-    const stockRationales = generateStockRationales(signals.picks, 25);
+    const stockRationales = generateStockRationales(signals.picks, 50);
     for (const r of stockRationales) {
       const { error } = await supabase
         .from("stock_pick_rationales")
