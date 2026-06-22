@@ -11,6 +11,7 @@ const VERDICT_STYLE = {
   "Strong Buy": "bg-green-500/20 text-green-300 border-green-600/40",
   "Buy":        "bg-green-800/30 text-green-400 border-green-700/40",
   "Hold":       "bg-yellow-500/20 text-yellow-300 border-yellow-600/40",
+  "Watch":      "bg-blue-500/20 text-blue-300 border-blue-600/40",
   "Avoid":      "bg-red-500/20 text-red-300 border-red-600/40",
 };
 const CONFIDENCE_STYLE = {
@@ -882,6 +883,15 @@ export default function MfPicks() {
             '<span class="text-red-400">Avoid</span> — momentum present but risk flags outweigh the setup',
             "Daily rule-based analysis auto-generated after each data refresh",
             "AI deep-dive analysis updated weekly with macro context &amp; vs-next-pick comparison",
+          ],
+        },
+        {
+          title: "Disclaimer",
+          items: [
+            "Mutual fund investments are subject to market risks. Read all scheme-related documents carefully before investing.",
+            "Past performance is not indicative of future results.",
+            "Rankings and verdicts are algorithmic signals — not SEBI-registered investment advice.",
+            "Consult a SEBI-registered investment advisor before making investment decisions.",
           ],
         },
       ]} />

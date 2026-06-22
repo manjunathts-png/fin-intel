@@ -12,6 +12,7 @@ const VERDICT_STYLE = {
   "Strong Buy": "bg-green-500/20 text-green-300 border-green-600/40",
   "Buy":        "bg-green-800/30 text-green-400 border-green-700/40",
   "Hold":       "bg-yellow-500/20 text-yellow-300 border-yellow-600/40",
+  "Watch":      "bg-blue-500/20 text-blue-300 border-blue-600/40",
   "Avoid":      "bg-red-500/20 text-red-300 border-red-600/40",
 };
 const CONFIDENCE_STYLE = {
@@ -496,7 +497,7 @@ function DiscoveryWidget({ title, icon, color, items, renderItem, emptyMsg, stal
 
 // ─── Discovery section (4-tile grid inside accordion) ────────────────────────
 
-function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
+function DiscoverySection({ discovery, niftyReturns, scannedPicks, onOpenDrawer }) {
   if (!discovery) return null;
   const { highs52w, topGainers, oiBuildup, bulkDeals, blockDeals } = discovery;
   const inst = [
@@ -507,6 +508,11 @@ function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
     .filter((p) => p.changePct != null)
     .sort((a, b) => (b.changePct ?? 0) - (a.changePct ?? 0))
     .slice(0, 20);
+
+  function openStock(symbol) {
+    const bare = symbol?.replace(/\.NS$/i, "").replace(/\.BSE$/i, "");
+    if (bare && onOpenDrawer) onOpenDrawer({ type: "STOCK", id: bare });
+  }
 
   return (
     <div className="space-y-3 px-3 pb-3">
@@ -519,7 +525,11 @@ function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
         <DiscoveryWidget
           title="52-Week Highs" icon="🚀" color="border-green-900/40" items={highs52w}
           renderItem={(d, i) => (
-            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+            <div
+              key={i}
+              onClick={() => openStock(d.symbol)}
+              className={`flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0 ${onOpenDrawer ? "cursor-pointer hover:bg-gray-800/40" : ""}`}
+            >
               <div className="min-w-0">
                 <div className="truncate text-xs text-gray-200">{d.company}</div>
                 <div className="text-[10px] text-gray-600 font-mono">{d.symbol}</div>
@@ -538,7 +548,11 @@ function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
           title="Today's Movers (scanned universe)" icon="📊" color="border-blue-900/40"
           items={pickMovers} emptyMsg="Day-change data unavailable for the scanned universe."
           renderItem={(d, i) => (
-            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+            <div
+              key={i}
+              onClick={() => openStock(d.symbol)}
+              className={`flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0 ${onOpenDrawer ? "cursor-pointer hover:bg-gray-800/40" : ""}`}
+            >
               <div className="min-w-0">
                 <div className="truncate text-xs text-gray-200">{d.label}</div>
                 <div className="text-[10px] text-gray-600">{d.symbol?.replace(".NS", "")} · {d.sector}</div>
@@ -559,7 +573,11 @@ function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
           staleNote={discovery.staleFeeds?.includes("topGainers") ? "as of last trading day" : null}
           emptyMsg="Top gainers populate during market hours (NSE updates intraday)."
           renderItem={(d, i) => (
-            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+            <div
+              key={i}
+              onClick={() => openStock(d.symbol)}
+              className={`flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0 ${onOpenDrawer ? "cursor-pointer hover:bg-gray-800/40" : ""}`}
+            >
               <div className="min-w-0">
                 <div className="text-xs text-gray-200 font-mono">{d.symbol}</div>
                 <div className="text-[10px] text-gray-600">₹{d.ltp?.toLocaleString("en-IN")}</div>
@@ -586,7 +604,11 @@ function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
           }
           emptyMsg="No bulk/block deals available yet. NSE publishes these EOD on trading days."
           renderItem={(d, i) => (
-            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+            <div
+              key={i}
+              onClick={() => openStock(d.symbol)}
+              className={`flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0 ${onOpenDrawer ? "cursor-pointer hover:bg-gray-800/40" : ""}`}
+            >
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-200 font-mono">{d.symbol}</span>
@@ -612,7 +634,11 @@ function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
           staleNote={discovery.staleFeeds?.includes("oiBuildup") ? "intraday-only · last trading day" : null}
           emptyMsg="F&O OI buildup is intraday-only — NSE publishes during market hours (Mon-Fri, 9:15–15:30 IST)."
           renderItem={(d, i) => (
-            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+            <div
+              key={i}
+              onClick={() => openStock(d.symbol)}
+              className={`flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0 ${onOpenDrawer ? "cursor-pointer hover:bg-gray-800/40" : ""}`}
+            >
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-200 font-mono">{d.symbol}</span>
@@ -638,7 +664,7 @@ function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
 // Collapsed by default so picks appear immediately under the page header.
 // Counting "active" feeds (those with at least one item).
 
-function DiscoveryAccordion({ discovery, niftyReturns, scannedPicks }) {
+function DiscoveryAccordion({ discovery, niftyReturns, scannedPicks, onOpenDrawer }) {
   const [open, setOpen] = useState(false);
   if (!discovery) return null;
 
@@ -648,28 +674,111 @@ function DiscoveryAccordion({ discovery, niftyReturns, scannedPicks }) {
 
   return (
     <div className="overflow-hidden rounded-2xl border border-purple-800/40 bg-gray-950">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between px-4 py-3 text-left"
-      >
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-4 py-3">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="flex flex-1 items-center gap-2 text-left"
+        >
           <span>🔭</span>
           <span className="text-sm font-semibold text-purple-200">NSE Discovery Feeds</span>
           <span className="rounded-full bg-purple-900/30 border border-purple-800/40 px-2 py-0.5 text-[10px] font-semibold text-purple-400">
             {activeCount} active
           </span>
-        </div>
-        <span className="text-gray-500 text-sm">{open ? "▲" : "▼"}</span>
-      </button>
+          <span className="text-gray-500 text-sm">{open ? "▲" : "▼"}</span>
+        </button>
+        <Link
+          to="/stocks/hotspots"
+          className="shrink-0 rounded-lg border border-orange-800/40 bg-orange-900/20 px-2.5 py-1 text-[10px] font-semibold text-orange-400 hover:bg-orange-900/40 transition"
+        >
+          🔥 Signal Hotspots →
+        </Link>
+      </div>
       {open && (
         <div className="border-t border-gray-800/60">
           <DiscoverySection
             discovery={discovery}
             niftyReturns={niftyReturns}
             scannedPicks={scannedPicks}
+            onOpenDrawer={onOpenDrawer}
           />
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Phase 5: Track Record panel ─────────────────────────────────────────────
+//
+// Fetches the last 120 days of resolved pick_history rows (rank ≤ 50, ret_21d
+// filled) and shows headline hit-rate + average return so users can assess
+// past pick quality without digging into the admin dashboard.
+
+function TrackRecord({ outcomes }) {
+  if (!outcomes || outcomes.length < 10) return null;
+
+  const valid  = outcomes.filter((r) => r.ret_21d != null);
+  if (valid.length < 10) return null;
+
+  const hits   = valid.filter((r) => r.ret_21d > 0).length;
+  const hitPct = Math.round((hits / valid.length) * 100);
+  const avgRet = (valid.reduce((s, r) => s + r.ret_21d, 0) / valid.length);
+  const posColor = avgRet >= 0 ? "text-green-400" : "text-red-400";
+
+  // Group by pick_date for a mini bar sparkline (% hits per date bucket)
+  const byDate = {};
+  valid.forEach((r) => {
+    if (!byDate[r.pick_date]) byDate[r.pick_date] = { total: 0, hits: 0 };
+    byDate[r.pick_date].total++;
+    if (r.ret_21d > 0) byDate[r.pick_date].hits++;
+  });
+  const bars = Object.values(byDate).slice(-20).map((b) => b.hits / b.total);
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-emerald-900/40 bg-gray-950">
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm">📊</span>
+          <span className="text-sm font-semibold text-emerald-200">Pick Track Record</span>
+          <span className="rounded-full bg-emerald-900/30 border border-emerald-800/40 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+            {valid.length} resolved picks
+          </span>
+        </div>
+        <span className="text-[10px] text-gray-600">21d forward return · top-50 picks</span>
+      </div>
+      <div className="border-t border-gray-800/60 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-6">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Hit Rate</div>
+            <div className={`mt-0.5 text-2xl font-bold tabular-nums ${hitPct >= 55 ? "text-green-400" : hitPct >= 45 ? "text-yellow-400" : "text-red-400"}`}>
+              {hitPct}%
+            </div>
+            <div className="text-[10px] text-gray-600">picks with +ve 21d return</div>
+          </div>
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Avg 21d Return</div>
+            <div className={`mt-0.5 text-2xl font-bold tabular-nums ${posColor}`}>
+              {avgRet >= 0 ? "+" : ""}{avgRet.toFixed(1)}%
+            </div>
+            <div className="text-[10px] text-gray-600">mean gross return</div>
+          </div>
+          {bars.length >= 4 && (
+            <div className="flex-1 min-w-[120px]">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Daily Hit Rate</div>
+              <div className="flex items-end gap-0.5 h-8">
+                {bars.map((b, i) => (
+                  <div
+                    key={i}
+                    className={`flex-1 rounded-sm ${b >= 0.55 ? "bg-green-600/70" : b >= 0.45 ? "bg-yellow-600/70" : "bg-red-600/70"}`}
+                    style={{ height: `${Math.max(10, b * 100)}%` }}
+                    title={`${Math.round(b * 100)}%`}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <p className="mt-2 text-[10px] text-gray-700">Based on last 120 days of resolved top-50 picks · Not financial advice</p>
+      </div>
     </div>
   );
 }
@@ -705,8 +814,10 @@ export default function StockPicks() {
   const [stockShowCount,  setStockShowCount]  = useState(10);
   const [drawer,          setDrawer]          = useState(null);
   const [filterMode,      setFilterMode]      = useState("core"); // "core" | "tactical" | "all"
+  const [pickOutcomes,    setPickOutcomes]    = useState(null);
 
   useEffect(() => {
+    const cutoff = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     Promise.all([
       supabase.from("stock_pick_rationales").select("*").order("run_date", { ascending: false }).order("rank").limit(50),
       supabase.from("stock_pick_ai_rationales").select("*").order("rank"),
@@ -714,7 +825,14 @@ export default function StockPicks() {
         .select("symbol,p_top_quartile_3m,p_top_quartile_1m,prediction_date,model_version")
         .order("prediction_date", { ascending: false })
         .limit(500),
-    ]).then(([sRule, sAi, mlPred]) => {
+      supabase.from("pick_history")
+        .select("pick_date,rank,ret_21d")
+        .lte("rank", 50)
+        .not("ret_21d", "is", null)
+        .gte("pick_date", cutoff)
+        .order("pick_date", { ascending: false })
+        .limit(2000),
+    ]).then(([sRule, sAi, mlPred, hist]) => {
       if (!sRule.error && sRule.data) {
         const bySymbol = {};
         sRule.data.forEach((r) => { if (!bySymbol[r.symbol]) bySymbol[r.symbol] = r; });
@@ -737,6 +855,9 @@ export default function StockPicks() {
             s.p_top_quartile_1m = r.p_top_quartile_1m;
         });
         setMlPredMap(bySymbol);
+      }
+      if (!hist.error && hist.data) {
+        setPickOutcomes(hist.data);
       }
     });
   }, []);
@@ -813,7 +934,11 @@ export default function StockPicks() {
         discovery={stockPicksData?.discovery}
         niftyReturns={stockPicksData?.niftyReturns}
         scannedPicks={stockPicksData?.all ?? signalsPicks}
+        onOpenDrawer={setDrawer}
       />
+
+      {/* Phase 5: Track Record */}
+      <TrackRecord outcomes={pickOutcomes} />
 
       {/* Stability filter tabs */}
       {hasPersistenceData && (

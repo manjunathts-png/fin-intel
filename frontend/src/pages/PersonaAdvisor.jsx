@@ -445,6 +445,7 @@ const VERDICT_CLS = {
   "Strong Buy": "bg-green-500/20 text-green-300 border border-green-600/40",
   "Buy":        "bg-green-800/30 text-green-400 border border-green-700/40",
   "Hold":       "bg-yellow-500/20 text-yellow-300 border border-yellow-600/40",
+  "Watch":      "bg-blue-500/20 text-blue-300 border border-blue-600/40",
   "Avoid":      "bg-red-500/20 text-red-300 border border-red-600/40",
 };
 

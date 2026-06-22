@@ -1143,6 +1143,13 @@ export default function Simulator() {
           Select 1–5 funds above to start simulating
         </div>
       )}
+
+      {/* Simulator disclaimer */}
+      <div className="rounded-xl border border-amber-900/30 bg-amber-950/10 px-4 py-3">
+        <p className="text-[10px] leading-relaxed text-amber-700/70">
+          <span className="font-semibold">Disclaimer:</span> Projections shown are based on historical NAV data and Monte Carlo simulation models. They are illustrative estimates only and do not constitute investment advice or a guarantee of returns. Mutual fund investments are subject to market risks — actual returns may vary significantly. Past performance is not indicative of future results. Consult a SEBI-registered investment advisor before making any investment decisions.
+        </p>
+      </div>
     </div>
   );
 }

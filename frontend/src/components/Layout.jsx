@@ -129,6 +129,13 @@ export default function Layout() {
         </button>
       </div>
 
+      {/* SEBI disclaimer banner */}
+      <div className="border-b border-amber-900/40 bg-amber-950/20 px-4 py-1.5 text-center">
+        <p className="text-[10px] text-amber-600/80">
+          For informational purposes only · Not SEBI-registered investment advice · Mutual fund investments are subject to market risks — read all scheme-related documents carefully before investing · Past performance is not indicative of future results
+        </p>
+      </div>
+
       {/* Page content */}
       <main className="mx-auto max-w-screen-2xl px-4 pb-28 pt-5 md:pb-12 md:px-6">
         <Outlet />

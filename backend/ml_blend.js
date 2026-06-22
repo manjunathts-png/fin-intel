@@ -134,9 +134,9 @@ async function loadMlBlend(supabase) {
     const effective = runs
       .map((r) => ({ auc: r.oos_auc ?? r.cv_auc, source: r.oos_auc != null ? "oos" : "cv" }))
       .filter((x) => x.auc != null && isFinite(x.auc));
-    const best = effective.length
-      ? effective.reduce((a, b) => (b.auc > a.auc ? b : a))
-      : null;
+    // Use the most recent run's AUC (runs ordered newest-first by fetchModelRuns).
+    // Picking max() across runs would cherry-pick lucky noise spikes.
+    const best = effective.length ? effective[0] : null;
     const bestAuc = best?.auc ?? null;
     const aucSource = best?.source ?? null;
 
