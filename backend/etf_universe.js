@@ -46,7 +46,7 @@ module.exports.ETF_TYPES = {
     { code: null,     ticker: "FMCGIETF",    label: "Nippon Nifty FMCG ETF",       aumCr: 300,   ter: 0.21, benchmark: "Nifty FMCG" },
     { code: null,     ticker: "INFRABEES",   label: "Nippon Nifty Infra BeES",     aumCr: 350,   ter: 0.20, benchmark: "Nifty Infra" },
     { code: null,     ticker: "CONSUMBEES",  label: "Nippon Nifty Consumption",    aumCr: 250,   ter: 0.30, benchmark: "Nifty Consumption" },
-    { code: null,     ticker: "DEFENCEIETF", label: "Motilal Nifty India Defence", aumCr: 1500,  ter: 0.45, benchmark: "Nifty India Defence" },
+    { code: null,     ticker: "DEFENCEIETF", label: "ICICI Pru Nifty India Defence ETF", aumCr: 1500, ter: 0.45, benchmark: "Nifty India Defence" },
     { code: null,     ticker: "HDFCDEF",     label: "HDFC Nifty India Defence ETF",aumCr: 500,   ter: 0.40, benchmark: "Nifty India Defence" },
   ],
 
@@ -58,6 +58,7 @@ module.exports.ETF_TYPES = {
     { code: null, ticker: "QUAL30IETF",  label: "ICICI Pru Nifty 100 Quality 30",aumCr: 200,  ter: 0.40, benchmark: "Nifty 100 Quality 30" },
     { code: null, ticker: "NV20IETF",    label: "ICICI Pru NV20 ETF",            aumCr: 900,  ter: 0.18, benchmark: "Nifty 50 Value 20" },
     { code: null, ticker: "MOVALUE",     label: "Motilal Oswal Value ETF",       aumCr: 300,  ter: 0.35, benchmark: "Nifty 500 Value 50" },
+    { code: null, ticker: "NIFTYQLITY",  label: "ICICI Pru Nifty Quality ETF",   aumCr: 500,  ter: 0.35, benchmark: "Nifty 200 Quality 30" },
   ],
 
   // ─── COMMODITY — GOLD ─────────────────────────────────────────────────────
@@ -84,7 +85,6 @@ module.exports.ETF_TYPES = {
     { code: null,     ticker: "MAFANG",     label: "Mirae Asset NYSE FANG+",      aumCr: 2400, ter: 0.66, benchmark: "NYSE FANG+" },
     { code: null,     ticker: "HNGSNGBEES", label: "Nippon Hang Seng BeES",       aumCr: 600,  ter: 0.93, benchmark: "Hang Seng" },
     { code: null,     ticker: "MOSP500",    label: "Motilal Oswal S&P 500 ETF",   aumCr: 800,  ter: 0.50, benchmark: "S&P 500" },
-    { code: null,     ticker: "NIFTYQLITY", label: "ICICI Pru Nifty Quality ETF", aumCr: 500,  ter: 0.35, benchmark: "Nifty 200 Quality 30" },
   ],
 };
 
