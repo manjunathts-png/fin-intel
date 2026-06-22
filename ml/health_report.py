@@ -56,7 +56,7 @@ SOURCE_STATUS_PATH = Path(__file__).parent / "source_status.json"
 # Thresholds
 FRESHNESS_MAX_AGE_DAYS = 4      # > 4d stale features (covers weekend + 1 holiday)
 OOS_CV_GAP_WARN        = 0.10   # cv_auc − oos_auc above this = likely overfit CV
-OOS_AUC_FLOOR          = 0.52   # below this the model has no live edge
+OOS_AUC_FLOOR          = 0.51   # below this the model has no live edge (matches ml_blend.js AUC_GATE)
 HIT_RATE_WARN_PCT      = 45.0   # top-50 21d hit rate below this = review signals
 HIT_RATE_MIN_N         = 50     # don't judge hit rate on fewer resolved picks
 
@@ -215,7 +215,7 @@ def check_mfapi_data() -> dict:
     try:
         req = urllib.request.Request(url, headers={"User-Agent": ua, "Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=15) as resp:
-            body = resp.read(8192).decode("utf-8", errors="replace")
+            body = resp.read().decode("utf-8", errors="replace")
         data = json.loads(body)
         nav_rows = data.get("data", [])
         if not nav_rows:

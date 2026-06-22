@@ -1267,9 +1267,6 @@ def main():
             ):
                 fund_map[sym] = fd
 
-        # Persist today's fundamentals snapshot for point-in-time joins
-        if not args.dry_run and supabase is None:
-            pass  # supabase not connected yet at this point — snapshot written in date loop
         _fund_snapshot_date = as_of_end.strftime("%Y-%m-%d")
 
     # ── Load macro cache once ─────────────────────────────────────────────────
