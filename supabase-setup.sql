@@ -168,3 +168,31 @@ create policy "authenticated read stock ai rationales"
   on stock_pick_ai_rationales for select
   to authenticated
   using (true);
+
+-- ─── Pick history ─────────────────────────────────────────────────────────────
+-- Nightly top-100 snapshot backfilled with ret_5d/10d/21d by track_pick_outcomes.py
+-- (full schema via migrate_012). Read access required for the track-record panel.
+
+create table if not exists pick_history (
+  pick_date        date        not null,
+  symbol           text        not null,
+  rank             integer     not null,
+  composite_score  double precision,
+  eod_base_score   double precision,
+  ml_score         double precision,
+  days_in_top50    integer,
+  entry_close      double precision,
+  ret_5d           double precision,
+  ret_10d          double precision,
+  ret_21d          double precision,
+  outcomes_updated_at timestamptz,
+  created_at       timestamptz default now(),
+  primary key (pick_date, symbol)
+);
+
+alter table pick_history enable row level security;
+
+create policy "authenticated read pick_history"
+  on pick_history for select
+  to authenticated
+  using (true);

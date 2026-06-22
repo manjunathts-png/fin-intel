@@ -497,7 +497,7 @@ function DiscoveryWidget({ title, icon, color, items, renderItem, emptyMsg, stal
 
 // ─── Discovery section (4-tile grid inside accordion) ────────────────────────
 
-function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
+function DiscoverySection({ discovery, niftyReturns, scannedPicks, onOpenDrawer }) {
   if (!discovery) return null;
   const { highs52w, topGainers, oiBuildup, bulkDeals, blockDeals } = discovery;
   const inst = [
@@ -508,6 +508,11 @@ function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
     .filter((p) => p.changePct != null)
     .sort((a, b) => (b.changePct ?? 0) - (a.changePct ?? 0))
     .slice(0, 20);
+
+  function openStock(symbol) {
+    const bare = symbol?.replace(/\.NS$/i, "").replace(/\.BSE$/i, "");
+    if (bare && onOpenDrawer) onOpenDrawer({ type: "STOCK", id: bare });
+  }
 
   return (
     <div className="space-y-3 px-3 pb-3">
@@ -520,7 +525,11 @@ function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
         <DiscoveryWidget
           title="52-Week Highs" icon="🚀" color="border-green-900/40" items={highs52w}
           renderItem={(d, i) => (
-            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+            <div
+              key={i}
+              onClick={() => openStock(d.symbol)}
+              className={`flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0 ${onOpenDrawer ? "cursor-pointer hover:bg-gray-800/40" : ""}`}
+            >
               <div className="min-w-0">
                 <div className="truncate text-xs text-gray-200">{d.company}</div>
                 <div className="text-[10px] text-gray-600 font-mono">{d.symbol}</div>
@@ -539,7 +548,11 @@ function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
           title="Today's Movers (scanned universe)" icon="📊" color="border-blue-900/40"
           items={pickMovers} emptyMsg="Day-change data unavailable for the scanned universe."
           renderItem={(d, i) => (
-            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+            <div
+              key={i}
+              onClick={() => openStock(d.symbol)}
+              className={`flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0 ${onOpenDrawer ? "cursor-pointer hover:bg-gray-800/40" : ""}`}
+            >
               <div className="min-w-0">
                 <div className="truncate text-xs text-gray-200">{d.label}</div>
                 <div className="text-[10px] text-gray-600">{d.symbol?.replace(".NS", "")} · {d.sector}</div>
@@ -560,7 +573,11 @@ function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
           staleNote={discovery.staleFeeds?.includes("topGainers") ? "as of last trading day" : null}
           emptyMsg="Top gainers populate during market hours (NSE updates intraday)."
           renderItem={(d, i) => (
-            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+            <div
+              key={i}
+              onClick={() => openStock(d.symbol)}
+              className={`flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0 ${onOpenDrawer ? "cursor-pointer hover:bg-gray-800/40" : ""}`}
+            >
               <div className="min-w-0">
                 <div className="text-xs text-gray-200 font-mono">{d.symbol}</div>
                 <div className="text-[10px] text-gray-600">₹{d.ltp?.toLocaleString("en-IN")}</div>
@@ -587,7 +604,11 @@ function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
           }
           emptyMsg="No bulk/block deals available yet. NSE publishes these EOD on trading days."
           renderItem={(d, i) => (
-            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+            <div
+              key={i}
+              onClick={() => openStock(d.symbol)}
+              className={`flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0 ${onOpenDrawer ? "cursor-pointer hover:bg-gray-800/40" : ""}`}
+            >
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-200 font-mono">{d.symbol}</span>
@@ -613,7 +634,11 @@ function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
           staleNote={discovery.staleFeeds?.includes("oiBuildup") ? "intraday-only · last trading day" : null}
           emptyMsg="F&O OI buildup is intraday-only — NSE publishes during market hours (Mon-Fri, 9:15–15:30 IST)."
           renderItem={(d, i) => (
-            <div key={i} className="flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0">
+            <div
+              key={i}
+              onClick={() => openStock(d.symbol)}
+              className={`flex items-center justify-between border-b border-gray-800/40 px-4 py-2 last:border-0 ${onOpenDrawer ? "cursor-pointer hover:bg-gray-800/40" : ""}`}
+            >
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-200 font-mono">{d.symbol}</span>
@@ -639,7 +664,7 @@ function DiscoverySection({ discovery, niftyReturns, scannedPicks }) {
 // Collapsed by default so picks appear immediately under the page header.
 // Counting "active" feeds (those with at least one item).
 
-function DiscoveryAccordion({ discovery, niftyReturns, scannedPicks }) {
+function DiscoveryAccordion({ discovery, niftyReturns, scannedPicks, onOpenDrawer }) {
   const [open, setOpen] = useState(false);
   if (!discovery) return null;
 
@@ -649,25 +674,32 @@ function DiscoveryAccordion({ discovery, niftyReturns, scannedPicks }) {
 
   return (
     <div className="overflow-hidden rounded-2xl border border-purple-800/40 bg-gray-950">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between px-4 py-3 text-left"
-      >
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-4 py-3">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="flex flex-1 items-center gap-2 text-left"
+        >
           <span>🔭</span>
           <span className="text-sm font-semibold text-purple-200">NSE Discovery Feeds</span>
           <span className="rounded-full bg-purple-900/30 border border-purple-800/40 px-2 py-0.5 text-[10px] font-semibold text-purple-400">
             {activeCount} active
           </span>
-        </div>
-        <span className="text-gray-500 text-sm">{open ? "▲" : "▼"}</span>
-      </button>
+          <span className="text-gray-500 text-sm">{open ? "▲" : "▼"}</span>
+        </button>
+        <Link
+          to="/stocks/hotspots"
+          className="shrink-0 rounded-lg border border-orange-800/40 bg-orange-900/20 px-2.5 py-1 text-[10px] font-semibold text-orange-400 hover:bg-orange-900/40 transition"
+        >
+          🔥 Signal Hotspots →
+        </Link>
+      </div>
       {open && (
         <div className="border-t border-gray-800/60">
           <DiscoverySection
             discovery={discovery}
             niftyReturns={niftyReturns}
             scannedPicks={scannedPicks}
+            onOpenDrawer={onOpenDrawer}
           />
         </div>
       )}
@@ -902,6 +934,7 @@ export default function StockPicks() {
         discovery={stockPicksData?.discovery}
         niftyReturns={stockPicksData?.niftyReturns}
         scannedPicks={stockPicksData?.all ?? signalsPicks}
+        onOpenDrawer={setDrawer}
       />
 
       {/* Phase 5: Track Record */}
