@@ -673,6 +673,41 @@ def build_macro_row(
 
 # ─── Database helpers ─────────────────────────────────────────────────────────
 
+def upsert_macro_flows(supabase, fiidii_df: pd.DataFrame, days: int = 180) -> int:
+    """
+    Upsert the last `days` rows of FII/DII daily flows into macro_flows table.
+    Called once per nightly run after fetch_fiidii() returns.
+    """
+    if fiidii_df.empty:
+        return 0
+    cutoff = pd.Timestamp.now() - pd.Timedelta(days=days)
+    sub = fiidii_df[fiidii_df.index >= cutoff].copy()
+    if sub.empty:
+        return 0
+
+    rows = []
+    for dt, row in sub.iterrows():
+        def _v(col):
+            v = row.get(col)
+            return None if v is None or (isinstance(v, float) and np.isnan(v)) else round(float(v), 2)
+        rows.append({
+            "trade_date":  dt.date().isoformat(),
+            "fii_net_cr":  _v("fii_net_cr"),
+            "dii_net_cr":  _v("dii_net_cr"),
+            "fii_net_5d":  _v("fii_net_5d"),
+            "fii_net_20d": _v("fii_net_20d"),
+            "dii_net_5d":  _v("dii_net_5d"),
+            "dii_net_20d": _v("dii_net_20d"),
+        })
+
+    for i in range(0, len(rows), 200):
+        supabase.table("macro_flows").upsert(
+            rows[i:i+200], on_conflict="trade_date"
+        ).execute()
+    log.info("macro_flows: upserted %d rows (last %d days)", len(rows), days)
+    return len(rows)
+
+
 def load_fund_codes_for_date(supabase, as_of_date: date) -> list[str]:
     """Return all scheme_codes for a given as_of_date."""
     resp = (
@@ -730,7 +765,9 @@ def main():
     usdinr_df = fetch_yf(TICKERS["usd_inr"], USDINR_CACHE)
     us10y_df  = fetch_yf(TICKERS["us_10y"],  US10Y_CACHE)
     log.info("Fetching FII/DII equity flows from NSE…")
-    fetch_fiidii()   # update cache; stock feature extractor reads directly from parquet
+    fiidii_df = fetch_fiidii()   # update cache; stock feature extractor reads directly from parquet
+    if not args.dry_run:
+        upsert_macro_flows(supabase, fiidii_df)
 
     if nifty_df.empty:
         log.error("Could not fetch Nifty data — aborting")
