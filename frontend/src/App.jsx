@@ -17,6 +17,7 @@ import DeepDive from "./pages/DeepDive";
 import PersonaAdvisor from "./pages/PersonaAdvisor";
 import Admin from "./pages/Admin";
 import Glossary from "./pages/Glossary";
+import FiiTracker from "./pages/FiiTracker";
 
 export default function App() {
   return (
@@ -49,6 +50,7 @@ export default function App() {
             <Route path="/etf"              element={<EtfPicks />} />
 
             {/* ── Top-level pages ───────────────────────────────────── */}
+            <Route path="/market"           element={<FiiTracker />} />
             <Route path="/simulator"        element={<Simulator />} />
             <Route path="/deep-dive"        element={<DeepDive />} />
             <Route path="/persona"          element={<PersonaAdvisor />} />
