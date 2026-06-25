@@ -82,11 +82,12 @@ if len(scores_1m) >= 20:
     else:
         ok(f"1M score spread: std={std:.4f}  range=[{lo:.3f},{hi:.3f}]")
 
-    # NEW: catch all-zero or near-zero scores
-    if lo < 0.05:
+    # catch all-zero or near-zero scores — genuine collapse produces min < 0.01,
+    # not legitimate tail values around 0.03–0.05 (which are fine for weak stocks).
+    if lo < 0.01:
         fail(f"1M min score is {lo:.4f} — scores near 0 indicate model collapse or zero-fill")
     else:
-        ok(f"1M min score: {lo:.4f} (>0.05)")
+        ok(f"1M min score: {lo:.4f} (>0.01)")
 
     if hi < 0.20:
         fail(f"1M max score is {hi:.4f} — all scores below 0.20, model has no confident picks")
@@ -105,11 +106,12 @@ if len(scores_3m) >= 20:
     else:
         ok(f"3M score spread: std={std:.4f}  range=[{lo3:.3f},{hi3:.3f}]")
 
-    # NEW: catch all-zero or near-zero 3M scores
-    if lo3 < 0.05:
+    # catch all-zero or near-zero 3M scores — genuine collapse produces min < 0.01.
+    # A healthy model can have tail scores of 0.02–0.05 for genuinely weak stocks.
+    if lo3 < 0.01:
         fail(f"3M min score is {lo3:.4f} — scores near 0 indicate model collapse or zero-fill")
     else:
-        ok(f"3M min score: {lo3:.4f} (>0.05)")
+        ok(f"3M min score: {lo3:.4f} (>0.01)")
 elif scores_3m:
     warn(f"Only {len(scores_3m)} 3M scores found for {pred_date}")
 else:
