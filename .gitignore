@@ -38,6 +38,8 @@ ml/.cache_macro/
 ml/.cache_stock/
 ml/.cache_fundamentals/
 ml/.cache_bhavcopy/
+ml/.cache_training/
+backend/cache/
 
 ## Claude Code local settings (contains secrets — never commit)
 .claude/settings.local.json

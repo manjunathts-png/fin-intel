@@ -17,6 +17,8 @@
  */
 
 require("dotenv").config();
+const fs               = require("fs");
+const path             = require("path");
 const { createClient } = require("@supabase/supabase-js");
 const WebSocket        = require("ws");
 const { intradaySignalScore } = require("./stock_signals");
@@ -28,6 +30,28 @@ const supabase = createClient(
 );
 
 const round = (v, d = 2) => (v == null || !isFinite(v) ? null : parseFloat(v.toFixed(d)));
+
+const STOCK_PICKS_FILE = path.join(__dirname, "cache", "stock_picks.json");
+const DISK_CACHE_MAX_H = 28;   // stale if nightly refresh didn't run
+
+function readDiskCache() {
+  try {
+    if (!fs.existsSync(STOCK_PICKS_FILE)) return null;
+    const stat  = fs.statSync(STOCK_PICKS_FILE);
+    const age_h = (Date.now() - stat.mtimeMs) / 3600000;
+    if (age_h > DISK_CACHE_MAX_H) return null;
+    return JSON.parse(fs.readFileSync(STOCK_PICKS_FILE, "utf8"));
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeDiskCache(data) {
+  try {
+    fs.mkdirSync(path.dirname(STOCK_PICKS_FILE), { recursive: true });
+    fs.writeFileSync(STOCK_PICKS_FILE, JSON.stringify(data), "utf8");
+  } catch (_) {}
+}
 
 // ─── NSE live quote (primary) ─────────────────────────────────────────────────
 
@@ -196,12 +220,16 @@ async function main() {
 
   console.log(`Intraday refresh — ${now.toISOString()} (IST ${nowIST[0]}:${String(nowIST[1]).padStart(2, "0")})`);
 
-  // ── Load current stock_picks ─────────────────────────────────────────────
-  const { data: row, error } = await supabase
-    .from("radar_cache").select("data").eq("key", "stock_picks").single();
-  if (error) throw new Error(`Failed to load stock_picks: ${error.message}`);
-
-  const stored   = row.data;
+  // ── Load current stock_picks (disk cache first, Supabase fallback) ────────
+  let stored = readDiskCache();
+  if (stored) {
+    console.log("  Using disk-cached stock_picks");
+  } else {
+    const { data: row, error } = await supabase
+      .from("radar_cache").select("data").eq("key", "stock_picks").single();
+    if (error) throw new Error(`Failed to load stock_picks: ${error.message}`);
+    stored = row.data;
+  }
   const allPicks = stored.all ?? stored.picks ?? [];
   const top50    = allPicks.slice(0, 50);
 
@@ -330,6 +358,7 @@ async function main() {
     .upsert({ key: "stock_picks", data: updatedData, built_at: new Date().toISOString() });
   if (upsertErr) throw new Error(`Supabase upsert failed: ${upsertErr.message}`);
 
+  writeDiskCache(updatedData);
   console.log(`✓ stock_picks updated (intraday, ${updated} picks, ${nseOk}/${allSyms.length} quotes)`);
 }
 

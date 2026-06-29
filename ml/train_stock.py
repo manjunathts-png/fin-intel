@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import sys
+import time
 import warnings
 from datetime import date, timedelta
 from pathlib import Path
@@ -51,6 +52,9 @@ logging.basicConfig(
 )
 log = logging.getLogger("train_stock")
 
+TRAINING_CACHE = Path(__file__).parent / ".cache_training"
+_CACHE_TTL_H   = 20   # nightly runs at 5AM; EOD at 3:45PM hits cache; next 5AM misses → fresh
+
 
 # ─── Default hyperparameters ─────────────────────────────────────────────────
 
@@ -73,6 +77,19 @@ DEFAULT_PARAMS = {
 # ─── Data loading ─────────────────────────────────────────────────────────────
 
 def load_labeled(supabase, target_col: str) -> pd.DataFrame:
+    cache_path = TRAINING_CACHE / f"stock_features_{target_col}.parquet"
+    TRAINING_CACHE.mkdir(exist_ok=True)
+
+    if cache_path.exists():
+        age_h = (time.time() - cache_path.stat().st_mtime) / 3600
+        if age_h < _CACHE_TTL_H:
+            log.info("Training cache hit: %s (%.1fh old)", cache_path.name, age_h)
+            df = pd.read_parquet(cache_path)
+            df["as_of_date"] = pd.to_datetime(df["as_of_date"])
+            log.info("Loaded %d training rows from cache", len(df))
+            return df
+        log.info("Training cache stale (%.1fh > %dh) — re-fetching from Supabase", age_h, _CACHE_TTL_H)
+
     log.info("Loading labeled training data from stock_features (target=%s)…", target_col)
     rows, page_size, offset = [], 1000, 0
     while True:
@@ -93,6 +110,11 @@ def load_labeled(supabase, target_col: str) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     if not df.empty:
         df["as_of_date"] = pd.to_datetime(df["as_of_date"])
+        try:
+            df.to_parquet(cache_path, index=False)
+            log.info("Saved training cache: %s (%d rows)", cache_path.name, len(df))
+        except Exception as e:
+            log.warning("Could not save training cache: %s", e)
     log.info("Loaded %d training rows", len(df))
     return df
 

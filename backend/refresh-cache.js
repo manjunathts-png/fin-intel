@@ -6,6 +6,8 @@
  */
 
 require("dotenv").config();
+const fs                            = require("fs");
+const path                          = require("path");
 const { createClient }              = require("@supabase/supabase-js");
 const { getLeaderboard }            = require("./momentum");
 const { getBenchmarks }             = require("./mf_benchmarks");
@@ -35,6 +37,19 @@ const supabase = createClient(
 );
 
 const target = process.argv[2] || "all";
+
+const CACHE_DIR       = path.join(__dirname, "cache");
+const STOCK_PICKS_FILE = path.join(CACHE_DIR, "stock_picks.json");
+
+function writeDiskCache(filePath, data) {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(data), "utf8");
+    console.log(`  ✓ disk cache written: ${path.basename(filePath)}`);
+  } catch (e) {
+    console.warn(`  ⚠ disk cache write failed: ${e.message}`);
+  }
+}
 
 async function upsert(key, data) {
   const { error } = await supabase
@@ -154,8 +169,19 @@ async function main() {
     let prevScoreMap = {};                       // symbol → prev EOD composite score
     let prevPersistenceMap = {};                 // symbol → { rank, daysInTop50, daysInTop100 }
     try {
-      const { data: prevRow } = await supabase
-        .from("radar_cache").select("data").eq("key", "stock_picks").single();
+      let prevData = null;
+      if (fs.existsSync(STOCK_PICKS_FILE)) {
+        try {
+          prevData = JSON.parse(fs.readFileSync(STOCK_PICKS_FILE, "utf8"));
+          console.log("  Using disk-cached stock_picks for smoothing");
+        } catch (_) {}
+      }
+      if (!prevData) {
+        const { data: prevRow } = await supabase
+          .from("radar_cache").select("data").eq("key", "stock_picks").single();
+        prevData = prevRow?.data ?? null;
+      }
+      const prevRow = prevData ? { data: prevData } : null;
       if (prevRow?.data) {
         for (const p of (prevRow.data.picks ?? [])) {
           const score = p.eodCompositeScore ?? p.compositeScore;
@@ -398,7 +424,7 @@ async function main() {
       console.error(`  ✗ scan produced only ${signals.scanned} stocks (< ${MIN_SCAN_FOR_UPSERT} threshold) — skipping stock_picks upsert to preserve existing data`);
       console.error("  ✗ check data source connectivity and re-run once resolved");
     } else {
-      await upsert("stock_picks", {
+      const stockPicksPayload = {
         asOf:      signals.asOf,
         universe:  signals.universe,
         scanned:   signals.scanned,
@@ -408,7 +434,9 @@ async function main() {
         niftyReturns,
         regime:    regimeInfo,
         warnings:  signals.warnings.slice(0, 20),
-      });
+      };
+      await upsert("stock_picks", stockPicksPayload);
+      writeDiskCache(STOCK_PICKS_FILE, stockPicksPayload);
       console.log(`  ✓ ${signals.picks.length} top picks ranked (${signals.scanned} of ${signals.universe} stocks scanned)`);
       if (signals.warnings?.length) console.warn(`  warnings (${signals.warnings.length} total, first 5):`, signals.warnings.slice(0, 5));
 
