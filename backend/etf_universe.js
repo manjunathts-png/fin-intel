@@ -33,7 +33,7 @@ module.exports.ETF_TYPES = {
     { code: null,     ticker: "NIF100IETF",  label: "ICICI Pru Nifty 100 ETF",     aumCr: 1500,  ter: 0.07, benchmark: "Nifty 100" },
     { code: null,     ticker: "IVZINNIFTY",  label: "Invesco India Nifty 100 ETF", aumCr: 700,   ter: 0.15, benchmark: "Nifty 100" },
     { code: null,     ticker: "UTINIFTETF",  label: "UTI Nifty 50 ETF",            aumCr: 5000,  ter: 0.06, benchmark: "Nifty 50" },
-    { code: null,     ticker: "SML100CASE",  label: "Zerodha Nifty Smallcap 100 ETF", aumCr: 300, ter: 0.20, benchmark: "Nifty Smallcap 100" },
+    { code: null,     ticker: "SML100CASE",  label: "Zerodha Nifty Smallcap 100 ETF", aumCr: 81,  ter: 0.20, benchmark: "Nifty Smallcap 100" },
   ],
 
   // ─── EQUITY — SECTOR ──────────────────────────────────────────────────────
