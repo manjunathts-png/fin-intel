@@ -138,19 +138,23 @@ async function fetchFromYahooRest(symbol, startDate) {
       const timestamps = result.timestamp ?? [];
       const q          = result.indicators?.quote?.[0] ?? {};
       const adjCloses  = result.indicators?.adjclose?.[0]?.adjclose ?? [];
-      const closes     = adjCloses.length ? adjCloses : (q.close ?? []);
+      const rawCloses  = q.close ?? [];
+      // Use adjclose for return calculations (dividend-adjusted) but preserve
+      // raw close for display so prices match what users see on NSE/Zerodha.
+      const closes     = adjCloses.length ? adjCloses : rawCloses;
       if (!timestamps.length || !closes.length) continue;
       const prices = [];
       for (let i = 0; i < timestamps.length; i++) {
         const close = closes[i];
         if (close == null || close <= 0) continue;
         prices.push({
-          date:   new Date(timestamps[i] * 1000).toISOString().slice(0, 10),
-          open:   q.open?.[i]   ?? close,
-          high:   q.high?.[i]   ?? close,
-          low:    q.low?.[i]    ?? close,
+          date:     new Date(timestamps[i] * 1000).toISOString().slice(0, 10),
+          open:     q.open?.[i]   ?? close,
+          high:     q.high?.[i]   ?? close,
+          low:      q.low?.[i]    ?? close,
           close,
-          volume: q.volume?.[i] ?? 0,
+          rawClose: rawCloses[i]  ?? close,
+          volume:   q.volume?.[i] ?? 0,
         });
       }
       prices.sort((a, b) => a.date.localeCompare(b.date));
@@ -458,7 +462,7 @@ async function buildLeaderboard() {
         stocks.push({
           symbol,
           label,
-          price: latest ? round2(latest.close) : null,
+          price: latest ? round2(latest.rawClose ?? latest.close) : null,
           ...stats,
         });
       } catch (e) {
