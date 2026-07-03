@@ -393,6 +393,50 @@ def _fetch_usdinr_frankfurter(start: str = "2018-01-01") -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _parse_fiidii_records(data: list) -> pd.DataFrame:
+    """
+    Parse the fiidiiTradeReact JSON payload into a DataFrame indexed by date
+    with fii_net_cr / dii_net_cr columns (₹ crore).
+
+    Handles both shapes the endpoint has served:
+      • one row per (category, date):
+        {"category": "FII/FPI *", "date": "03-Jul-2026",
+         "buyValue": "12,345.67", "sellValue": "11,000.00", "netValue": "1,345.67"}
+      • one row per date with both nets: {"date": ..., "fiiNet": ..., "diiNet": ...}
+    """
+    by_date: dict[pd.Timestamp, dict] = {}
+    for rec in data:
+        if not isinstance(rec, dict):
+            continue
+        dt = pd.to_datetime(str(rec.get("date", "")), dayfirst=True, errors="coerce")
+        if pd.isna(dt):
+            continue
+        entry = by_date.setdefault(dt.normalize(), {})
+        try:
+            if "fiiNet" in rec or "diiNet" in rec:
+                if rec.get("fiiNet") is not None:
+                    entry["fii_net_cr"] = float(str(rec["fiiNet"]).replace(",", ""))
+                if rec.get("diiNet") is not None:
+                    entry["dii_net_cr"] = float(str(rec["diiNet"]).replace(",", ""))
+            else:
+                cat = str(rec.get("category", "")).upper()
+                net = float(str(rec.get("netValue", "")).replace(",", ""))
+                if "FII" in cat or "FPI" in cat:
+                    entry["fii_net_cr"] = net
+                elif "DII" in cat:
+                    entry["dii_net_cr"] = net
+        except (TypeError, ValueError):
+            continue
+    rows = [{"date": dt, **vals} for dt, vals in by_date.items() if vals]
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows).set_index("date").sort_index()
+    for col in ("fii_net_cr", "dii_net_cr"):
+        if col not in df.columns:
+            df[col] = np.nan
+    return df[["fii_net_cr", "dii_net_cr"]]
+
+
 def _fetch_fiidii_nse(_retry: bool = True) -> pd.DataFrame:
     """
     Fetch FII/DII net equity cash-segment flows from NSE API.
@@ -440,22 +484,12 @@ def _fetch_fiidii_nse(_retry: bool = True) -> pd.DataFrame:
                 time.sleep(2)
                 return _fetch_fiidii_nse(_retry=False)
             return pd.DataFrame()
-        rows = []
-        for rec in data:
-            try:
-                dt      = pd.Timestamp(str(rec.get("date", "")), dayfirst=True)
-                fii_net = float(str(rec.get("fiiNet",  "0")).replace(",", ""))
-                dii_net = float(str(rec.get("diiNet",  "0")).replace(",", ""))
-                if pd.isna(dt):
-                    continue
-                rows.append({"date": dt, "fii_net_cr": fii_net, "dii_net_cr": dii_net})
-            except Exception:
-                continue
-        if not rows:
-            log.warning("FII/DII NSE API: %d records returned but none parsed", len(data))
+        df = _parse_fiidii_records(data)
+        df = df[df.index > pd.Timestamp("2015-01-01")] if not df.empty else df
+        if df.empty:
+            log.warning("FII/DII NSE API: %d records returned but none parsed: %s",
+                        len(data), str(data)[:300])
             return pd.DataFrame()
-        df = pd.DataFrame(rows).set_index("date").sort_index()
-        df = df[df.index > pd.Timestamp("2015-01-01")]
         log.info("FII/DII NSE API: %d rows (%s → %s)",
                  len(df), df.index.min().date(), df.index.max().date())
         return df
