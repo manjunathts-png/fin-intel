@@ -387,7 +387,10 @@ async function sendEmailAlert(text) {
         "Content-Type":  "application/json",
       },
       body: JSON.stringify({
-        from:    "fin-intel alerts <alerts@fin-intel.dev>",
+        // resend.dev is Resend's shared sandbox domain — works with zero DNS
+        // setup, but only delivers to the email address that owns the Resend
+        // account. Switch to a verified custom domain if that stops being true.
+        from:    "fin-intel alerts <onboarding@resend.dev>",
         to:      [ALERT_EMAIL],
         subject: `[fin-intel] Data health check failed (${healthResults.filter((r) => r.status === "fail").length} issues)`,
         text,

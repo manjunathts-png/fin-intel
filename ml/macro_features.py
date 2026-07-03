@@ -393,33 +393,52 @@ def _fetch_usdinr_frankfurter(start: str = "2018-01-01") -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def _fetch_fiidii_nse() -> pd.DataFrame:
+def _fetch_fiidii_nse(_retry: bool = True) -> pd.DataFrame:
     """
     Fetch FII/DII net equity cash-segment flows from NSE API.
     Returns DataFrame with DatetimeIndex and columns fii_net_cr, dii_net_cr (₹ crore).
     Typically covers the last ~30 trading days; called daily to build up the cache.
+
+    This is a cookie-protected nseindia.com JSON API and 503s / bot-blocks
+    frequently (see backend/nse_discovery.js) — every empty-return path below
+    logs why, and a fresh-cookie retry covers the common case of the warm-up
+    cookie being stale or rejected on the first attempt.
     """
     session = requests.Session()
     session.verify = False
     session.headers.update({
         "User-Agent":  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         "Accept":      "application/json, text/plain, */*",
-        "Referer":     "https://www.nseindia.com",
         "Accept-Language": "en-US,en;q=0.9",
+        "Referer":     "https://www.nseindia.com/market-data/foreign-institutional-investors",
     })
     try:
         # Warm up NSE session cookies — required for API calls
         session.get("https://www.nseindia.com", timeout=15, allow_redirects=True)
-        time.sleep(1)
+        time.sleep(1.5)
         r = session.get(
             "https://www.nseindia.com/api/fiidiiTradeReact",
             timeout=20,
         )
         if r.status_code != 200:
-            log.warning("FII/DII NSE API returned HTTP %d", r.status_code)
+            log.warning("FII/DII NSE API returned HTTP %d: %s", r.status_code, r.text[:200])
+            if _retry:
+                time.sleep(2)
+                return _fetch_fiidii_nse(_retry=False)
             return pd.DataFrame()
-        data = r.json()
+        try:
+            data = r.json()
+        except ValueError:
+            log.warning("FII/DII NSE API returned non-JSON body (likely a bot-block page): %s", r.text[:200])
+            if _retry:
+                time.sleep(2)
+                return _fetch_fiidii_nse(_retry=False)
+            return pd.DataFrame()
         if not data or not isinstance(data, list):
+            log.warning("FII/DII NSE API returned unexpected shape: %s", str(data)[:200])
+            if _retry:
+                time.sleep(2)
+                return _fetch_fiidii_nse(_retry=False)
             return pd.DataFrame()
         rows = []
         for rec in data:
@@ -433,6 +452,7 @@ def _fetch_fiidii_nse() -> pd.DataFrame:
             except Exception:
                 continue
         if not rows:
+            log.warning("FII/DII NSE API: %d records returned but none parsed", len(data))
             return pd.DataFrame()
         df = pd.DataFrame(rows).set_index("date").sort_index()
         df = df[df.index > pd.Timestamp("2015-01-01")]
@@ -441,6 +461,9 @@ def _fetch_fiidii_nse() -> pd.DataFrame:
         return df
     except Exception as e:
         log.warning("FII/DII NSE API failed: %s", e)
+        if _retry:
+            time.sleep(2)
+            return _fetch_fiidii_nse(_retry=False)
         return pd.DataFrame()
 
 

@@ -28,6 +28,8 @@ const { atomicWrite, daysAgo, mean, stddev, median, round2, sleep } = require(".
 
 const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
 
+const FETCH_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
 const NAV_CACHE_FILE   = path.join(__dirname, "etf_nav_cache.json");
 const PRICE_CACHE_FILE = path.join(__dirname, "etf_price_cache.json");
 const HISTORY_DAYS  = 400;
@@ -111,24 +113,55 @@ async function fetchSchemeNav(code) {
   return entry;
 }
 
-// ─── Price history (Yahoo) ─────────────────────────────────────────────────────
+// ─── Price history (Stooq primary, Yahoo fallback) ─────────────────────────────
 
-async function fetchTickerPrice(ticker) {
+function yyyymmdd(date) {
+  return date.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+async function fetchFromStooq(ticker, startDate) {
+  const sym = ticker.toLowerCase();
+  const d1  = yyyymmdd(startDate);
+  const d2  = yyyymmdd(new Date(Date.now() + 86400000));
+  const url = `https://stooq.com/q/d/l/?s=${sym}.ns&d1=${d1}&d2=${d2}&i=d`;
+  const res = await fetch(url, {
+    headers: { "User-Agent": FETCH_UA },
+    signal:  AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} from stooq`);
+  const text = await res.text();
+  if (text.length < 50 || !text.toLowerCase().startsWith("date") || text.includes("apikey")) {
+    throw new Error(`no data from stooq (len=${text.length})`);
+  }
+  const lines   = text.trim().split(/\r?\n/);
+  const headers = lines[0].toLowerCase().split(",");
+  const iDate   = headers.indexOf("date");
+  const iClose  = headers.indexOf("close");
+  const iVol    = headers.indexOf("volume");
+  if (iDate < 0 || iClose < 0) throw new Error("unexpected stooq CSV header");
+
+  const prices = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols  = lines[i].split(",");
+    const close = parseFloat(cols[iClose]);
+    if (!isFinite(close) || close <= 0) continue;
+    prices.push({ date: cols[iDate]?.trim() ?? "", close, volume: parseInt(cols[iVol], 10) || 0 });
+  }
+  prices.sort((a, b) => a.date.localeCompare(b.date));
+  if (prices.length === 0) throw new Error("empty after parsing stooq CSV");
+  return prices;
+}
+
+async function fetchFromYahoo(ticker, startDate) {
   const yahooSym = `${ticker}.NS`;
-  const cached = priceCache.tickers[ticker];
-  if (cached && Date.now() - new Date(cached.fetchedAt).getTime() < PRICE_TTL) return cached;
-
-  const period1 = new Date();
-  period1.setDate(period1.getDate() - HISTORY_DAYS);
-
   const data = await yahooFinance.chart(yahooSym, {
-    period1: Math.floor(period1.getTime() / 1000),
+    period1: Math.floor(startDate.getTime() / 1000),
     interval: "1d",
   });
   const quotes = data && data.quotes;
   if (!quotes || quotes.length === 0) throw new Error(`No price history for ${yahooSym}`);
 
-  const prices = quotes
+  return quotes
     .filter((d) => d.close != null && d.close > 0)
     .sort((a, b) => new Date(a.date) - new Date(b.date))
     .map((d) => ({
@@ -136,6 +169,22 @@ async function fetchTickerPrice(ticker) {
       close:  d.close,
       volume: d.volume ?? 0,
     }));
+}
+
+async function fetchTickerPrice(ticker) {
+  const cached = priceCache.tickers[ticker];
+  if (cached && Date.now() - new Date(cached.fetchedAt).getTime() < PRICE_TTL) return cached;
+
+  const period1 = new Date();
+  period1.setDate(period1.getDate() - HISTORY_DAYS);
+
+  let prices;
+  try {
+    prices = await fetchFromStooq(ticker, period1);
+  } catch (e) {
+    console.warn(`  [stooq] ${ticker}: ${e.message} — falling back to Yahoo`);
+    prices = await fetchFromYahoo(ticker, period1);
+  }
 
   const entry = { fetchedAt: new Date().toISOString(), prices };
   priceCache.tickers[ticker] = entry;
