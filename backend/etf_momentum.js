@@ -131,7 +131,8 @@ async function fetchFromStooq(ticker, startDate) {
   if (!res.ok) throw new Error(`HTTP ${res.status} from stooq`);
   const text = await res.text();
   if (text.length < 50 || !text.toLowerCase().startsWith("date") || text.includes("apikey")) {
-    throw new Error(`no data from stooq (len=${text.length})`);
+    const snippet = text.replace(/\s+/g, " ").trim().slice(0, 80) || "(empty body)";
+    throw new Error(`no data from stooq (len=${text.length}): ${snippet}`);
   }
   const lines   = text.trim().split(/\r?\n/);
   const headers = lines[0].toLowerCase().split(",");
