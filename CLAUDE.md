@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This System Does
 
-Fin Intel is a daily AI-powered investment intelligence platform for Indian equities covering stocks, mutual funds, ETFs, fund deep-dives, and persona-based portfolio advice. It fetches NSE/Yahoo/mfapi data nightly, scores Nifty 500 stocks through a 6-layer pipeline, and publishes ranked picks to a React UI. Key `radar_cache` blobs: `stock_picks` (top-50 `picks` + top-200 `all`), `mf_radar` (MF rankings), `etf_picks` (nested `types[].etfs`), `system_health`.
+Fin Intel is a daily AI-powered investment intelligence platform for Indian equities covering stocks, mutual funds, ETFs, fund deep-dives, and persona-based portfolio advice. It fetches NSE/Yahoo/mfapi data nightly, scores Nifty 500 stocks through a 6-layer pipeline, and publishes ranked picks to a React UI. Key `radar_cache` blobs: `stock_picks` (top-50 `picks` + top-200 `all`), `mf_radar` (MF rankings), `etf_picks` (nested `types[].etfs`), `track_record` (realized pick outcomes), `system_health`.
 
 **Env vars required everywhere:** `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`. Optional: `ANTHROPIC_API_KEY` (rationale generation + sentiment), `LOG_LEVEL`.
 
@@ -98,6 +98,8 @@ frontend/         React 18 + Vite + TailwindCSS
     DeepDive.jsx        — Per-fund 15Y NAV analysis: rolling returns (1/3/5Y), SIP XIRR, drawdowns
     PersonaAdvisor.jsx  — 5 investor profiles (Aggressive/Growth/Balanced/Conservative/Dividend),
                           corpus input, horizon picker, auto-populated MF+stock portfolio
+    TrackRecord.jsx     — Realized performance of published picks (reads track_record blob)
+    Watchlist.jsx       — User holdings (localStorage) judged by today's pipeline: hold/trim/exit
     StockPicks.jsx      — Top-50 ranking (also accessible as Stocks.jsx / StockAllPage.jsx)
     Admin.jsx           — Health dashboard: source status, freshness, model AUC, IC drift, hit rate
   src/components/ — Shared UI components

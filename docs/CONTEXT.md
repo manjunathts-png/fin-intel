@@ -21,6 +21,7 @@ already caused one phantom incident (see Incident log).
 | `mf_radar` | `momentum.js` via `refresh-cache.js` | `{ asOf, benchmarks, categories: [{ category, funds: [...] }], warnings }` |
 | `etf_picks` | `etf_momentum.js` via `refresh-cache.js` | `{ asOf, types: [{ type, etfCount, median, etfs: [...] }], warnings }` — **ETFs are nested two levels down; there is no top-level `picks`/`etfs` array** |
 | `system_health` | `data-health-check.js` | `{ checkedAt, mode, allPassed, results: [{check,status,detail,ts}], failCount, warnCount }` |
+| `track_record` | `track_record.js` via `refresh-cache.js` | `{ asOf, params, cohorts, summary: {ret_5d/10d/21d: {top10,top50}}, rankBands, series, distribution, rotation }` — realized pick outcomes, rendered by `TrackRecord.jsx` |
 | `instrument_details.STOCK.<sym>` / `.MF.<code>` / `.ETF.<ticker>` | `instrument_details.js` | per-instrument detail payload for the drawer UI |
 
 (FII/DII flows live in the standalone `macro_flows` **table** — written by

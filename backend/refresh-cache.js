@@ -20,6 +20,7 @@ const { getDeliveryMap }            = require("./stock_bhavcopy");
 const { getDiscovery, buildSymbolBonuses } = require("./nse_discovery");
 const { getNifty500 }               = require("./nifty500_universe");
 const { getNiftyReturns }           = require("./nifty_benchmark");
+const { computeTrackRecord }        = require("./track_record");
 const { getFundamentalsBatch }      = require("./yahoo_fundamentals");
 const { generateRationales }        = require("./generate-rationales");
 const { generateStockRationales }   = require("./generate-stock-rationales");
@@ -435,6 +436,19 @@ async function main() {
       } catch (e) {
         console.warn(`  ⚠ pick_history snapshot failed: ${e.message}`);
       }
+    }
+
+    // ── Track record: aggregate realized pick outcomes for the UI ──────────
+    // Reads pick_history (backfilled by ml/track_pick_outcomes.py) so the
+    // frontend can show whether following the picks actually made money.
+    try {
+      console.log("Building track record from pick_history…");
+      const trackRecord = await computeTrackRecord(supabase);
+      await upsert("track_record", trackRecord);
+      console.log(`  ✓ track record: ${trackRecord.cohorts} cohorts, ` +
+                  `${trackRecord.summary.ret_21d?.top10?.n ?? 0} resolved top-10 picks (21d)`);
+    } catch (e) {
+      console.warn(`  ⚠ track record build failed: ${e.message}`);
     }
 
     console.log("Generating rule-based stock rationales…");

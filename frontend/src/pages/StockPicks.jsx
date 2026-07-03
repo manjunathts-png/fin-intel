@@ -5,6 +5,7 @@ import { useAuth } from "../hooks/useAuth";
 import { trackEvent } from "../lib/analytics";
 import PageFooter from "../components/PageFooter";
 import InstrumentDrawer from "../components/InstrumentDrawer";
+import ScoreBreakdown from "../components/ScoreBreakdown";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -448,6 +449,9 @@ function StockPickCard({ pick, rank, ruleBased, aiRationale, mlProb3m, mlProb1m,
             <Tech label="RS 1M vs Nifty" val={pick.rsVsNifty1M} fmt={(v) => v != null ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}pp` : "—"} color={(pick.rsVsNifty1M ?? 0) >= 5 ? "text-lime-400" : (pick.rsVsNifty1M ?? 0) >= 0 ? "text-green-400" : "text-red-400"} />
             <Tech label="RS 3M vs Nifty" val={pick.rsVsNifty3M} fmt={(v) => v != null ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}pp` : "—"} color={(pick.rsVsNifty3M ?? 0) >= 10 ? "text-lime-400" : (pick.rsVsNifty3M ?? 0) >= 0 ? "text-green-400" : "text-red-400"} />
           </div>
+
+          {/* Score attribution */}
+          <ScoreBreakdown pick={pick} />
 
           {/* Rationale (Tier 3 nested collapses) */}
           <RationaleSection ruleBased={ruleBased} aiRationale={aiRationale} />
