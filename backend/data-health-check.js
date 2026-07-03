@@ -31,11 +31,17 @@ const { createClient } = require("@supabase/supabase-js");
 const WebSocket        = require("ws");
 const path             = require("path");
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY,
-  { auth: { persistSession: false }, realtime: { transport: WebSocket } }
-);
+let _supabase = null;
+function supabaseClient() {
+  if (!_supabase) {
+    _supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_KEY,
+      { auth: { persistSession: false }, realtime: { transport: WebSocket } }
+    );
+  }
+  return _supabase;
+}
 
 const args    = process.argv.slice(2);
 const FIX     = args.includes("--fix");
@@ -95,11 +101,17 @@ function hoursAgo(isoStr) {
   return (Date.now() - new Date(isoStr).getTime()) / (1000 * 60 * 60);
 }
 
+// First line of a non-CSV response, collapsed — enough to tell a rate-limit
+// notice from a bot-block page in the alert text
+function bodySnippet(text, max = 80) {
+  return String(text ?? "").replace(/\s+/g, " ").trim().slice(0, max) || "(empty body)";
+}
+
 // ─── Check 1: Supabase stock_picks freshness ──────────────────────────────────
 
 async function checkSupabaseFreshness() {
   console.log("\n[1] Supabase stock_picks freshness");
-  const { data: row, error } = await supabase
+  const { data: row, error } = await supabaseClient()
     .from("radar_cache").select("data, built_at").eq("key", "stock_picks").single();
 
   if (error || !row) {
@@ -169,7 +181,7 @@ function checkPriceCoverage(stored) {
 
 async function checkMfRadar() {
   console.log("\n[3] Supabase mf_radar freshness");
-  const { data: row, error } = await supabase
+  const { data: row, error } = await supabaseClient()
     .from("radar_cache").select("data, built_at").eq("key", "mf_radar").single();
 
   if (error || !row) {
@@ -199,9 +211,22 @@ async function checkMfRadar() {
 
 // ─── Check 4: ETF picks freshness ────────────────────────────────────────────
 
+// The etf_picks blob is { asOf, types: [{ type, etfs: [...] }], warnings }
+// (built by etf_momentum.js getEtfLeaderboard). Older/legacy shapes exposed a
+// flat picks/etfs array — kept as fallbacks. An ETF counts as "priced" when
+// its price fetch succeeded; entries are written even when every source fails,
+// so the priced count is what actually detects a data outage.
+function summarizeEtfBlob(data) {
+  const flat = Array.isArray(data?.types)
+    ? data.types.flatMap((t) => t.etfs ?? [])
+    : (data?.picks ?? data?.etfs ?? []);
+  const priced = flat.filter((e) => (e.latestPrice ?? e.close) > 0).length;
+  return { etfCount: flat.length, pricedCount: priced };
+}
+
 async function checkEtfPicks() {
   console.log("\n[4] Supabase etf_picks freshness");
-  const { data: row, error } = await supabase
+  const { data: row, error } = await supabaseClient()
     .from("radar_cache").select("data, built_at").eq("key", "etf_picks").single();
 
   if (error || !row) {
@@ -209,11 +234,11 @@ async function checkEtfPicks() {
     return;
   }
 
-  const age      = hoursAgo(row.built_at);
-  const etfCount = (row.data?.picks ?? row.data?.etfs ?? []).length;
+  const age = hoursAgo(row.built_at);
+  const { etfCount, pricedCount } = summarizeEtfBlob(row.data);
 
   info("etf_picks built_at", `${row.built_at?.slice(0, 16) ?? "—"} (${age.toFixed(1)}h ago)`);
-  info("ETFs", `${etfCount}`);
+  info("ETFs", `${etfCount} (${pricedCount} with price)`);
 
   if (age > STALE_EOD_H) {
     fail("etf_picks freshness", `${age.toFixed(1)}h old — expected < ${STALE_EOD_H}h`);
@@ -225,6 +250,18 @@ async function checkEtfPicks() {
     fail("etf_picks count", `${etfCount} ETFs — expected >= ${MIN_ETF_COUNT}`);
   } else {
     ok("etf_picks count", `${etfCount} ETFs`);
+  }
+
+  // Entries exist even when every price fetch failed — check coverage too
+  if (etfCount >= MIN_ETF_COUNT) {
+    const coverage = pricedCount / etfCount;
+    if (coverage < 0.5) {
+      fail("etf_picks price coverage", `${pricedCount}/${etfCount} ETFs have a price (<50%) — price sources failed during build`);
+    } else if (coverage < MIN_PRICE_COVERAGE) {
+      warn("etf_picks price coverage", `${pricedCount}/${etfCount} ETFs have a price (<${MIN_PRICE_COVERAGE * 100}%)`);
+    } else {
+      ok("etf_picks price coverage", `${pricedCount}/${etfCount} ETFs have a price`);
+    }
   }
 }
 
@@ -267,7 +304,7 @@ async function checkNiftyBenchmark() {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
-    if (text.length < 50 || !text.toLowerCase().startsWith("date")) throw new Error(`unexpected response (len=${text.length})`);
+    if (text.length < 50 || !text.toLowerCase().startsWith("date")) throw new Error(`unexpected response (len=${text.length}): ${bodySnippet(text)}`);
     ok("Nifty benchmark (Stooq)", `${text.trim().split(/\r?\n/).length - 1} rows`);
     return;
   } catch (e) {
@@ -292,7 +329,7 @@ async function checkStooq() {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const text = await res.text();
   if (text.length < 50 || !text.toLowerCase().startsWith("date")) {
-    throw new Error(`unexpected response (len=${text.length})`);
+    throw new Error(`unexpected response (len=${text.length}): ${bodySnippet(text)}`);
   }
   const lines = text.trim().split(/\r?\n/);
   return `${lines.length - 1} rows`;
@@ -462,7 +499,7 @@ async function writeSystemHealth() {
     warnCount:  healthResults.filter((r) => r.status === "warn").length,
   };
   try {
-    const { error } = await supabase
+    const { error } = await supabaseClient()
       .from("radar_cache")
       .upsert({ key: "system_health", data: payload, built_at: new Date().toISOString() });
     if (error) throw error;
@@ -527,7 +564,11 @@ async function main() {
   process.exit(allPassed ? 0 : 1);
 }
 
-main().catch((e) => {
-  console.error("FATAL:", e.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((e) => {
+    console.error("FATAL:", e.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { summarizeEtfBlob, bodySnippet };
