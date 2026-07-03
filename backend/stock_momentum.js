@@ -52,10 +52,26 @@ function saveCache() {
     const tmp = CACHE_FILE + ".tmp";
     fs.writeFileSync(tmp, JSON.stringify(cache));
     fs.renameSync(tmp, CACHE_FILE);
+    cacheDirty = false;
+    lastCacheSave = Date.now();
   } catch (e) {
     console.error("stock_history_cache.json save failed:", e.message);
   }
 }
+
+// The cache is tens of MB with a full universe; serialising it after every
+// symbol fetch turns a 500-stock scan into 500 full-file writes. Throttle to
+// one write per interval and flush whatever is still dirty at process exit.
+let cacheDirty    = false;
+let lastCacheSave = 0;
+const CACHE_SAVE_INTERVAL_MS = 5000;
+
+function saveCacheThrottled() {
+  cacheDirty = true;
+  if (Date.now() - lastCacheSave >= CACHE_SAVE_INTERVAL_MS) saveCache();
+}
+
+process.on("exit", () => { if (cacheDirty) saveCache(); });
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -349,7 +365,7 @@ async function fetchSymbolHistory(symbol) {
     if (stooqPrices?.length > 0) {
       const entry = { fetchedAt: new Date().toISOString(), prices: stooqPrices };
       cache.symbols[symbol] = entry;
-      saveCache();
+      saveCacheThrottled();
       return entry;
     }
     // Stooq failed — trigger Bhavcopy bulk fill (singleton)
@@ -371,7 +387,7 @@ async function fetchSymbolHistory(symbol) {
 
   const entry = { fetchedAt: new Date().toISOString(), prices };
   cache.symbols[symbol] = entry;
-  saveCache();
+  saveCacheThrottled();
   return entry;
 }
 

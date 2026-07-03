@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This System Does
 
-Fin Intel is a daily AI-powered investment intelligence platform for Indian equities covering stocks, mutual funds, ETFs, fund deep-dives, and persona-based portfolio advice. It fetches NSE/Yahoo/mfapi data nightly, scores Nifty 500 stocks through a 6-layer pipeline, and publishes ranked picks to a React UI. Key `radar_cache` blobs: `picks` (top-50 stocks), `mf_radar` (MF rankings), `etf_picks`, `stock_all` (full universe).
+Fin Intel is a daily AI-powered investment intelligence platform for Indian equities covering stocks, mutual funds, ETFs, fund deep-dives, and persona-based portfolio advice. It fetches NSE/Yahoo/mfapi data nightly, scores Nifty 500 stocks through a 6-layer pipeline, and publishes ranked picks to a React UI. Key `radar_cache` blobs: `stock_picks` (top-50 `picks` + top-200 `all`), `mf_radar` (MF rankings), `etf_picks` (nested `types[].etfs`), `system_health`.
 
 **Env vars required everywhere:** `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`. Optional: `ANTHROPIC_API_KEY` (rationale generation + sentiment), `LOG_LEVEL`.
 
@@ -157,8 +157,8 @@ Two daily scripts write pre-computed verdicts so the UI never calls Claude inlin
 4. **`loadMlBlend(supabase)`** then **`applyMlBlend(stocks, blend)`** — blends LightGBM percentile into composite; weight = 0 if OOS AUC < 0.52 (gate in `ml_blend.js`).
 5. **`computeRegime({stocks, niftyReturns, macro})`** then **`applyRegime(stocks, info)`** — docks weak names (below 200DMA or rsVsNifty3M < −10%) by −4 (neutral) or −12 (risk\_off). In risk\_off also amplifies overextensionPenalty × 1.5.
 6. **`p.eodBaseScore = p.compositeScore`** — snapshot post-regime score; used by `refresh-intraday.js` as stable base. **Must happen after `applyRegime`.**
-7. **EMA smoothing** — `0.6 × rawScore + 0.4 × prevEodScore`.
-8. **Incumbent hysteresis** — +5 to stocks in yesterday's top 50.
+7. **EMA smoothing** — `0.5 × rawScore + 0.5 × prevEodScore`; then `eodCompositeScore` snapshot (anchor for intraday runs).
+8. **Incumbent hysteresis** — +10 to stocks in yesterday's top 50; entry gate blocks first-time names (no prior top-100) from the top-50 slice.
 9. **Primary sort** by `compositeScore DESC`.
 10. **`applySectorCap(stocks, {topN:50})`** — dock 6 pts from names beyond 30% per sector in top-50 window, then re-sort.
 11. **Write** `picks` JSON blob to `radar_cache` Supabase table; snapshot top-100 to `pick_history`.
@@ -171,7 +171,7 @@ All penalty fields (`regimePenalty`, `liquidityPenalty`, `sectorCapPenalty`, `re
 ### Supabase Tables
 | Table | Written by | Purpose |
 |---|---|---|
-| `radar_cache` | `refresh-cache.js` | JSON blobs: `picks`, `mf_radar`, `etf_picks`, `stock_all` |
+| `radar_cache` | `refresh-cache.js` | JSON blobs: `stock_picks`, `stock_radar`, `mf_radar`, `etf_picks`, `system_health`, `instrument_details.*` (exact shapes: docs/CONTEXT.md) |
 | `stock_features` | `extract_stock_features.py` | Per-stock OHLCV features, one row per (symbol, as_of_date) |
 | `stock_predictions` | `train_stock.py` | LightGBM probabilities: `p_top_quartile_3m`, `p_top_sharpe_q_3m` |
 | `stock_model_runs` | `train_stock.py` via `oos.insert_model_run()` | CV AUC, OOS AUC, feature importance audit log |

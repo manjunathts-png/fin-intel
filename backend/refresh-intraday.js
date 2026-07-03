@@ -219,15 +219,21 @@ async function main() {
 
   const quoteMap = {};
   let nseOk = 0, nseErr = 0;
-  for (const sym of allSyms) {
-    const q = await fetchQuote(sym);
-    if (q?.regularMarketPrice != null || (sym === "^NSEI" && q?.regularMarketChangePercent != null)) {
-      quoteMap[sym] = q;
-      nseOk++;
-    } else {
-      nseErr++;
+  // Bounded parallelism: sequential fetches took ~50 × (latency + fallback)
+  // worst-case minutes; 4 workers keep NSE happy while cutting wall-clock ~4×.
+  const queue = [...allSyms];
+  await Promise.all(Array.from({ length: 4 }, async () => {
+    while (queue.length) {
+      const sym = queue.shift();
+      const q = await fetchQuote(sym);
+      if (q?.regularMarketPrice != null || (sym === "^NSEI" && q?.regularMarketChangePercent != null)) {
+        quoteMap[sym] = q;
+        nseOk++;
+      } else {
+        nseErr++;
+      }
     }
-  }
+  }));
   console.log(`  Quotes: ${nseOk} ok, ${nseErr} failed`);
 
   const niftyQ   = quoteMap["^NSEI"];
@@ -276,11 +282,16 @@ async function main() {
 
     const volumeShock = liveVolumeShock(volume, avg20v, nowIST);
 
-    const ret1wBase = p.ret1w ?? 0;
+    // Anchor on the EOD values — p.ret1w / p.rsVsNifty1M were already
+    // overwritten by any earlier intraday run today, so adding today's
+    // cumulative change to them would double-count the move (9:40 run adds
+    // +2%, 12:30 run adds the full +3% on top → +5% instead of +3%).
+    const ret1wBase = p.eodRet1w ?? p.ret1w ?? 0;
     const ret1w     = round(ret1wBase + chgPct, 2);
 
-    const rsVsNifty1M = p.rsVsNifty1M != null
-      ? round(p.rsVsNifty1M + (chgPct - niftyChg), 2)
+    const rsBase      = p.eodRsVsNifty1M ?? p.rsVsNifty1M;
+    const rsVsNifty1M = rsBase != null
+      ? round(rsBase + (chgPct - niftyChg), 2)
       : null;
 
     const liveSignals = {
@@ -304,7 +315,9 @@ async function main() {
     p.gapUp          = gapUp;
     p.volumeShock    = volumeShock;
     p.ret1w          = ret1w;
-    p.rsVsNifty1M   = rsVsNifty1M;
+    p.rsVsNifty1M    = rsVsNifty1M;
+    p.eodRet1w       = round(ret1wBase, 2);            // persist anchors for later runs today
+    p.eodRsVsNifty1M = rsBase != null ? round(rsBase, 2) : null;
     p.close          = round(price, 2);
     p.changePct      = round(chgPct, 2);
     p.intradayAsOf   = intradayAsOf;
