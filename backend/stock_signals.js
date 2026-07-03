@@ -216,9 +216,11 @@ function detectMacdBullish(prices) {
   const macd = ema26.map((v, i) => ema12[i + diffLen] - v);
   if (macd.length < 12) return false;
   const sig = ema(macd, 9);
-  // crossover in last 3 bars?
-  const macdTail = macd.slice(-Math.min(4, sig.length + 1));
-  const sigTail  = sig.slice(-Math.min(4, sig.length));
+  // crossover in last 3 bars? Both series end at the latest bar, so slice the
+  // SAME length from each — unequal slices shift the comparison by one bar.
+  const tailLen  = Math.min(4, sig.length);
+  const macdTail = macd.slice(-tailLen);
+  const sigTail  = sig.slice(-tailLen);
   for (let i = 1; i < sigTail.length; i++) {
     const mPrev = macdTail[i - 1], mNow = macdTail[i];
     const sPrev = sigTail[i - 1],  sNow = sigTail[i];

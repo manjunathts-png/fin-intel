@@ -22,10 +22,14 @@ already caused one phantom incident (see Incident log).
 | `etf_picks` | `etf_momentum.js` via `refresh-cache.js` | `{ asOf, types: [{ type, etfCount, median, etfs: [...] }], warnings }` — **ETFs are nested two levels down; there is no top-level `picks`/`etfs` array** |
 | `system_health` | `data-health-check.js` | `{ checkedAt, mode, allPassed, results: [{check,status,detail,ts}], failCount, warnCount }` |
 | `instrument_details.STOCK.<sym>` / `.MF.<code>` / `.ETF.<ticker>` | `instrument_details.js` | per-instrument detail payload for the drawer UI |
-| `macro_flows` | `ml/macro_features.py` | FII/DII daily flows |
+
+(FII/DII flows live in the standalone `macro_flows` **table** — written by
+`ml/macro_features.py`, read by `FiiTracker.jsx` — not in `radar_cache`.)
 
 Per-stock pick fields worth knowing: `symbol` (with `.NS`), `compositeScore`,
-`eodBaseScore` (post-regime snapshot used by intraday), `close`,
+`eodBaseScore` (post-regime snapshot used by intraday), `eodCompositeScore`
+(post-EMA anchor for intraday smoothing), `eodRet1w` / `eodRsVsNifty1M`
+(anchors so repeated intraday runs don't compound today's move), `close`,
 `intradayAsOf`, penalty fields (see sign conventions in CLAUDE.md),
 `daysInTop50` (Core badge at ≥7).
 
@@ -86,6 +90,14 @@ entries alone never detects an outage; check `latestPrice` coverage.
   a per-category payload that the original parser didn't understand, and
   bot-block pages made it fail silently. Fixed in #34 + diagnostics in
   `ae806d6`.
+- **2026-07-03 — codebase sweep.** Intraday runs were compounding today's move
+  into `ret1w`/`rsVsNifty1M` on every same-day run (each run added the
+  cumulative day change to the previous run's already-adjusted value); fixed
+  with `eodRet1w`/`eodRsVsNifty1M` anchors. Also fixed a one-bar misalignment
+  in `detectMacdBullish` for short histories, throttled the per-symbol
+  full-cache disk writes in `stock_momentum.js`, and parallelised intraday
+  quote fetches (4 workers). Lesson: any field an intraday run rewrites needs
+  an EOD anchor field, or repeat runs compound it.
 
 ## Debugging playbook
 
