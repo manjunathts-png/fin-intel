@@ -229,4 +229,4 @@ async function getNiftyReturns() {
   };
 }
 
-module.exports = { getNiftyReturns };
+module.exports = { getNiftyReturns, getNiftyHistory };

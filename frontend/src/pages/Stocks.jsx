@@ -4,10 +4,12 @@ import { supabase } from "../lib/supabase";
 import { buildSectorView } from "./StockRadar";
 
 const SUB_TABS = [
-  { to: "picks",    label: "⭐ Picks",             desc: "Top stocks by composite signal score" },
-  { to: "radar",    label: "🗺 Sector Radar",      desc: "Sectors ranked by signal density" },
-  { to: "all",      label: "🔍 All Stocks",        desc: "Sortable & filterable full universe" },
-  { to: "hotspots", label: "🔥 Signal Hotspots",   desc: "Sector × signal heatmap — spot clusters" },
+  { to: "picks",        label: "⭐ Picks",           desc: "Top stocks by composite signal score" },
+  { to: "radar",        label: "🗺 Sector Radar",    desc: "Sectors ranked by signal density" },
+  { to: "all",          label: "🔍 All Stocks",      desc: "Sortable & filterable full universe" },
+  { to: "hotspots",     label: "🔥 Signal Hotspots", desc: "Sector × signal heatmap — spot clusters" },
+  { to: "track-record", label: "🎯 Track Record",    desc: "Realized returns of the published picks" },
+  { to: "watchlist",    label: "👁 Watchlist",       desc: "Your holdings — hold / trim / exit verdicts" },
 ];
 
 export default function Stocks() {

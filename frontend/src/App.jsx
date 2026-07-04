@@ -13,6 +13,8 @@ import StockSectorPage from "./pages/StockSectorPage";
 import StockAllPage from "./pages/StockAllPage";
 import StockHotspotsPage from "./pages/StockHotspotsPage";
 import Simulator from "./pages/Simulator";
+import TrackRecord from "./pages/TrackRecord";
+import Watchlist from "./pages/Watchlist";
 import DeepDive from "./pages/DeepDive";
 import PersonaAdvisor from "./pages/PersonaAdvisor";
 import Admin from "./pages/Admin";
@@ -41,6 +43,8 @@ export default function App() {
               <Route path="radar"           element={<StockSectorPage />} />
               <Route path="all"             element={<StockAllPage />} />
               <Route path="hotspots"        element={<StockHotspotsPage />} />
+              <Route path="track-record"    element={<TrackRecord />} />
+              <Route path="watchlist"       element={<Watchlist />} />
             </Route>
 
             {/* ── Legacy redirect ───────────────────────────────────── */}
