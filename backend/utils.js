@@ -17,6 +17,37 @@ function daysAgo(n) {
   return d.toISOString().slice(0, 10);
 }
 
+// Elapsed hours since an ISO timestamp, discounting full weekend (Sat/Sun,
+// UTC calendar day) overlap. NSE/AMFI don't publish on weekends, so anything
+// refreshed only by the nightly cron (Mon-Fri) genuinely can't get newer data
+// then — a flat wall-clock threshold treats that normal gap as an outage every
+// single weekend. UTC vs IST day boundaries differ by 5.5h, an acceptable
+// approximation for a coarse freshness gate (not used for exact scheduling).
+function businessHoursAge(isoStr, nowMs = Date.now()) {
+  if (!isoStr) return Infinity;
+  const start = new Date(isoStr).getTime();
+  if (isNaN(start)) return Infinity;
+  if (nowMs <= start) return 0;
+
+  const oneDay = 86400000;
+  let weekendMs = 0;
+  const dayStart = new Date(isoStr);
+  dayStart.setUTCHours(0, 0, 0, 0);
+  let cursor = dayStart.getTime();
+
+  while (cursor < nowMs) {
+    const dayEnd = cursor + oneDay;
+    const overlapStart = Math.max(cursor, start);
+    const overlapEnd   = Math.min(dayEnd, nowMs);
+    if (overlapEnd > overlapStart) {
+      const dow = new Date(cursor).getUTCDay(); // 0=Sun, 6=Sat
+      if (dow === 0 || dow === 6) weekendMs += overlapEnd - overlapStart;
+    }
+    cursor = dayEnd;
+  }
+  return (nowMs - start - weekendMs) / (1000 * 60 * 60);
+}
+
 // ─── Math ─────────────────────────────────────────────────────────────────────
 
 const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
@@ -42,4 +73,4 @@ const round2 = (v) => round(v, 2);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-module.exports = { atomicWrite, daysAgo, mean, stddev, median, round, round2, sleep };
+module.exports = { atomicWrite, daysAgo, mean, stddev, median, round, round2, sleep, businessHoursAge };

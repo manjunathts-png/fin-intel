@@ -89,26 +89,43 @@ def _fwd_sharpe_stock(
 
 
 def load_unlabeled(supabase, cutoff: date, top_q_col: str) -> pd.DataFrame:
+    """Page through unlabeled stock_features rows via keyset (cursor)
+    pagination, not OFFSET.
+
+    OFFSET N makes Postgres scan-and-discard the first N matching rows on
+    every page, so cost grows with page depth — on 2026-07-07 this hit a
+    statement timeout at offset=6000 for the 1M horizon (its cutoff is more
+    recent than 3M's, so it matches a larger backlog). Keyset pagination
+    seeks directly to just after the last (as_of_date, symbol) seen, so each
+    page costs the same regardless of how deep the scan is. symbol is
+    included in the cursor/order because many rows share the same
+    as_of_date (up to ~500, one per stock) — as_of_date alone isn't a
+    stable sort key and would skip or duplicate rows within a date.
+    """
     log.info("Loading unlabeled stock_features rows (%s IS NULL, as_of_date <= %s)",
              top_q_col, cutoff)
     rows: list[dict] = []
     page_size = 1000
-    offset = 0
+    last_date: str | None = None
+    last_symbol: str | None = None
     while True:
-        resp = (
+        query = (
             supabase.table("stock_features")
-            .select(f"symbol,as_of_date,sector")
+            .select("symbol,as_of_date,sector")
             .is_(top_q_col, "null")
             .lte("as_of_date", str(cutoff))
-            .order("as_of_date")
-            .range(offset, offset + page_size - 1)
-            .execute()
         )
+        if last_date is not None:
+            query = query.or_(
+                f"as_of_date.gt.{last_date},"
+                f"and(as_of_date.eq.{last_date},symbol.gt.{last_symbol})"
+            )
+        resp = query.order("as_of_date").order("symbol").limit(page_size).execute()
         batch = resp.data or []
         rows.extend(batch)
         if len(batch) < page_size:
             break
-        offset += page_size
+        last_date, last_symbol = batch[-1]["as_of_date"], batch[-1]["symbol"]
 
     df = pd.DataFrame(rows)
     if not df.empty:

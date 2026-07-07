@@ -38,6 +38,34 @@ def hours_since(iso_str):
     return (datetime.now(timezone.utc) - dt).total_seconds() / 3600
 
 
+def business_hours_since(iso_str):
+    """Like hours_since, but discounts full weekend (Sat/Sun, UTC calendar
+    day) overlap. mf_radar is refreshed only by the nightly weekday cron —
+    NSE/AMFI don't publish over the weekend, so a flat wall-clock threshold
+    fails this check every single weekend (and into Monday, until that
+    night's run lands) even though nothing is broken. Mirrors
+    backend/utils.js's businessHoursAge — keep the two in sync.
+    """
+    if not iso_str:
+        return float("inf")
+    start = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+    now = datetime.now(timezone.utc)
+    if now <= start:
+        return 0.0
+
+    one_day = timedelta(days=1)
+    weekend = timedelta(0)
+    cursor = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    while cursor < now:
+        day_end = cursor + one_day
+        overlap_start = max(cursor, start)
+        overlap_end = min(day_end, now)
+        if overlap_end > overlap_start and cursor.weekday() >= 5:  # 5=Sat, 6=Sun
+            weekend += overlap_end - overlap_start
+        cursor = day_end
+    return (now - start - weekend).total_seconds() / 3600
+
+
 # ════════════════════════════════════════════════════════════════════════════════
 print("── Stock predictions ────────────────────────────────────────────────────")
 
@@ -252,10 +280,11 @@ if not mf_cache:
 else:
     mf_row = mf_cache[0]
     mf_age_h = hours_since(mf_row.get("built_at"))
-    if mf_age_h > 28:
-        fail(f"mf_radar cache is {mf_age_h:.1f}h old (threshold 28h) — MF refresh may have failed")
+    mf_biz_age_h = business_hours_since(mf_row.get("built_at"))
+    if mf_biz_age_h > 28:
+        fail(f"mf_radar cache is {mf_age_h:.1f}h old ({mf_biz_age_h:.1f}h business-hours, threshold 28h) — MF refresh may have failed")
     else:
-        ok(f"mf_radar cache age: {mf_age_h:.1f}h (<28h)")
+        ok(f"mf_radar cache age: {mf_age_h:.1f}h ({mf_biz_age_h:.1f}h business-hours, <28h)")
 
     mf_data = mf_row.get("data") or {}
     if isinstance(mf_data, dict):

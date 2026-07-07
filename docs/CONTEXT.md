@@ -91,6 +91,47 @@ entries alone never detects an outage; check `latestPrice` coverage.
   a per-category payload that the original parser didn't understand, and
   bot-block pages made it fail silently. Fixed in #34 + diagnostics in
   `ae806d6`.
+- **2026-07-06 — mf_radar/etf_picks fail every Monday (recurring, self-resolving).**
+  `mf_radar` and `etf_picks` are refreshed only by the nightly `all`/`mf`/`etf`
+  targets (Mon-Fri 23:30 UTC) — unlike `stock_picks`, nothing touches them over
+  the weekend, so `built_at` sits at Friday night's timestamp until Monday
+  night's run. Both the GH Actions "ML Quality" job (`tests/ml_quality_check.py`)
+  and `data-health-check.js`'s `checkMfRadar`/`checkEtfPicks` compared that gap
+  against a flat 28h wall-clock threshold, so **every single Monday**, all
+  three of that day's health checks (9:40am, 12:30pm, 3:45pm IST) failed on
+  "mf_radar cache is 55-61h old" and fired a failure email, until the
+  Monday-night `all` run incidentally fixed it ~10 hours later. The `--fix`
+  step made it worse: it always re-ran `refresh-cache.js stocks` regardless of
+  which check failed, which can never touch `mf_radar` — three wasted CI
+  minutes on top of three false alerts, every week. Fixed by discounting
+  weekend hours from the freshness comparison (`businessHoursAge` in
+  `utils.js`, ported to Python as `business_hours_since`) and making `--fix`
+  pick the refresh target that actually covers the failing check
+  (`fixScriptsForFailures`). Lesson: a freshness threshold is really "how
+  long since the thing that's supposed to refresh this last had a chance to
+  run" — for anything on a weekday-only cron, that's not the same as
+  wall-clock hours, and it's worth asking whether an "automatic fix" can
+  actually address the specific failure before wiring it in.
+- **2026-07-07 — `label_stock_targets.py` statement timeout, 1M horizon.**
+  `load_unlabeled()` paged through unlabeled `stock_features` rows with
+  `OFFSET`, which costs Postgres more per page as the offset grows (it must
+  scan-and-discard every earlier matching row on every page). Hit a 57014
+  statement timeout at `offset=6000` for the 1M horizon — its cutoff date is
+  more recent than 3M's, so it matches a bigger backlog. Because the step
+  crashes instead of finishing, the backlog compounds run over run until
+  fixed. Fixed by switching to keyset (cursor) pagination on
+  `(as_of_date, symbol)` — each page seeks directly to just past the last row
+  seen instead of re-scanning from the start, so cost stays flat regardless
+  of depth. `symbol` had to join the cursor/order because up to ~500 rows
+  share one `as_of_date` (one per stock); `as_of_date` alone isn't a stable
+  sort key and could skip or duplicate rows within a date — a latent
+  correctness bug the OFFSET version already had, independent of the
+  timeout. **The same OFFSET pattern exists in `ml/ic_monitor.py`,
+  `ml/label_targets.py`, `ml/track_pick_outcomes.py`, `ml/train.py`,
+  `ml/train_stock.py`, and `backend/track_record.js`** — none have hit the
+  timeout yet, but any of their backlogs growing large enough will produce
+  the identical failure. Keyset pagination (this fix's pattern) is the
+  remedy if one of them does.
 - **2026-07-03 — codebase sweep.** Intraday runs were compounding today's move
   into `ret1w`/`rsVsNifty1M` on every same-day run (each run added the
   cumulative day change to the previous run's already-adjusted value); fixed

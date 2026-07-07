@@ -26,10 +26,11 @@
  */
 
 require("dotenv").config();
-const { execSync }     = require("child_process");
-const { createClient } = require("@supabase/supabase-js");
-const WebSocket        = require("ws");
-const path             = require("path");
+const { execSync }        = require("child_process");
+const { createClient }    = require("@supabase/supabase-js");
+const WebSocket           = require("ws");
+const path                = require("path");
+const { businessHoursAge } = require("./utils");
 
 let _supabase = null;
 function supabaseClient() {
@@ -190,16 +191,21 @@ async function checkMfRadar() {
   }
 
   const age        = hoursAgo(row.built_at);
+  // mf_radar is refreshed only by the nightly "all"/"mf" target (Mon-Fri) —
+  // no intraday touch re-freshens it like stock_picks. A flat wall-clock
+  // threshold fails every single weekend (and Monday, until the Monday-night
+  // run lands) even though nothing is actually broken. Discount weekend hours.
+  const bizAge     = businessHoursAge(row.built_at);
   const categories = row.data?.categories ?? [];
   const fundCount  = categories.reduce((n, c) => n + (c.funds?.length ?? 0), 0);
 
-  info("mf_radar built_at", `${row.built_at?.slice(0, 16) ?? "—"} (${age.toFixed(1)}h ago)`);
+  info("mf_radar built_at", `${row.built_at?.slice(0, 16) ?? "—"} (${age.toFixed(1)}h ago, ${bizAge.toFixed(1)}h business-hours)`);
   info("categories", `${categories.length}, funds: ${fundCount}`);
 
-  if (age > STALE_EOD_H) {
-    fail("mf_radar freshness", `${age.toFixed(1)}h old — expected < ${STALE_EOD_H}h`);
+  if (bizAge > STALE_EOD_H) {
+    fail("mf_radar freshness", `${age.toFixed(1)}h old (${bizAge.toFixed(1)}h business-hours) — expected < ${STALE_EOD_H}h`);
   } else {
-    ok("mf_radar freshness", `${age.toFixed(1)}h old`);
+    ok("mf_radar freshness", `${age.toFixed(1)}h old (${bizAge.toFixed(1)}h business-hours)`);
   }
 
   if (fundCount < MIN_FUND_COUNT) {
@@ -235,15 +241,18 @@ async function checkEtfPicks() {
   }
 
   const age = hoursAgo(row.built_at);
+  // Same weekend gap as mf_radar — etf_picks only refreshes via the nightly
+  // "all"/"etf" target. See businessHoursAge in utils.js.
+  const bizAge = businessHoursAge(row.built_at);
   const { etfCount, pricedCount } = summarizeEtfBlob(row.data);
 
-  info("etf_picks built_at", `${row.built_at?.slice(0, 16) ?? "—"} (${age.toFixed(1)}h ago)`);
+  info("etf_picks built_at", `${row.built_at?.slice(0, 16) ?? "—"} (${age.toFixed(1)}h ago, ${bizAge.toFixed(1)}h business-hours)`);
   info("ETFs", `${etfCount} (${pricedCount} with price)`);
 
-  if (age > STALE_EOD_H) {
-    fail("etf_picks freshness", `${age.toFixed(1)}h old — expected < ${STALE_EOD_H}h`);
+  if (bizAge > STALE_EOD_H) {
+    fail("etf_picks freshness", `${age.toFixed(1)}h old (${bizAge.toFixed(1)}h business-hours) — expected < ${STALE_EOD_H}h`);
   } else {
-    ok("etf_picks freshness", `${age.toFixed(1)}h old`);
+    ok("etf_picks freshness", `${age.toFixed(1)}h old (${bizAge.toFixed(1)}h business-hours)`);
   }
 
   if (etfCount < MIN_ETF_COUNT) {
@@ -509,23 +518,49 @@ async function writeSystemHealth() {
   }
 }
 
-// ─── Optional fix: re-run refresh ─────────────────────────────────────────────
+// ─── Optional fix: re-run whichever refresh actually covers what failed ───────
+
+// A fix run of "stocks" can never repair a stale mf_radar (and vice versa) —
+// each failing check maps to the one refresh-cache.js target that touches
+// that data. Nifty-benchmark/source-connectivity failures map to nothing:
+// they're a third-party outage, not something a local re-run can fix.
+function fixScriptsForFailures(results, mode) {
+  const targets = new Set();
+  for (const r of results) {
+    if (r.status !== "fail") continue;
+    if (r.check.startsWith("stocks EOD") || r.check.startsWith("stocks intraday") ||
+        r.check === "price coverage" || r.check === "stock_picks") {
+      targets.add(mode === "intraday" ? "intraday" : "stocks");
+    } else if (r.check.startsWith("mf_radar")) {
+      targets.add("mf");
+    } else if (r.check.startsWith("etf_picks")) {
+      targets.add("etf");
+    }
+  }
+  return [...targets].map((t) =>
+    t === "intraday" ? "node backend/refresh-intraday.js" : `node backend/refresh-cache.js ${t}`
+  );
+}
 
 function runFix(mode) {
-  const script = mode === "eod"
-    ? "node backend/refresh-cache.js stocks"
-    : "node backend/refresh-intraday.js";
-  console.log(`\n[fix] Running: ${script}`);
-  try {
-    execSync(script, {
-      cwd:   path.join(__dirname, ".."),
-      stdio: "inherit",
-      env:   { ...process.env },
-    });
-    console.log("[fix] Re-run complete.");
-  } catch (e) {
-    console.error(`[fix] Re-run failed: ${e.message}`);
-    allPassed = false;
+  const scripts = fixScriptsForFailures(healthResults, mode);
+  if (scripts.length === 0) {
+    console.log("\n[fix] No failing check maps to a local refresh target (likely a third-party source outage) — skipping.");
+    return;
+  }
+  for (const script of scripts) {
+    console.log(`\n[fix] Running: ${script}`);
+    try {
+      execSync(script, {
+        cwd:   path.join(__dirname, ".."),
+        stdio: "inherit",
+        env:   { ...process.env },
+      });
+      console.log("[fix] Re-run complete.");
+    } catch (e) {
+      console.error(`[fix] Re-run failed: ${e.message}`);
+      allPassed = false;
+    }
   }
 }
 
@@ -571,4 +606,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { summarizeEtfBlob, bodySnippet };
+module.exports = { summarizeEtfBlob, bodySnippet, fixScriptsForFailures };
