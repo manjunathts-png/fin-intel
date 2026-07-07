@@ -91,6 +91,27 @@ entries alone never detects an outage; check `latestPrice` coverage.
   a per-category payload that the original parser didn't understand, and
   bot-block pages made it fail silently. Fixed in #34 + diagnostics in
   `ae806d6`.
+- **2026-07-06 — mf_radar/etf_picks fail every Monday (recurring, self-resolving).**
+  `mf_radar` and `etf_picks` are refreshed only by the nightly `all`/`mf`/`etf`
+  targets (Mon-Fri 23:30 UTC) — unlike `stock_picks`, nothing touches them over
+  the weekend, so `built_at` sits at Friday night's timestamp until Monday
+  night's run. Both the GH Actions "ML Quality" job (`tests/ml_quality_check.py`)
+  and `data-health-check.js`'s `checkMfRadar`/`checkEtfPicks` compared that gap
+  against a flat 28h wall-clock threshold, so **every single Monday**, all
+  three of that day's health checks (9:40am, 12:30pm, 3:45pm IST) failed on
+  "mf_radar cache is 55-61h old" and fired a failure email, until the
+  Monday-night `all` run incidentally fixed it ~10 hours later. The `--fix`
+  step made it worse: it always re-ran `refresh-cache.js stocks` regardless of
+  which check failed, which can never touch `mf_radar` — three wasted CI
+  minutes on top of three false alerts, every week. Fixed by discounting
+  weekend hours from the freshness comparison (`businessHoursAge` in
+  `utils.js`, ported to Python as `business_hours_since`) and making `--fix`
+  pick the refresh target that actually covers the failing check
+  (`fixScriptsForFailures`). Lesson: a freshness threshold is really "how
+  long since the thing that's supposed to refresh this last had a chance to
+  run" — for anything on a weekday-only cron, that's not the same as
+  wall-clock hours, and it's worth asking whether an "automatic fix" can
+  actually address the specific failure before wiring it in.
 - **2026-07-03 — codebase sweep.** Intraday runs were compounding today's move
   into `ret1w`/`rsVsNifty1M` on every same-day run (each run added the
   cumulative day change to the previous run's already-adjusted value); fixed
