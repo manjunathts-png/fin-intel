@@ -112,6 +112,26 @@ entries alone never detects an outage; check `latestPrice` coverage.
   run" — for anything on a weekday-only cron, that's not the same as
   wall-clock hours, and it's worth asking whether an "automatic fix" can
   actually address the specific failure before wiring it in.
+- **2026-07-07 — `label_stock_targets.py` statement timeout, 1M horizon.**
+  `load_unlabeled()` paged through unlabeled `stock_features` rows with
+  `OFFSET`, which costs Postgres more per page as the offset grows (it must
+  scan-and-discard every earlier matching row on every page). Hit a 57014
+  statement timeout at `offset=6000` for the 1M horizon — its cutoff date is
+  more recent than 3M's, so it matches a bigger backlog. Because the step
+  crashes instead of finishing, the backlog compounds run over run until
+  fixed. Fixed by switching to keyset (cursor) pagination on
+  `(as_of_date, symbol)` — each page seeks directly to just past the last row
+  seen instead of re-scanning from the start, so cost stays flat regardless
+  of depth. `symbol` had to join the cursor/order because up to ~500 rows
+  share one `as_of_date` (one per stock); `as_of_date` alone isn't a stable
+  sort key and could skip or duplicate rows within a date — a latent
+  correctness bug the OFFSET version already had, independent of the
+  timeout. **The same OFFSET pattern exists in `ml/ic_monitor.py`,
+  `ml/label_targets.py`, `ml/track_pick_outcomes.py`, `ml/train.py`,
+  `ml/train_stock.py`, and `backend/track_record.js`** — none have hit the
+  timeout yet, but any of their backlogs growing large enough will produce
+  the identical failure. Keyset pagination (this fix's pattern) is the
+  remedy if one of them does.
 - **2026-07-03 — codebase sweep.** Intraday runs were compounding today's move
   into `ret1w`/`rsVsNifty1M` on every same-day run (each run added the
   cumulative day change to the previous run's already-adjusted value); fixed
