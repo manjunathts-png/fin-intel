@@ -15,7 +15,7 @@ on:
         required: false
         default: 'all'
         type: choice
-        options: [all, mf, stocks, intraday, gen_mf_rationales, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, tune_stock, migrate, restore_persistence, signal_backtest]
+        options: [all, mf, etf, stocks, intraday, gen_mf_rationales, sentiment, gdelt_sentiment, stock_backfill, nifty500_backfill, mf_backfill, mf_train, tune_stock, migrate, restore_persistence, signal_backtest]
       backfill_days:
         description: 'Days to backfill for stock_backfill/nifty500_backfill (default 365)'
         required: false
