@@ -26,6 +26,19 @@ test("businessHoursAge discounts a full weekend — the 2026-07-06 incident numb
   assert.ok(Math.abs(age - 14.27) < 0.1, `expected ~14.3h, got ${age.toFixed(2)}h`);
 });
 
+test("businessHoursAge discounts a full weekend — the 2026-07-13 stock_picks EOD incident", () => {
+  // Second real incident, same bug class: stock_picks EOD asOf is set only
+  // by the "stocks"/"all" targets (Mon-Fri) — unlike built_at, intraday runs
+  // never touch it. Built Sat 2026-07-11 01:02 UTC (Friday night's nightly
+  // run), checked Mon 2026-07-13 10:26 UTC — raw wall-clock age 57.4h,
+  // correctly logged, but nothing was broken.
+  const start = iso(2026, 7, 11, 1, 2);
+  const now   = new Date(iso(2026, 7, 13, 10, 26)).getTime();
+  const age = businessHoursAge(start, now);
+  assert.ok(age < 28, `expected business-hours age < 28h, got ${age.toFixed(1)}h`);
+  assert.ok(Math.abs(age - 10.43) < 0.1, `expected ~10.4h, got ${age.toFixed(2)}h`);
+});
+
 test("businessHoursAge still flags a genuine multi-day outage spanning one weekend", () => {
   // A real 7-day outage (e.g. MF refresh broken all week) must not be
   // forgiven just because a weekend happened to fall inside it.

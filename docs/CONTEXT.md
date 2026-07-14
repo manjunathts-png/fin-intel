@@ -112,6 +112,30 @@ entries alone never detects an outage; check `latestPrice` coverage.
   run" — for anything on a weekday-only cron, that's not the same as
   wall-clock hours, and it's worth asking whether an "automatic fix" can
   actually address the specific failure before wiring it in.
+- **2026-07-13 — the mf_radar/etf_picks Monday bug had a sibling in
+  `stock_picks`.** The 2026-07-06 fix above patched `checkMfRadar`/
+  `checkEtfPicks` but missed that `checkSupabaseFreshness`'s "stocks EOD
+  freshness" check has the *identical* bug on a different field:
+  `stored.asOf` (EOD signal-computation time) is set only by the "stocks"/
+  "all" targets, same as `mf_radar`/`etf_picks` — intraday runs update
+  `intradayAsOf` and `built_at` but never touch `asOf`. I'd wrongly assumed
+  this check "self-heals via intraday `built_at` touches" without checking
+  that `built_at` isn't actually what drives the pass/fail decision here
+  (only `eodAge` from `asOf` is). Same Friday-night-to-Monday gap, same flat
+  28h threshold, same fix: `eodAge` → `businessHoursAge`. Confirmed with the
+  real numbers (built Sat 01:02 UTC, checked Mon 10:26 UTC, 57.4h raw →
+  10.4h business-hours). **Lesson: when porting a fix across multiple
+  similar checks, verify each one's actual pass/fail field, don't reason
+  by analogy from a same-named field that turns out to serve a different
+  purpose.**
+- Same incident also caught a **"Nifty benchmark" false failure**:
+  `checkNiftyBenchmark` only tried the NSE archive and Stooq before failing,
+  but production's `nifty_benchmark.js` has a third fallback (Yahoo REST)
+  that the health check never mirrored — so it could report "unreachable"
+  in exactly the NSE-403 + Stooq-rate-limited situation the real pipeline
+  already tolerates via Yahoo (the alert's own Yahoo *source* probe passed
+  in the same run, supporting this). Added the same Yahoo fallback to the
+  health check.
 - **2026-07-07 — `label_stock_targets.py` statement timeout, 1M horizon.**
   `load_unlabeled()` paged through unlabeled `stock_features` rows with
   `OFFSET`, which costs Postgres more per page as the offset grows (it must

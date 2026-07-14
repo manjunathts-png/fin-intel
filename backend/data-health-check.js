@@ -126,17 +126,23 @@ async function checkSupabaseFreshness() {
   const eodAsOf      = stored.asOf;
 
   const eodAge      = hoursAgo(eodAsOf);
+  // asOf is set only by the "stocks"/"all" targets (Mon-Fri) — unlike
+  // built_at, intraday runs never touch it (refresh-intraday.js spreads
+  // ...stored and only adds intradayAsOf). Same weekend gap as mf_radar/
+  // etf_picks: Friday night's build to Monday's stocks-EOD cron is a ~57h
+  // wall-clock span. See businessHoursAge in utils.js.
+  const eodBizAge   = businessHoursAge(eodAsOf);
   const intradayAge = hoursAgo(intradayAsOf);
   const dbAge       = hoursAgo(builtAt);
 
-  info("EOD asOf",      `${eodAsOf?.slice(0, 16) ?? "—"} (${eodAge.toFixed(1)}h ago)`);
+  info("EOD asOf",      `${eodAsOf?.slice(0, 16) ?? "—"} (${eodAge.toFixed(1)}h ago, ${eodBizAge.toFixed(1)}h business-hours)`);
   info("intraday asOf", `${intradayAsOf?.slice(0, 16) ?? "—"} (${intradayAge.toFixed(1)}h ago)`);
   info("DB built_at",   `${builtAt?.slice(0, 16) ?? "—"} (${dbAge.toFixed(1)}h ago)`);
 
-  if (eodAge > STALE_EOD_H) {
-    fail("stocks EOD freshness", `${eodAge.toFixed(1)}h old — expected < ${STALE_EOD_H}h`);
+  if (eodBizAge > STALE_EOD_H) {
+    fail("stocks EOD freshness", `${eodAge.toFixed(1)}h old (${eodBizAge.toFixed(1)}h business-hours) — expected < ${STALE_EOD_H}h`);
   } else {
-    ok("stocks EOD freshness", `${eodAge.toFixed(1)}h old`);
+    ok("stocks EOD freshness", `${eodAge.toFixed(1)}h old (${eodBizAge.toFixed(1)}h business-hours)`);
   }
 
   if (MODE === "intraday") {
@@ -320,7 +326,28 @@ async function checkNiftyBenchmark() {
     warn("Nifty benchmark (Stooq)", e.message);
   }
 
-  fail("Nifty benchmark", "NSE index archive and Stooq both unreachable — RS signals will be null");
+  // Yahoo fallback probe — nifty_benchmark.js's getNiftyHistory() tries this
+  // third, after Stooq and the NSE archive; the health check must mirror the
+  // same chain or it reports "unreachable" for a benchmark the real pipeline
+  // can still fetch fine (NSE 403s and Stooq's daily hit limit are both
+  // common and independent of Yahoo's availability).
+  try {
+    const url = "https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1d&range=10d";
+    const res = await fetch(url, {
+      headers: { "User-Agent": FETCH_UA, "Accept": "application/json" },
+      signal:  AbortSignal.timeout(20000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const j  = await res.json();
+    const ts = j?.chart?.result?.[0]?.timestamp ?? [];
+    if (!ts.length) throw new Error("empty result");
+    ok("Nifty benchmark (Yahoo)", `${ts.length} bars`);
+    return;
+  } catch (e) {
+    warn("Nifty benchmark (Yahoo)", e.message);
+  }
+
+  fail("Nifty benchmark", "NSE index archive, Stooq, and Yahoo all unreachable — RS signals will be null");
 }
 
 // ─── Check 6: Source connectivity ────────────────────────────────────────────
