@@ -36,6 +36,12 @@ const SCHEME_TTL = 24 * 60 * 60 * 1000;
 const AMFI_TTL = 24 * 60 * 60 * 1000;
 const LEADERBOARD_TTL = 60 * 60 * 1000;
 const RISK_FREE_RATE = 7; // India 10Y G-Sec proxy (% annual)
+// AMFI publishes NAV every business day; a longer gap than this usually
+// means a broken/stale feed for that scheme, not a normal weekend. Guards
+// the same risk as etf_momentum.js's MAX_STALE_PRICE_DAYS: pctReturn treats
+// the series' last entry as "now" regardless of its actual date, so a stale
+// latest NAV would otherwise fabricate a flat ~0% short-horizon return.
+const MAX_STALE_NAV_DAYS = 10;
 
 // ─── Cache I/O ────────────────────────────────────────────────────────────────
 
@@ -348,18 +354,32 @@ function bestWorstMonth(mRets) {
   return { best: Math.max(...mRets) * 100, worst: Math.min(...mRets) * 100 };
 }
 
-function computeFundStats(navs) {
-  const ret1w = pctReturn(navs, 7);
-  const ret1m = pctReturn(navs, 30);
-  const ret3m = pctReturn(navs, 90);
-  const ret6m = pctReturn(navs, 180);
-  const ret1y = pctReturn(navs, 365);
+// Pure — unit tested. Point-in-time returns (ret1w..ret1y, z1w) compare the
+// LATEST nav to points further back; if that latest entry is stale, "now"
+// isn't really now and the comparison would fabricate a misleading flat
+// return. CAGR/drawdown/consistency look backward over the whole series and
+// aren't materially distorted by a stale tail, so they're left unguarded.
+function navFreshness(navs, nowMs = Date.now()) {
+  const latestDate = navs[navs.length - 1]?.date ?? null;
+  if (latestDate == null) return { fresh: false, staleDays: Infinity };
+  const staleDays = (nowMs - new Date(latestDate + "T00:00:00Z").getTime()) / 86400000;
+  return { fresh: staleDays <= MAX_STALE_NAV_DAYS, staleDays };
+}
+
+function computeFundStats(navs, nowMs = Date.now()) {
+  const { fresh: navFresh, staleDays: navStaleDays } = navFreshness(navs, nowMs);
+
+  const ret1w = navFresh ? pctReturn(navs, 7)   : null;
+  const ret1m = navFresh ? pctReturn(navs, 30)  : null;
+  const ret3m = navFresh ? pctReturn(navs, 90)  : null;
+  const ret6m = navFresh ? pctReturn(navs, 180) : null;
+  const ret1y = navFresh ? pctReturn(navs, 365) : null;
 
   const cagr3y  = cagr(navs, 3);
   const cagr5y  = cagr(navs, 5);
   const cagr10y = cagr(navs, 10);
 
-  const weekly = rollingWeeklyReturns(navs, 90);
+  const weekly = navFresh ? rollingWeeklyReturns(navs, 90) : [];
   const wStd = stddev(weekly);
   const wMean = mean(weekly);
   const z1w = ret1w != null && wStd > 0 ? (ret1w - wMean) / wStd : null;
@@ -400,6 +420,8 @@ function computeFundStats(navs) {
     worstMonth:   round2(bw.worst),
     navStartDate: navs[0]?.date ?? null,
     navCount:     navs.length,
+    navStale:     !navFresh,
+    navStaleDays: isFinite(navStaleDays) ? Math.round(navStaleDays) : null,
   };
 }
 
@@ -515,4 +537,7 @@ async function getLeaderboard({ force = false, benchmarks = null } = {}) {
   return data;
 }
 
-module.exports = { getLeaderboard };
+module.exports = {
+  getLeaderboard, computeFundStats, navFreshness,
+  _config: { MAX_STALE_NAV_DAYS },
+};

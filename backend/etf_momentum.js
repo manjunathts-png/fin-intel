@@ -22,11 +22,8 @@
 const fs   = require("fs");
 const path = require("path");
 const https = require("https");
-const YahooFinance = require("yahoo-finance2").default;
 const { ETF_TYPES, flatUniverse } = require("./etf_universe");
 const { atomicWrite, daysAgo, mean, stddev, median, round2, sleep } = require("./utils");
-
-const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
 
 const FETCH_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
@@ -36,6 +33,10 @@ const HISTORY_DAYS  = 400;
 const NAV_TTL       = 24 * 60 * 60 * 1000;
 const PRICE_TTL     = 24 * 60 * 60 * 1000;
 const LEADERBOARD_TTL = 60 * 60 * 1000;
+
+// Momentum computation guards — see buildEtfEntry.
+const MIN_PRICE_ROWS       = 2;   // bare minimum for any pctReturn to have a chance
+const MAX_STALE_PRICE_DAYS = 10;  // don't treat a long-quiet ticker's old print as "now"
 
 const MFAPI_URL = (code) => `https://api.mfapi.in/mf/${code}`;
 
@@ -153,23 +154,56 @@ async function fetchFromStooq(ticker, startDate) {
   return prices;
 }
 
+// Raw REST fetch (query1/query2 dual-host, no schema validation) — the same
+// pattern already proven in stock_momentum.js and nifty_benchmark.js. This
+// module used to call the yahoo-finance2 npm package's .chart() here, which
+// has a documented history of throwing on schema drift for some tickers
+// (2026-07-03 incident: it zeroed out etf_picks entirely). A raw fetch with
+// defensive ?./?? access can only succeed in more cases than a
+// schema-validating library call for the same underlying data.
 async function fetchFromYahoo(ticker, startDate) {
   const yahooSym = `${ticker}.NS`;
-  const data = await yahooFinance.chart(yahooSym, {
-    period1: Math.floor(startDate.getTime() / 1000),
-    interval: "1d",
-  });
-  const quotes = data && data.quotes;
-  if (!quotes || quotes.length === 0) throw new Error(`No price history for ${yahooSym}`);
+  const period1   = Math.floor(startDate.getTime() / 1000);
+  const period2   = Math.floor(Date.now() / 1000) + 86400;
+  const params    = new URLSearchParams({ interval: "1d", period1, period2, events: "history" });
 
-  return quotes
-    .filter((d) => d.close != null && d.close > 0)
-    .sort((a, b) => new Date(a.date) - new Date(b.date))
-    .map((d) => ({
-      date:   new Date(d.date).toISOString().slice(0, 10),
-      close:  d.close,
-      volume: d.volume ?? 0,
-    }));
+  for (const base of [
+    "https://query1.finance.yahoo.com",
+    "https://query2.finance.yahoo.com",
+  ]) {
+    const url = `${base}/v8/finance/chart/${yahooSym}?${params}`;
+    try {
+      const res = await fetch(url, {
+        headers: { "User-Agent": FETCH_UA, "Accept": "application/json" },
+        signal:  AbortSignal.timeout(20000),
+      });
+      if (res.status === 429) { console.warn(`  [yahoo] ${yahooSym}: 429 rate-limited`); break; }
+      if (!res.ok) continue;
+      const data   = await res.json();
+      const result = data?.chart?.result?.[0];
+      if (!result) continue;
+      const timestamps = result.timestamp ?? [];
+      const q          = result.indicators?.quote?.[0] ?? {};
+      const adjCloses   = result.indicators?.adjclose?.[0]?.adjclose ?? [];
+      const closes      = adjCloses.length ? adjCloses : (q.close ?? []);
+      if (!timestamps.length || !closes.length) continue;
+      const prices = [];
+      for (let i = 0; i < timestamps.length; i++) {
+        const close = closes[i];
+        if (close == null || close <= 0) continue;
+        prices.push({
+          date:   new Date(timestamps[i] * 1000).toISOString().slice(0, 10),
+          close,
+          volume: q.volume?.[i] ?? 0,
+        });
+      }
+      prices.sort((a, b) => a.date.localeCompare(b.date));
+      if (prices.length > 0) return prices;
+    } catch (e) {
+      console.warn(`  [yahoo] ${yahooSym} (${base.split("/")[2]}): ${e.message}`);
+    }
+  }
+  throw new Error(`No price history for ${yahooSym} (query1 and query2 both failed)`);
 }
 
 async function fetchTickerPrice(ticker) {
@@ -279,6 +313,39 @@ function liquidityFlag({ aumCr, avgDailyVolumeInr }) {
   return "ok";
 }
 
+// ─── Momentum decision (pure — unit tested) ──────────────────────────────────
+//
+// Each horizon in computeStats already degrades gracefully on its own —
+// pctReturn returns null for a horizon it doesn't have data far enough back
+// for, same as the MF momentum path (momentum.js computeFundStats has no
+// blanket length gate at all). This used to require >=30 total rows before
+// computing ANYTHING, which meant a handful of genuinely thin-traded ETFs
+// (e.g. small gold ETFs that print on only a few days a month) showed every
+// single horizon as null even when a real 1W/1M return was computable from
+// the rows they do have.
+//
+// The one real risk in going lower is staleness, not sparsity: pctReturn
+// treats the series' LAST row as "now" regardless of its actual date. For a
+// ticker that hasn't traded in weeks, that would fabricate a flat ~0% return
+// instead of honestly reporting "no recent data" — so gate on how old the
+// latest print actually is, not on how many rows came before it.
+function momentumFromPrices(priceSeries, nowMs = Date.now()) {
+  if (!priceSeries || priceSeries.length < MIN_PRICE_ROWS) {
+    return { stats: null, momentumSource: null, warning: `No usable price series for momentum (${priceSeries?.length ?? 0} rows)` };
+  }
+  const latestDate = priceSeries[priceSeries.length - 1].date;
+  const staleDays   = (nowMs - new Date(latestDate + "T00:00:00Z").getTime()) / 86400000;
+  if (staleDays > MAX_STALE_PRICE_DAYS) {
+    return { stats: null, momentumSource: null, warning: `Latest price is ${Math.round(staleDays)}d old (${latestDate}) — too stale to use as "now"` };
+  }
+  const momentumSeries = priceSeries.map((p) => ({ date: p.date, val: p.close }));
+  const stats = computeStats(momentumSeries, "val");
+  const warning = priceSeries.length < 30
+    ? `Thin price history (${priceSeries.length} rows) — long-horizon returns may be null`
+    : null;
+  return { stats, momentumSource: "price", warning };
+}
+
 // ─── Build per-ETF entry ─────────────────────────────────────────────────────
 
 async function buildEtfEntry(etf) {
@@ -306,15 +373,12 @@ async function buildEtfEntry(etf) {
     out.warnings.push(`Price fetch failed: ${e.message}`);
   }
 
-  // Momentum from price series
-  if (priceSeries && priceSeries.length >= 30) {
-    const momentumSeries = priceSeries.map((p) => ({ date: p.date, val: p.close }));
-    const stats = computeStats(momentumSeries, "val");
-    Object.assign(out, stats);
-    out.momentumSource = "price";
-  } else {
-    out.warnings.push("No usable price series for momentum");
-  }
+  // Momentum from price series (pure decision logic in momentumFromPrices —
+  // see its doc comment for why the old >=30-rows gate was replaced).
+  const momentum = momentumFromPrices(priceSeries);
+  if (momentum.stats) Object.assign(out, momentum.stats);
+  if (momentum.momentumSource) out.momentumSource = momentum.momentumSource;
+  if (momentum.warning) out.warnings.push(momentum.warning);
 
   // ── Secondary (best-effort): mfapi.in NAV — used only for premium/discount
   //    calculation. Silently skipped if unavailable; not surfaced as a warning
@@ -392,4 +456,7 @@ async function getEtfLeaderboard({ force = false } = {}) {
   return data;
 }
 
-module.exports = { getEtfLeaderboard, flatUniverse };
+module.exports = {
+  getEtfLeaderboard, flatUniverse, momentumFromPrices,
+  _config: { MIN_PRICE_ROWS, MAX_STALE_PRICE_DAYS },
+};

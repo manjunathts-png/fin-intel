@@ -6,7 +6,7 @@
  * Each entry:
  *   code      — AMFI scheme code (for mfapi.in NAV/premium-discount). null = NAV
  *               fetch disabled; momentum still scored via Yahoo Finance price.
- *   ticker    — NSE ticker (required; used for yahoo-finance2 with .NS suffix).
+ *   ticker    — NSE ticker (required; used for Stooq/Yahoo lookups with .NS suffix).
  *   label     — Display name.
  *   aumCr     — Approx AUM in ₹ crore (hand-curated, refresh periodically).
  *   ter       — Total Expense Ratio %.

@@ -39,6 +39,11 @@ failed), `latestNav`, `premiumPct`, `avgDailyVolume`, `liquidityFlag`
 (`ok|small|thin|tiny|unknown`), `ret1w…ret1y`, `z1w`, `warnings[]`.
 **ETF entries are written even when every price source fails** — count of
 entries alone never detects an outage; check `latestPrice` coverage.
+`ret1w…ret1y` can each independently be null (thin-traded ticker, or the
+latest print is too stale to treat as "now" — see `momentumFromPrices` in
+`etf_momentum.js`); `momentumSource` is `null` (not `"price"`) when none of
+them computed. Same pattern in `mf_radar` funds: `navStale`/`navStaleDays`
+flag when a scheme's NAV feed has gone quiet (`navFreshness` in `momentum.js`).
 
 ## Data source quirks (observed, not hypothetical)
 
@@ -164,6 +169,44 @@ entries alone never detects an outage; check `latestPrice` coverage.
   full-cache disk writes in `stock_momentum.js`, and parallelised intraday
   quote fetches (4 workers). Lesson: any field an intraday run rewrites needs
   an EOD anchor field, or repeat runs compound it.
+- **2026-07-20 — DEFENCEIETF/HDFCDEF/KOTAKGOLD/AXISGOLD showed every return
+  horizon as null on the live ETF Picks page.** `buildEtfEntry` in
+  `etf_momentum.js` required **≥30 total price rows before computing ANY
+  horizon** — an all-or-nothing gate. Thin-traded ETFs (small gold ETFs
+  printing only a few days a month; niche sector ETFs) never cleared 30
+  rows within the 400-day lookback and so showed a blanket "—" even when a
+  real 1W/1M return was computable from the rows they did have. The MF
+  momentum path (`momentum.js` `computeFundStats`) never had this gate —
+  it calls `pctReturn` per horizon and lets each one degrade independently
+  — which is why this asymmetry was worth noticing: when one of two
+  parallel modules is visibly more resilient than the other, that's a sign
+  the stricter one over-corrected, not that the risk it's guarding against
+  is real. Fixed by extracting the decision into `momentumFromPrices` (pure,
+  unit tested) and dropping the blanket gate down to `MIN_PRICE_ROWS = 2`.
+  That alone would risk fabricating a flat ~0% return from a long-stale
+  "latest" price (pctReturn always treats the series' last row as "now"),
+  so added `MAX_STALE_PRICE_DAYS = 10`: momentum is only computed if the
+  latest available print is within 10 calendar days, otherwise a clear
+  warning is recorded instead. Added the identical guard (`navFreshness`,
+  `MAX_STALE_NAV_DAYS = 10`) to `momentum.js` for consistency, scoped only
+  to the point-in-time return fields (ret1w..ret1y, z1w) — CAGR/drawdown/
+  consistency look backward over the whole series and aren't distorted by
+  a stale tail the same way, so they're left unguarded.
+  Also replaced `etf_momentum.js`'s Yahoo fallback: it called the
+  `yahoo-finance2` npm package's `.chart()`, which has schema validation
+  that already caused a full ETF outage once before (`ae806d6`,
+  2026-07-03). Rewrote it as a raw `fetch()` against Yahoo's REST endpoint
+  (query1/query2 dual-host, defensive `?.`/`??` parsing) — the exact
+  pattern already proven in `stock_momentum.js`/`nifty_benchmark.js`. A
+  non-validating fetch can only succeed in more cases than a
+  schema-validating library call for the same data, so this is a strict
+  improvement even without live confirmation of which specific tickers it
+  helps. **Could not verify live behavior for this incident** — this
+  sandbox has no outbound network access to Stooq/Yahoo/Supabase/the live
+  site (confirmed via the agent proxy's policy-denial log) — so the fix is
+  reasoned from code + the codebase's own prior incidents, not from
+  reproducing the failure directly. Watch the next few nightly refreshes'
+  `etf_picks`/`mf_radar` warnings for these four tickers to confirm.
 
 ## Debugging playbook
 
