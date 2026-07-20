@@ -95,4 +95,9 @@ test("boundary: exactly MAX_STALE_PRICE_DAYS old still computes; one day older d
 test("config constants are sane", () => {
   assert.strictEqual(_config.MIN_PRICE_ROWS, 2);
   assert.strictEqual(_config.MAX_STALE_PRICE_DAYS, 10);
+  // Enough to meaningfully de-burst 36 sequential fetches (2026-07-20: zero
+  // delay meant all 36 tripped Yahoo's 429 in ~3 seconds) without materially
+  // slowing the refresh (36 ETFs x 200ms = ~7s added, trivial next to the
+  // job's multi-minute runtime).
+  assert.strictEqual(_config.PRICE_FETCH_THROTTLE_MS, 200);
 });
