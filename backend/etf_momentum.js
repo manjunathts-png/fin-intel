@@ -37,6 +37,7 @@ const LEADERBOARD_TTL = 60 * 60 * 1000;
 // Momentum computation guards — see buildEtfEntry.
 const MIN_PRICE_ROWS       = 2;   // bare minimum for any pctReturn to have a chance
 const MAX_STALE_PRICE_DAYS = 10;  // don't treat a long-quiet ticker's old print as "now"
+const PRICE_FETCH_THROTTLE_MS = 200; // gentle pacing toward Stooq/Yahoo — see fetchTickerPrice
 
 const MFAPI_URL = (code) => `https://api.mfapi.in/mf/${code}`;
 
@@ -224,6 +225,11 @@ async function fetchTickerPrice(ticker) {
   const entry = { fetchedAt: new Date().toISOString(), prices };
   priceCache.tickers[ticker] = entry;
   savePriceCache();
+  // Gentle rate limit toward Stooq/Yahoo, mirroring fetchSchemeNav's courtesy
+  // delay toward mfapi.in. Observed live on 2026-07-20: with 36 ETFs fetched
+  // back-to-back (no delay), all 36 tripped Yahoo's 429 in ~3 seconds
+  // (~12 req/s sustained) — a self-inflicted burst, not a real outage.
+  await sleep(PRICE_FETCH_THROTTLE_MS);
   return entry;
 }
 
@@ -458,5 +464,5 @@ async function getEtfLeaderboard({ force = false } = {}) {
 
 module.exports = {
   getEtfLeaderboard, flatUniverse, momentumFromPrices,
-  _config: { MIN_PRICE_ROWS, MAX_STALE_PRICE_DAYS },
+  _config: { MIN_PRICE_ROWS, MAX_STALE_PRICE_DAYS, PRICE_FETCH_THROTTLE_MS },
 };
