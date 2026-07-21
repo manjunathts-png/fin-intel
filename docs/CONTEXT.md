@@ -207,6 +207,39 @@ flag when a scheme's NAV feed has gone quiet (`navFreshness` in `momentum.js`).
   reasoned from code + the codebase's own prior incidents, not from
   reproducing the failure directly. Watch the next few nightly refreshes'
   `etf_picks`/`mf_radar` warnings for these four tickers to confirm.
+- **2026-07-21 — escalation: ALL 36 ETFs (not just the original 4) showed
+  every return horizon as null**, i.e. the 2026-07-20 fix above wasn't
+  enough. Confirmed via direct job-log inspection (`get_job_logs` on the
+  completed "Refresh cache" step) that every single ticker hit the same
+  pair of failures: `Stooq: no data from stooq (len=796)` then
+  `Yahoo: 429 rate-limited` — and this repeated across multiple separate
+  job runs hours apart (fresh runners, presumably different IPs), not just
+  within one burst. That rules out the previous day's 200ms throttle
+  (PR #42) as a complete fix: pacing one job's requests can't fix a limit
+  that survives across jobs. Most likely explanation: Yahoo is rate-
+  limiting GitHub Actions' shared runner IP pool at a level broader than
+  this repo's own request volume; Stooq's `len=796` response is its
+  separate, already-documented daily-limit page.
+  Fix: stopped depending on Stooq/Yahoo as the *first* source for ETF
+  prices. `stock_momentum.js`'s NSE Bhavcopy bulk archive
+  (`nsearchives.nseindia.com`) has never shown bot-blocking from CI and
+  already parses **every** EQ/BE-series NSE symbol for the stock pipeline —
+  ETFs trade on the same cash segment under the same series codes, so that
+  archive already contains them whenever the stock scan has run earlier in
+  the same `all`/`stocks` job (confirmed execution order: stocks before
+  ETF). Added `getCachedPrices(symbol)` to `stock_momentum.js` (a read-only
+  accessor into its in-memory `cache.symbols`, no network trigger — returns
+  null and falls through to Stooq/Yahoo if the symbol isn't present) and
+  made `etf_momentum.js`'s `fetchTickerPrice` check it first, before any
+  network call. Stooq → Yahoo remains as the fallback for any ETF the
+  bhavcopy pass doesn't cover (or when ETF is dispatched standalone without
+  a preceding stock run). Added
+  `fetchTickerPrice uses the bhavcopy cache first, without touching
+  Stooq/Yahoo` in `etf_momentum.test.js` — stubs `stock_momentum.js` via
+  `require.cache` substitution so the test never makes a real network call.
+  **Same sandbox network limitation as the 2026-07-20 entry applies** —
+  verify via the next nightly run's `etf_picks` warnings that tickers now
+  show `source: "bhavcopy"` instead of Stooq/Yahoo failures.
 
 ## Debugging playbook
 

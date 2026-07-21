@@ -101,3 +101,49 @@ test("config constants are sane", () => {
   // job's multi-minute runtime).
   assert.strictEqual(_config.PRICE_FETCH_THROTTLE_MS, 200);
 });
+
+// Regression coverage for the 2026-07-21 incident: throttling (PR #42) wasn't
+// enough — Stooq and Yahoo both stayed unreachable for all 36 ETFs across
+// multiple separate job runs, pointing at a persistent block on GitHub
+// Actions' shared runner IP pool rather than a burst this repo's own request
+// rate caused. Fix: reuse stock_momentum.js's NSE Bhavcopy archive (already
+// proven reliable from CI) as a zero-network-call primary source, since ETFs
+// trade on NSE's cash segment under the same EQ/BE series codes Bhavcopy
+// already parses for stocks.
+test("fetchTickerPrice uses the bhavcopy cache first, without touching Stooq/Yahoo", async () => {
+  const stockMomentumPath = require.resolve("./stock_momentum");
+  const etfMomentumPath = require.resolve("./etf_momentum");
+
+  const fakePrices = [
+    { date: "2026-07-15", close: 100, volume: 1000 },
+    { date: "2026-07-16", close: 101, volume: 1200 },
+    { date: "2026-07-17", close: 102.5, volume: 900 },
+  ];
+
+  const realStockMomentumExports = require(stockMomentumPath);
+  delete require.cache[etfMomentumPath];
+  require.cache[stockMomentumPath] = {
+    id: stockMomentumPath,
+    filename: stockMomentumPath,
+    loaded: true,
+    exports: {
+      ...realStockMomentumExports,
+      getCachedPrices: (symbol) => (symbol === "BHAVCOPYTEST.NS" ? fakePrices : null),
+    },
+  };
+
+  try {
+    const { fetchTickerPrice } = require(etfMomentumPath);
+    const entry = await fetchTickerPrice("BHAVCOPYTEST");
+    assert.strictEqual(entry.source, "bhavcopy");
+    assert.strictEqual(entry.prices.length, 3);
+    assert.strictEqual(entry.prices[2].close, 102.5);
+  } finally {
+    // Restore the real module so later tests in this process (or a shared
+    // require cache) never see the stub.
+    delete require.cache[stockMomentumPath];
+    delete require.cache[etfMomentumPath];
+    require(stockMomentumPath);
+    require(etfMomentumPath);
+  }
+});

@@ -511,4 +511,15 @@ async function getStockLeaderboard({ force = false } = {}) {
   return data;
 }
 
-module.exports = { getStockLeaderboard, fetchSymbolHistory, prewarmBhavOHLCV };
+// Read-only accessor for other modules (etf_momentum.js) to reuse the NSE
+// Bhavcopy-derived cache without triggering their own fetch. Bhavcopy parses
+// every EQ/BE-series NSE symbol indiscriminately (not just the stock
+// universe) — ETFs trade on the same cash segment under series EQ, so this
+// cache already covers them whenever the stock scan has run in this process
+// (or a recent disk-persisted cache was restored). Returns null, never
+// triggers network activity — callers must fall back to their own source.
+function getCachedPrices(symbol) {
+  return cache.symbols[symbol]?.prices ?? null;
+}
+
+module.exports = { getStockLeaderboard, fetchSymbolHistory, prewarmBhavOHLCV, getCachedPrices };
