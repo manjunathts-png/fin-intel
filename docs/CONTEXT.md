@@ -237,9 +237,22 @@ flag when a scheme's NAV feed has gone quiet (`navFreshness` in `momentum.js`).
   `fetchTickerPrice uses the bhavcopy cache first, without touching
   Stooq/Yahoo` in `etf_momentum.test.js` — stubs `stock_momentum.js` via
   `require.cache` substitution so the test never makes a real network call.
-  **Same sandbox network limitation as the 2026-07-20 entry applies** —
-  verify via the next nightly run's `etf_picks` warnings that tickers now
-  show `source: "bhavcopy"` instead of Stooq/Yahoo failures.
+  **Verified live** (PR #44 also fixed a gap where the `etf`-only target
+  skipped `prewarmBhavOHLCV()` entirely, since it never runs the `stocks`
+  block that normally calls it): a manually dispatched `etf`-target run
+  (job 88528211731, 2026-07-21) downloaded 307/310 bhavcopy files,
+  populated 2765 symbols, and `etf_picks` price coverage jumped from
+  **0/36 → 30/36** — health check now reports `✓ etf_picks price coverage
+  — 30/36 ETFs have a price` and `✓ All checks passed`. The remaining 6
+  (`DEFENCEIETF`, `HDFCDEF`, `KOTAKGOLD`, `ICICIGOLD`, `SBIGOLD`,
+  `MOSP500`) still fail even bhavcopy — no EQ-series prints for them in
+  the 310-weekday window either, not just Stooq/Yahoo — consistent with
+  the same niche gold/defence/international ETFs already flagged as
+  genuinely thin-traded in the 2026-07-20 entry above. That's a real
+  data-scarcity limit for those specific instruments, not a bug in this
+  fix; worth a future look at whether their bhavcopy symbol differs from
+  the `ticker` field in `etf_universe.js`, but out of scope for this
+  incident.
 
 ## Debugging playbook
 
