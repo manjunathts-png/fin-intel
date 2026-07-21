@@ -24,6 +24,7 @@ const path = require("path");
 const https = require("https");
 const { ETF_TYPES, flatUniverse } = require("./etf_universe");
 const { atomicWrite, daysAgo, mean, stddev, median, round2, sleep } = require("./utils");
+const { getCachedPrices } = require("./stock_momentum");
 
 const FETCH_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
@@ -211,6 +212,29 @@ async function fetchTickerPrice(ticker) {
   const cached = priceCache.tickers[ticker];
   if (cached && Date.now() - new Date(cached.fetchedAt).getTime() < PRICE_TTL) return cached;
 
+  // Bhavcopy first, no network call at all: the stock pipeline already
+  // bulk-downloads NSE's daily settlement archive (nsearchives.nseindia.com)
+  // for every EQ/BE-series symbol, which includes ETFs — they trade on the
+  // same cash segment under the same series codes. That archive has no bot-
+  // blocking and is proven reliable from GitHub Actions IPs (stock_momentum.js
+  // has used it for stocks since the Stooq/Yahoo problems started).
+  //
+  // Escalated to this after throttling (2026-07-20) turned out not to be
+  // enough: on 2026-07-21, hours later and across multiple separate job
+  // runs (fresh runners, presumably different IPs), Stooq AND Yahoo both
+  // still failed for all 36 ETFs — not a short burst, something more
+  // persistent (very likely Yahoo rate-limiting GitHub's shared runner IP
+  // pool in general, unrelated to this repo's request rate). No amount of
+  // pacing a single job's requests fixes a limit that outlives the job.
+  const bhavPrices = getCachedPrices(`${ticker}.NS`);
+  if (bhavPrices && bhavPrices.length > 0) {
+    const prices = bhavPrices.map((p) => ({ date: p.date, close: p.close, volume: p.volume ?? 0 }));
+    const entry = { fetchedAt: new Date().toISOString(), prices, source: "bhavcopy" };
+    priceCache.tickers[ticker] = entry;
+    savePriceCache();
+    return entry;
+  }
+
   const period1 = new Date();
   period1.setDate(period1.getDate() - HISTORY_DAYS);
 
@@ -226,9 +250,8 @@ async function fetchTickerPrice(ticker) {
   priceCache.tickers[ticker] = entry;
   savePriceCache();
   // Gentle rate limit toward Stooq/Yahoo, mirroring fetchSchemeNav's courtesy
-  // delay toward mfapi.in. Observed live on 2026-07-20: with 36 ETFs fetched
-  // back-to-back (no delay), all 36 tripped Yahoo's 429 in ~3 seconds
-  // (~12 req/s sustained) — a self-inflicted burst, not a real outage.
+  // delay toward mfapi.in. Kept even after the bhavcopy fix above, since
+  // any ETF bhavcopy doesn't cover still falls through to these two.
   await sleep(PRICE_FETCH_THROTTLE_MS);
   return entry;
 }
@@ -463,6 +486,6 @@ async function getEtfLeaderboard({ force = false } = {}) {
 }
 
 module.exports = {
-  getEtfLeaderboard, flatUniverse, momentumFromPrices,
+  getEtfLeaderboard, flatUniverse, momentumFromPrices, fetchTickerPrice,
   _config: { MIN_PRICE_ROWS, MAX_STALE_PRICE_DAYS, PRICE_FETCH_THROTTLE_MS },
 };
