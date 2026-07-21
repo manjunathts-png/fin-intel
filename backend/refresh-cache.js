@@ -9,7 +9,7 @@ require("dotenv").config();
 const { createClient }              = require("@supabase/supabase-js");
 const { getLeaderboard }            = require("./momentum");
 const { getBenchmarks }             = require("./mf_benchmarks");
-const { getStockLeaderboard }       = require("./stock_momentum");
+const { getStockLeaderboard, prewarmBhavOHLCV } = require("./stock_momentum");
 const { getEtfLeaderboard }         = require("./etf_momentum");
 const { buildStockDetail, buildMfDetail, buildEtfDetail, buildBatch } = require("./instrument_details");
 const { buildSignalsLeaderboard, eodSignalScore }   = require("./stock_signals");
@@ -467,6 +467,14 @@ async function main() {
   }
 
   if (target === "all" || target === "etf") {
+    // A standalone "etf" dispatch never runs the "stocks" block above, so
+    // without this the bhavcopy cache etf_momentum.js checks first (see
+    // getCachedPrices) would be empty and every ETF would fall straight to
+    // Stooq/Yahoo. prewarmBhavOHLCV is memoized (bhavFillPromise), so this
+    // is a no-op when target === "all" already warmed it via getStockLeaderboard.
+    console.log("Pre-warming NSE bhavcopy OHLCV cache for ETF pricing…");
+    await prewarmBhavOHLCV();
+
     console.log("Building ETF picks (equity + commodity + international)…");
     const etfs = await getEtfLeaderboard({ force: true });
     await upsert("etf_picks", etfs);
