@@ -41,6 +41,8 @@ ml/.cache_macro/
 ml/.cache_stock/
 ml/.cache_fundamentals/
 ml/.cache_bhavcopy/
+ml/.cache_mf_labeled.parquet
+ml/.cache_stock_features_all.parquet
 
 ## Claude Code local settings (contains secrets — never commit)
 .claude/settings.local.json

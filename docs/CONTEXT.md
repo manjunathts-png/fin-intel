@@ -253,6 +253,46 @@ flag when a scheme's NAV feed has gone quiet (`navFreshness` in `momentum.js`).
   fix; worth a future look at whether their bhavcopy symbol differs from
   the `ticker` field in `etf_universe.js`, but out of scope for this
   incident.
+- **2026-08-05 — Supabase project restricted: `exceed_egress_quota`**
+  (8.15GB used against a 5GB free-plan quota, for a single-user site).
+  Two contributing causes found, in order of actual impact:
+  1. (Frontend, minor) `EtfPicks`, `Simulator`, `DeepDive`, and
+     `PersonaAdvisor` sit outside the `/mf` and `/stocks` layouts (which
+     already share one fetch via `Outlet` context) and each independently
+     re-fetched the full `mf_radar`/`stock_picks` blob with no freshness
+     check on every visit — the same waste `Stocks.jsx` had already fixed
+     once for `stock_picks` alone. Fixed with `frontend/src/lib/radarCache.js`
+     (built_at-probe-then-fetch, 10 min TTL, shared across all 5 call sites).
+     Two files that looked like further duplicate-fetch offenders on first
+     read — `MfRadar.jsx`'s default export and `StockRadar.jsx`'s default
+     export — turned out to be **dead code**, never imported by the router;
+     left alone.
+  2. (Pipeline, the real driver for a low-traffic site) `train.py` and
+     `train_stock.py` each run **3x per pipeline invocation** (raw-return,
+     Sharpe-target, 1m horizon) — `refresh.yml`'s `all` trigger runs both
+     (6 full-table loads/day), and `stocks` runs `train_stock.py` alone
+     (3 more) — 9 full `mf_features`/`stock_features` table downloads per
+     weekday, all from an unattended cron with zero site visitors. Worse,
+     `train.py`'s `load_labeled()` filtered on the same hardcoded
+     `TARGET_COL` regardless of which horizon/target the run actually
+     wanted — its 3 invocations issued a byte-for-byte **identical**
+     query, 3x. `train_stock.py`'s 3 invocations at least varied the
+     server-side filter column, but all 3 still pulled the same
+     `stock_features` table with heavy row overlap. Fixed by adding
+     `ml/local_cache.py` (`cached_or_fetch`, same-run-only parquet disk
+     cache, 30 min TTL, never caches an empty result) and wiring both
+     scripts' `load_labeled()` through it — `train.py` caches the exact
+     query result; `train_stock.py` now pulls the full unfiltered table
+     once and applies each invocation's not-null filter in pandas
+     afterward, since the target_col differs per call. Cache files live
+     in the job's own ephemeral runner disk (not `actions/cache` — a
+     stale cross-day hit would silently train on yesterday's data), so
+     this only helps within one workflow run's few-minutes-apart
+     sequential CLI calls, which is exactly the redundancy being cut.
+     Lesson: for a low/solo-traffic site, an unattended nightly pipeline
+     re-fetching its own training data 9x/day can outweigh actual visitor
+     egress by a wide margin — check the cron pipeline's own read pattern
+     before assuming a frontend/traffic cause.
 
 ## Debugging playbook
 

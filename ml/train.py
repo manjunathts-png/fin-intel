@@ -41,7 +41,10 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 from config import CATEGORY_GROUPS, SHARPE_TARGET_COL, TARGET_COL, get_mf_feature_cols
+from local_cache import cached_or_fetch
 from oos import evaluate_oos_windows, insert_model_run
+
+_LABELED_CACHE = Path(__file__).parent / ".cache_mf_labeled.parquet"
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -77,31 +80,39 @@ DEFAULT_PARAMS = {
 # ─── Data loading ────────────────────────────────────────────────────────────
 
 def load_labeled(supabase) -> pd.DataFrame:
-    """Pull all rows with ground-truth labels for training."""
-    log.info("Loading labeled training data from mf_features…")
-    rows: list[dict] = []
-    page_size = 1000
-    offset = 0
-    while True:
-        resp = (
-            supabase.table("mf_features")
-            .select("*")
-            .not_.is_(TARGET_COL, "null")
-            .order("as_of_date")
-            .range(offset, offset + page_size - 1)
-            .execute()
-        )
-        batch = resp.data or []
-        rows.extend(batch)
-        if len(batch) < page_size:
-            break
-        offset += page_size
+    """Pull all rows with ground-truth labels for training.
 
-    df = pd.DataFrame(rows)
-    if not df.empty:
-        df["as_of_date"] = pd.to_datetime(df["as_of_date"])
-    log.info("Loaded %d training rows", len(df))
-    return df
+    Cached to local disk for the run's duration: this query is identical
+    across all 3 CLI invocations of this script (raw-return, Sharpe-target,
+    1m horizon all filter on the same TARGET_COL) — see local_cache.py.
+    """
+    def _fetch() -> pd.DataFrame:
+        log.info("Loading labeled training data from mf_features…")
+        rows: list[dict] = []
+        page_size = 1000
+        offset = 0
+        while True:
+            resp = (
+                supabase.table("mf_features")
+                .select("*")
+                .not_.is_(TARGET_COL, "null")
+                .order("as_of_date")
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            batch = resp.data or []
+            rows.extend(batch)
+            if len(batch) < page_size:
+                break
+            offset += page_size
+
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            df["as_of_date"] = pd.to_datetime(df["as_of_date"])
+        log.info("Loaded %d training rows", len(df))
+        return df
+
+    return cached_or_fetch(_LABELED_CACHE, _fetch)
 
 
 def load_latest_features(supabase, prediction_date: date) -> pd.DataFrame:
