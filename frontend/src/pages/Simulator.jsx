@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { supabase } from "../lib/supabase";
+import { getRadarCache } from "../lib/radarCache";
 import { useAuth } from "../hooks/useAuth";
 
 // ── constants ─────────────────────────────────────────────────────────────────
@@ -681,14 +682,14 @@ export default function Simulator() {
 
   useEffect(() => {
     async function init() {
-      const [{ data: cache, error: ce }, { data: saved }] = await Promise.all([
-        supabase.from("radar_cache").select("data").eq("key", "mf_radar").single(),
+      const [{ data: mfData, error: ce }, { data: saved }] = await Promise.all([
+        getRadarCache("mf_radar"),
         user
           ? supabase.from("user_simulations").select("config,saved_at").eq("user_id", user.id).single()
           : Promise.resolve({ data: null }),
       ]);
       if (ce) { setError(ce.message); return; }
-      setPicks(buildTopPicks(cache.data));
+      setPicks(buildTopPicks(mfData));
       if (saved?.config) { setSavedConfig(saved); setShowRestore(true); }
     }
     init().finally(() => setLoading(false));

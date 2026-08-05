@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { supabase } from "../lib/supabase";
+import { getRadarCache } from "../lib/radarCache";
 
 const SUB_TABS = [
   { to: "picks",       label: "⭐ Picks",            desc: "Top fund per category — best entry point" },
@@ -16,15 +16,11 @@ export default function Mf() {
   const [error,   setError]   = useState(null);
 
   useEffect(() => {
-    supabase
-      .from("radar_cache")
-      .select("data,built_at")
-      .eq("key", "mf_radar")
-      .single()
-      .then(({ data: row, error: err }) => {
+    getRadarCache("mf_radar")
+      .then(({ data: d, built_at, error: err }) => {
         if (err) { setError(err.message); return; }
-        setData(row.data);
-        setBuiltAt(row.built_at);
+        setData(d);
+        setBuiltAt(built_at);
       })
       .finally(() => setLoading(false));
   }, []);

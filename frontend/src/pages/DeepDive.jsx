@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { supabase } from "../lib/supabase";
+import { getRadarCache } from "../lib/radarCache";
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
@@ -347,10 +347,9 @@ export default function DeepDive() {
   }
 
   useEffect(() => {
-    supabase.from("radar_cache").select("data").eq("key","mf_radar").single()
-      .then(({ data, error: e }) => {
+    getRadarCache("mf_radar")
+      .then(({ data: mfData, error: e }) => {
         if (e) { setError(e.message); return; }
-        const mfData = data.data;
 
         // Build top picks for the selector grid
         const p = buildTopPicks(mfData);
