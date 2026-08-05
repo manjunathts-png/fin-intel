@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { supabase } from "../lib/supabase";
+import { getRadarCache } from "../lib/radarCache";
 import PageFooter from "../components/PageFooter";
 import InstrumentDrawer from "../components/InstrumentDrawer";
 import { scoreInstrument, verdictChipClass, scoreGradient } from "../lib/scoring";
@@ -73,15 +73,11 @@ export default function EtfPicks() {
 
   useEffect(() => {
     let cancelled = false;
-    supabase
-      .from("radar_cache")
-      .select("data, built_at")
-      .eq("key", "etf_picks")
-      .single()
-      .then(({ data: row, error }) => {
+    getRadarCache("etf_picks")
+      .then(({ data: d, built_at, error }) => {
         if (cancelled) return;
         if (error) { setError(error.message); setLoading(false); return; }
-        setData({ ...row.data, builtAt: row.built_at });
+        setData({ ...d, builtAt: built_at });
         setLoading(false);
       });
     return () => { cancelled = true; };

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { getRadarCache } from "../lib/radarCache";
 import PageFooter from "../components/PageFooter";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -766,16 +767,16 @@ export default function PersonaAdvisor() {
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      supabase.from("radar_cache").select("data").eq("key", "mf_radar").single(),
-      supabase.from("radar_cache").select("data").eq("key", "stock_picks").single(),
+      getRadarCache("mf_radar"),
+      getRadarCache("stock_picks"),
       supabase.from("pick_rationales").select("fund_code,analysis").order("run_date", { ascending: false }).limit(200),
       supabase.from("pick_ai_rationales").select("fund_code,analysis"),
       supabase.from("stock_pick_rationales").select("symbol,analysis").order("run_date", { ascending: false }).limit(200),
       supabase.from("stock_pick_ai_rationales").select("symbol,analysis"),
     ]).then(([mfRes, stRes, mfRule, mfAi, stRule, stAi]) => {
       if (mfRes.error) setError(mfRes.error.message);
-      else             setMfData(mfRes.data?.data);
-      if (!stRes.error) setStockData(stRes.data?.data);
+      else             setMfData(mfRes.data);
+      if (!stRes.error) setStockData(stRes.data);
 
       // Build keyed maps (first entry per code wins — most recent run_date first)
       if (!mfRule.error && mfRule.data) {
