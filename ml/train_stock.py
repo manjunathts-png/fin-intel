@@ -39,7 +39,10 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 from config import STOCK_SHARPE_TARGET_COL, STOCK_TARGET_COL, get_stock_feature_cols
+from local_cache import cached_or_fetch
 from oos import evaluate_oos_windows, insert_model_run
+
+_FEATURES_CACHE = Path(__file__).parent / ".cache_stock_features_all.parquet"
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -73,27 +76,40 @@ DEFAULT_PARAMS = {
 # ─── Data loading ─────────────────────────────────────────────────────────────
 
 def load_labeled(supabase, target_col: str) -> pd.DataFrame:
-    log.info("Loading labeled training data from stock_features (target=%s)…", target_col)
-    rows, page_size, offset = [], 1000, 0
-    while True:
-        resp = (
-            supabase.table("stock_features")
-            .select("*")
-            .not_.is_(target_col, "null")
-            .order("as_of_date")
-            .range(offset, offset + page_size - 1)
-            .execute()
-        )
-        batch = resp.data or []
-        rows.extend(batch)
-        if len(batch) < page_size:
-            break
-        offset += page_size
+    """Pull rows with a non-null target_col label for training.
 
-    df = pd.DataFrame(rows)
-    if not df.empty:
-        df["as_of_date"] = pd.to_datetime(df["as_of_date"])
-    log.info("Loaded %d training rows", len(df))
+    This script runs 3x per pipeline invocation (raw-return, Sharpe-target,
+    1m horizon), each wanting a different target_col. Rather than issue 3
+    separate near-identical full-table Supabase queries, the full
+    (unfiltered) table is cached to local disk once per run — see
+    local_cache.py — and each call just re-applies its own not-null filter
+    in pandas.
+    """
+    def _fetch_all() -> pd.DataFrame:
+        log.info("Loading stock_features (full table, cached across this run's target variants)…")
+        rows, page_size, offset = [], 1000, 0
+        while True:
+            resp = (
+                supabase.table("stock_features")
+                .select("*")
+                .order("as_of_date")
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            batch = resp.data or []
+            rows.extend(batch)
+            if len(batch) < page_size:
+                break
+            offset += page_size
+
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            df["as_of_date"] = pd.to_datetime(df["as_of_date"])
+        return df
+
+    full_df = cached_or_fetch(_FEATURES_CACHE, _fetch_all)
+    df = full_df[full_df[target_col].notna()].copy() if target_col in full_df.columns else full_df
+    log.info("Loaded %d training rows (target=%s)", len(df), target_col)
     return df
 
 
