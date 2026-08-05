@@ -9,7 +9,9 @@
  */
 
 const UPSTREAM = "https://api.mfapi.in/mf";
-const CACHE_TTL = 3600; // 1 hour; NAVs are published once per day
+const CACHE_TTL = 86400; // 24h; NAVs are published once per day, so a 1h TTL was
+// forcing ~24x more cache misses (and full-history re-fetch/re-serve egress)
+// than the data's actual freshness needed.
 
 export async function onRequest({ params }) {
   const code = params.code;
