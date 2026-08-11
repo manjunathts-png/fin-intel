@@ -620,12 +620,35 @@ def fetch_yf(tickers, cache_file: Path, start: str = "2018-01-01") -> pd.DataFra
             except Exception as e:
                 log.warning("Yahoo %s failed: %s", ticker, e)
 
-    if not df.empty:
+    # ── Stale-cache carry-forward ─────────────────────────────────────────────
+    # A transient outage across ALL live sources (seen 2026-08-10/11: mfapi.in
+    # timed out, Yahoo 429'd on every fallback ticker for Nifty/USDINR/US10Y)
+    # shouldn't abort the whole day's feature run when yesterday's close is
+    # still a reasonable stand-in for one more day — Nifty emptiness in
+    # particular is fatal in main() (`sys.exit(1)`), so this is the difference
+    # between a full pipeline outage and a slightly stale macro column.
+    # Deliberately does NOT refresh cache_file's mtime below (unlike a genuine
+    # live fetch), so the next run still retries live sources instead of
+    # getting stuck serving the same stale value indefinitely.
+    used_stale_fallback = False
+    if df.empty and cache_file.exists():
+        try:
+            df = pd.read_parquet(cache_file)
+            age_h = (datetime.now().timestamp() - cache_file.stat().st_mtime) / 3600
+            used_stale_fallback = True
+            log.warning(
+                "All live sources failed for %s — using stale cache (%.0fh old, %d rows, latest=%s)",
+                primary, age_h, len(df), df.index.max().date() if not df.empty else "?",
+            )
+        except Exception as e:
+            log.warning("Stale-cache fallback failed for %s: %s", primary, e)
+
+    if not df.empty and not used_stale_fallback:
         df.to_parquet(cache_file)
         log.info("Cached %s: %d rows (%s → %s)",
                  primary, len(df), df.index.min().date(), df.index.max().date())
-    else:
-        log.error("All sources failed for %s", primary)
+    elif df.empty:
+        log.error("All sources failed for %s (no usable cache either)", primary)
 
     return df
 
