@@ -293,6 +293,25 @@ flag when a scheme's NAV feed has gone quiet (`navFreshness` in `momentum.js`).
      re-fetching its own training data 9x/day can outweigh actual visitor
      egress by a wide margin — check the cron pipeline's own read pattern
      before assuming a frontend/traffic cause.
+  Verified live from the next day's `stocks` cron job log: one real
+  `stock_features` fetch (189,383 rows) followed by two
+  `Reusing cached … — no Supabase fetch` lines for the other two
+  `train_stock.py` invocations — confirmed working, not just unit-tested.
+- **2026-08-10/11 — MF feature extraction (`all` trigger) hard-aborted**
+  (`Could not fetch Nifty data — aborting`, exit code 1) when mfapi.in
+  timed out AND Yahoo 429'd on every fallback ticker for Nifty, USDINR,
+  and US10Y in the same run — a transient outage across every live macro
+  source at once. `fetch_yf()` already had a carry-forward fallback to a
+  stale cached parquet for India VIX specifically ("VIX never goes
+  null"), but Nifty/USDINR/US10Y had none, and Nifty emptiness is the one
+  that's fatal in `main()`. Fixed by adding the same stale-cache
+  carry-forward as a last resort for all series, not just VIX — with one
+  difference from VIX's version: it deliberately does **not** refresh the
+  cache file's mtime when serving a stale fallback, so the *next* run
+  still attempts live sources first rather than getting silently stuck on
+  the same old value forever (VIX's existing carry-forward does refresh
+  the mtime, which is fine there — that's intentionally a
+  permanent-until-fresh-data-arrives series, not something to change).
 
 ## Debugging playbook
 
