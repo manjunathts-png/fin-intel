@@ -1118,7 +1118,7 @@ def upsert_features(supabase, rows: list[dict[str, Any]], batch: int = 300) -> i
         for attempt in range(4):
             try:
                 supabase.table("stock_features").upsert(
-                    chunk, on_conflict="symbol,as_of_date"
+                    chunk, on_conflict="symbol,as_of_date", returning="minimal"
                 ).execute()
                 total += len(chunk)
                 chunk_written = True
@@ -1300,7 +1300,7 @@ def main():
                 try:
                     for i in range(0, len(snap_rows), 200):
                         supabase.table("stock_fundamentals_history").upsert(
-                            snap_rows[i:i+200], on_conflict="symbol,snapshot_date"
+                            snap_rows[i:i+200], on_conflict="symbol,snapshot_date", returning="minimal"
                         ).execute()
                     log.info("Saved %d fundamentals snapshots to stock_fundamentals_history", len(snap_rows))
                 except Exception as e:

@@ -396,7 +396,7 @@ def write_predictions(supabase, pred_df, probs, top_features_list,
     total = 0
     for i in range(0, len(rows), batch):
         supabase.table("stock_predictions").upsert(
-            rows[i : i + batch], on_conflict="symbol,prediction_date,model_version"
+            rows[i : i + batch], on_conflict="symbol,prediction_date,model_version", returning="minimal"
         ).execute()
         total += len(rows[i : i + batch])
     log.info("Wrote %d prediction rows (model=%s)", total, model_version)

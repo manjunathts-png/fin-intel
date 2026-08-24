@@ -284,7 +284,7 @@ def upsert_sentiment_record(
         "model_used":       model,
     }
     supabase.table("mf_sentiment").upsert(
-        row, on_conflict="scheme_code,week_start_date"
+        row, on_conflict="scheme_code,week_start_date", returning="minimal"
     ).execute()
 
 
@@ -317,7 +317,7 @@ def propagate_to_mf_features(supabase, fund: Fund, result: dict) -> int:
 
     for upd in updates:
         supabase.table("mf_features").upsert(
-            upd, on_conflict="scheme_code,as_of_date"
+            upd, on_conflict="scheme_code,as_of_date", returning="minimal"
         ).execute()
     return len(updates)
 

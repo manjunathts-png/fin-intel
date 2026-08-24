@@ -157,7 +157,7 @@ def backfill(supabase, pending: pd.DataFrame, dry_run: bool = False) -> int:
     total = 0
     for i in range(0, len(updates), 500):
         chunk = updates[i : i + 500]
-        supabase.table("pick_history").upsert(chunk, on_conflict="pick_date,symbol").execute()
+        supabase.table("pick_history").upsert(chunk, on_conflict="pick_date,symbol", returning="minimal").execute()
         total += len(chunk)
     log.info("Wrote outcomes for %d pick rows", total)
     return total

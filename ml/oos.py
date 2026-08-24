@@ -240,11 +240,11 @@ def insert_model_run(supabase, table: str, row: dict) -> None:
     so the fallback behavior can't drift between the two trainers.
     """
     try:
-        supabase.table(table).insert(row).execute()
+        supabase.table(table).insert(row, returning="minimal").execute()
     except Exception as e:
         if "oos_" not in str(e):
             raise
         for k in OOS_RUN_COLS:
             row.pop(k, None)
-        supabase.table(table).insert(row).execute()
+        supabase.table(table).insert(row, returning="minimal").execute()
         log.warning("%s lacks oos_* columns — run migrate_012 (dispatch target=migrate)", table)

@@ -430,7 +430,7 @@ def write_predictions(
     for i in range(0, len(rows), batch):
         chunk = rows[i : i + batch]
         supabase.table("mf_predictions").upsert(
-            chunk, on_conflict="scheme_code,prediction_date,model_version"
+            chunk, on_conflict="scheme_code,prediction_date,model_version", returning="minimal"
         ).execute()
         total += len(chunk)
 
