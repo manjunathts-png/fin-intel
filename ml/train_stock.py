@@ -114,20 +114,32 @@ def load_labeled(supabase, target_col: str) -> pd.DataFrame:
 
 
 def load_latest_features(supabase, prediction_date: date) -> pd.DataFrame:
-    for lookback in range(5):
-        d = prediction_date - timedelta(days=lookback)
-        resp = (
-            supabase.table("stock_features")
-            .select("*")
-            .eq("as_of_date", str(d))
-            .execute()
-        )
-        rows = resp.data or []
-        if rows:
-            log.info("Using stock features from %s (%d stocks)", d, len(rows))
-            df = pd.DataFrame(rows)
-            df["as_of_date"] = pd.to_datetime(df["as_of_date"])
-            return df
+    """Cached per prediction_date: called once per CLI invocation, and this
+    script runs 3x per pipeline run (raw-return, Sharpe-target, 1m horizon)
+    with the same prediction_date each time — see local_cache.py.
+    """
+    cache_path = Path(__file__).parent / f".cache_stock_latest_features_{prediction_date}.parquet"
+
+    def _fetch() -> pd.DataFrame:
+        for lookback in range(5):
+            d = prediction_date - timedelta(days=lookback)
+            resp = (
+                supabase.table("stock_features")
+                .select("*")
+                .eq("as_of_date", str(d))
+                .execute()
+            )
+            rows = resp.data or []
+            if rows:
+                log.info("Using stock features from %s (%d stocks)", d, len(rows))
+                df = pd.DataFrame(rows)
+                df["as_of_date"] = pd.to_datetime(df["as_of_date"])
+                return df
+        return pd.DataFrame()
+
+    df = cached_or_fetch(cache_path, _fetch)
+    if not df.empty:
+        return df
     log.error("No feature rows found near %s. Run extract_stock_features.py first.", prediction_date)
     return pd.DataFrame()
 

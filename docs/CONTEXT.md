@@ -344,6 +344,23 @@ flag when a scheme's NAV feed has gone quiet (`navFreshness` in `momentum.js`).
   a client library's *default* argument value can be a silent, sustained
   egress cost that's easy to miss because nothing is functionally wrong
   — it only shows up as a number on a billing dashboard.
+  A follow-up sweep for the same "identical query issued 3x per pipeline
+  run" shape (the root cause behind PR #48) found one more instance:
+  `train.py`/`train_stock.py`'s `load_latest_features(supabase,
+  prediction_date)` — pulls the single day's feature snapshot used for
+  today's predictions, called once per CLI invocation with the *same*
+  `prediction_date` all 3 times per run, same redundancy as
+  `load_labeled()` just on a much smaller (one day, not full-history)
+  payload. Fixed the same way, through `local_cache.py`, with the cache
+  file keyed by `prediction_date` (not just a fixed name) so a future
+  multi-date backfill script sharing this function can't get served a
+  stale day's data by mistake. Checked and ruled out as false leads: the
+  backend's multiple `radar_cache` "stock_picks"/"mf_radar" reads in
+  `refresh-cache.js` (each reads a *different* point in time — one before
+  today's rebuild, for score-smoothing; one after, for detail payloads —
+  not a duplicate), `train.py`'s `check_shap_stability` (already narrow-
+  column and horizon-scoped, not a repeat), and no `count="exact"` usage
+  anywhere in `ml/*.py` or `backend/*.js`.
 
 ## Debugging playbook
 
