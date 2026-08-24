@@ -201,7 +201,7 @@ def main():
         return
     try:
         supabase.table("signal_ic_history").upsert(
-            out_rows, on_conflict="run_date,horizon,signal"
+            out_rows, on_conflict="run_date,horizon,signal", returning="minimal"
         ).execute()
         log.info("Wrote %d rows to signal_ic_history", len(out_rows))
     except Exception as e:

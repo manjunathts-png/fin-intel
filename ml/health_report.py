@@ -280,7 +280,7 @@ def persist(supabase, sections: list[dict]) -> None:
         "metrics":   s["metrics"],
     } for s in sections]
     try:
-        supabase.table("system_health").upsert(rows, on_conflict="run_date,component").execute()
+        supabase.table("system_health").upsert(rows, on_conflict="run_date,component", returning="minimal").execute()
         log.info("Persisted %d health rows to system_health", len(rows))
     except Exception as e:
         log.warning("system_health upsert failed (run migrate_013?): %s", e)

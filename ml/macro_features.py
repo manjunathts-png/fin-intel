@@ -782,7 +782,7 @@ def upsert_macro_flows(supabase, fiidii_df: pd.DataFrame, days: int = 180) -> in
 
     for i in range(0, len(rows), 200):
         supabase.table("macro_flows").upsert(
-            rows[i:i+200], on_conflict="trade_date"
+            rows[i:i+200], on_conflict="trade_date", returning="minimal"
         ).execute()
     log.info("macro_flows: upserted %d rows (last %d days)", len(rows), days)
     return len(rows)
@@ -813,7 +813,7 @@ def upsert_macro_rows(supabase, rows: list[dict], batch: int = 500) -> int:
     for i in range(0, len(cleaned), batch):
         chunk = cleaned[i : i + batch]
         supabase.table("mf_features").upsert(
-            chunk, on_conflict="scheme_code,as_of_date"
+            chunk, on_conflict="scheme_code,as_of_date", returning="minimal"
         ).execute()
         total += len(chunk)
     return total

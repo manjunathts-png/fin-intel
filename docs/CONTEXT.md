@@ -312,6 +312,38 @@ flag when a scheme's NAV feed has gone quiet (`navFreshness` in `momentum.js`).
   the same old value forever (VIX's existing carry-forward does refresh
   the mtime, which is fine there — that's intentionally a
   permanent-until-fresh-data-arrives series, not something to change).
+- **2026-08-18 — egress dashboard confirmed the earlier fix works but
+  found another real cost.** Supabase's Query Performance advisor showed
+  the top 3 queries by total time (~66% of all DB time) were exactly the
+  3 filtered `stock_features` full-table reads `train_stock.py` used to
+  issue per run — confirming PR #48 targeted the right thing; the
+  4,165-call unconditional-pull query beneath them, at ~190 paginated
+  calls per load, is consistent with ~22 cache-warming loads since that
+  fix landed, not a new problem. Separately, the daily egress chart
+  (Supabase dashboard) showed zero usage on every Saturday/Sunday and
+  100–238MB on weekdays — proof the pipeline, not visitor traffic, drives
+  essentially all of it, with Aug 18 (238MB) the single highest day.
+  Investigating that day's job log turned up a second, previously-missed
+  cost, unrelated to repeated reads: every `ml/*.py` Supabase write
+  (`upsert`/`insert`) used `postgrest-py`'s **default** `returning`
+  value, `representation` — meaning every write got the full inserted/
+  updated row data echoed back in the response, for every row, on every
+  call, even though **no caller anywhere in `ml/*.py` ever reads that
+  returned data** (all just use the pre-known `len(chunk)` for
+  logging/counts). `supabase-js` (the Node/`backend/*.js` side) defaults
+  to the opposite (`return=minimal` unless `.select()` is chained), so
+  this was Python-only. Fixed by passing `returning="minimal"` to all 19
+  upsert/insert call sites across `extract_features.py`,
+  `extract_stock_features.py` (×2), `gdelt_sentiment.py` (×2),
+  `health_report.py`, `ic_monitor.py`, `label_stock_targets.py`,
+  `label_targets.py` (×2), `macro_features.py` (×2), `oos.py`
+  `insert_model_run` (×2, shared by both trainers), `sentiment.py` (×2),
+  `track_pick_outcomes.py`, `train.py`, and `train_stock.py` — verified
+  at the HTTP level (`Prefer: return=minimal` vs the previous
+  `return=representation`) without touching a live database. Lesson:
+  a client library's *default* argument value can be a silent, sustained
+  egress cost that's easy to miss because nothing is functionally wrong
+  — it only shows up as a number on a billing dashboard.
 
 ## Debugging playbook
 

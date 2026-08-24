@@ -230,7 +230,7 @@ def upsert_mf_sentiment(supabase, rows: list[dict]) -> None:
     if not rows:
         return
     supabase.table("mf_sentiment").upsert(
-        rows, on_conflict="scheme_code,week_start_date"
+        rows, on_conflict="scheme_code,week_start_date", returning="minimal"
     ).execute()
 
 
@@ -239,7 +239,7 @@ def upsert_stock_sentiment(supabase, rows: list[dict]) -> None:
         return
     # Assumes stock_sentiment table: symbol, week_start_date, sentiment_score, sentiment_label, summary, key_themes
     supabase.table("stock_sentiment").upsert(
-        rows, on_conflict="symbol,week_start_date"
+        rows, on_conflict="symbol,week_start_date", returning="minimal"
     ).execute()
 
 

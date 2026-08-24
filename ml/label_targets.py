@@ -292,7 +292,7 @@ def compute_labels(
     for i in range(0, len(updates), batch_size):
         chunk = updates[i : i + batch_size]
         supabase.table("mf_features").upsert(
-            chunk, on_conflict="scheme_code,as_of_date"
+            chunk, on_conflict="scheme_code,as_of_date", returning="minimal"
         ).execute()
         total_labeled += len(chunk)
         log.info("Upserted %d/%d label rows", min(i + batch_size, len(updates)), len(updates))
@@ -432,7 +432,7 @@ def backfill_sharpe_labels(df: pd.DataFrame, supabase, fwd_days: int = 90, dry_r
     for i in range(0, len(updates), batch_size):
         chunk = updates[i : i + batch_size]
         supabase.table("mf_features").upsert(
-            chunk, on_conflict="scheme_code,as_of_date"
+            chunk, on_conflict="scheme_code,as_of_date", returning="minimal"
         ).execute()
         total += len(chunk)
         log.info("Sharpe backfill: upserted %d/%d", min(i + batch_size, len(updates)), len(updates))

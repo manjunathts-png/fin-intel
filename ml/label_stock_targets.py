@@ -274,7 +274,7 @@ def compute_labels(
     for i in range(0, len(updates), batch_size):
         chunk = updates[i : i + batch_size]
         supabase.table("stock_features").upsert(
-            chunk, on_conflict="symbol,as_of_date"
+            chunk, on_conflict="symbol,as_of_date", returning="minimal"
         ).execute()
         total_labeled += len(chunk)
         log.info("Upserted %d / %d", min(i + batch_size, len(updates)), len(updates))

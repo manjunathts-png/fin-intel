@@ -405,7 +405,7 @@ def upsert_features(supabase, rows: list[dict[str, Any]], batch: int = 500) -> i
         for attempt in range(4):          # up to 4 attempts: 0, 5, 15, 45 s
             try:
                 supabase.table("mf_features").upsert(
-                    chunk, on_conflict="scheme_code,as_of_date"
+                    chunk, on_conflict="scheme_code,as_of_date", returning="minimal"
                 ).execute()
                 total += len(chunk)
                 last_exc = None
