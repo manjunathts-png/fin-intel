@@ -116,22 +116,35 @@ def load_labeled(supabase) -> pd.DataFrame:
 
 
 def load_latest_features(supabase, prediction_date: date) -> pd.DataFrame:
-    """Pull the most recent feature rows for inference."""
-    # Look back up to 5 days (weekends + holidays)
-    for lookback in range(5):
-        d = prediction_date - timedelta(days=lookback)
-        resp = (
-            supabase.table("mf_features")
-            .select("*")
-            .eq("as_of_date", str(d))
-            .execute()
-        )
-        rows = resp.data or []
-        if rows:
-            log.info("Using features from %s (%d funds)", d, len(rows))
-            df = pd.DataFrame(rows)
-            df["as_of_date"] = pd.to_datetime(df["as_of_date"])
-            return df
+    """Pull the most recent feature rows for inference.
+
+    Cached per prediction_date: called once per CLI invocation, and this
+    script runs 3x per pipeline run (raw-return, Sharpe-target, 1m horizon)
+    with the same prediction_date each time — see local_cache.py.
+    """
+    cache_path = Path(__file__).parent / f".cache_mf_latest_features_{prediction_date}.parquet"
+
+    def _fetch() -> pd.DataFrame:
+        # Look back up to 5 days (weekends + holidays)
+        for lookback in range(5):
+            d = prediction_date - timedelta(days=lookback)
+            resp = (
+                supabase.table("mf_features")
+                .select("*")
+                .eq("as_of_date", str(d))
+                .execute()
+            )
+            rows = resp.data or []
+            if rows:
+                log.info("Using features from %s (%d funds)", d, len(rows))
+                df = pd.DataFrame(rows)
+                df["as_of_date"] = pd.to_datetime(df["as_of_date"])
+                return df
+        return pd.DataFrame()
+
+    df = cached_or_fetch(cache_path, _fetch)
+    if not df.empty:
+        return df
 
     log.error("No feature rows found near %s. Run extract_features.py first.", prediction_date)
     return pd.DataFrame()
