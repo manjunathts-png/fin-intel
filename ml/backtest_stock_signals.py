@@ -91,27 +91,44 @@ SIGNALS: dict[str, dict] = {
 }
 
 
+_full_features_cache: pd.DataFrame | None = None
+
+
 def load_labeled(supabase, ret_col: str) -> pd.DataFrame:
-    log.info("Loading stock_features where %s IS NOT NULL …", ret_col)
-    rows, page_size, offset = [], 1000, 0
-    while True:
-        resp = (
-            supabase.table("stock_features")
-            .select("*")
-            .not_.is_(ret_col, "null")
-            .order("as_of_date")
-            .range(offset, offset + page_size - 1)
-            .execute()
-        )
-        batch = resp.data or []
-        rows.extend(batch)
-        if len(batch) < page_size:
-            break
-        offset += page_size
-    df = pd.DataFrame(rows)
-    if not df.empty:
-        df["as_of_date"] = pd.to_datetime(df["as_of_date"])
-    return df
+    """Return stock_features rows where ret_col is not null.
+
+    `--horizon both` (the default) calls this twice in the same process —
+    once per forward-return column — which used to mean two separate
+    full-table Supabase fetches. The underlying table is identical between
+    calls; only the filter column differs. Fetched once per process now
+    and cached at module scope, with the not-null filter applied in pandas.
+    """
+    global _full_features_cache
+    if _full_features_cache is None:
+        log.info("Loading stock_features (full table, cached across horizons in this run)…")
+        rows, page_size, offset = [], 1000, 0
+        while True:
+            resp = (
+                supabase.table("stock_features")
+                .select("*")
+                .order("as_of_date")
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            batch = resp.data or []
+            rows.extend(batch)
+            if len(batch) < page_size:
+                break
+            offset += page_size
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            df["as_of_date"] = pd.to_datetime(df["as_of_date"])
+        _full_features_cache = df
+
+    full_df = _full_features_cache
+    if full_df.empty or ret_col not in full_df.columns:
+        return pd.DataFrame()
+    return full_df[full_df[ret_col].notna()].copy()
 
 
 def cross_sectional_ic(

@@ -361,6 +361,34 @@ flag when a scheme's NAV feed has gone quiet (`navFreshness` in `momentum.js`).
   not a duplicate), `train.py`'s `check_shap_stability` (already narrow-
   column and horizon-scoped, not a repeat), and no `count="exact"` usage
   anywhere in `ml/*.py` or `backend/*.js`.
+  A further deliberate sweep (every script `refresh.yml` invokes more than
+  once per job, plus every `.select()`/N+1-per-item write pattern across
+  `ml/*.py`) found one more real instance and ruled out the rest:
+  `backtest_stock_signals.py --horizon both` (the default) called
+  `load_labeled(supabase, ret_col)` twice **in the same process** — once
+  for `fwd_ret_1m`, once for `fwd_ret_3m` — against the identical
+  `stock_features` table, same shape as the `train_stock.py` bug but
+  within one script rather than across 3 CLI invocations. Fixed with an
+  in-process module-level cache (no disk cache needed — one process,
+  one memory space) so the table loads once and both horizons filter it
+  in pandas. Lower priority than the other fixes since this script only
+  runs on the manual `signal_backtest` target, not any daily cron.
+  Ruled out: `label_targets.py --window 90` vs `--window 90 --fix-sharpe`
+  (different loader functions, different column filters — not a
+  duplicate); `extract_stock_features.py`'s two `stock_backfill`
+  invocations (different `--backfill` day ranges); `gdelt_sentiment.py`'s
+  two invocations (different `--mode`, already batch-upserts, not N+1);
+  `extract_features.py`/`extract_stock_features.py` (no per-symbol reads
+  at all — freshness comes from local parquet caches, not Supabase);
+  `ic_monitor.py`/`label_stock_targets.py`/`track_pick_outcomes.py`/
+  `health_report.py` (all already narrow explicit column lists, no
+  `select("*")`, no loops issuing one Supabase call per row). Found but
+  intentionally left alone: `sentiment.py`'s per-fund
+  `propagate_to_mf_features` loop (one upsert per fund, not batched) — a
+  real inefficiency in isolation, but the script isn't invoked anywhere
+  in `refresh.yml` (`gdelt_sentiment.py` replaced it per its own
+  in-file comment), so it costs nothing live; not worth touching dead
+  code for this.
 
 ## Debugging playbook
 
