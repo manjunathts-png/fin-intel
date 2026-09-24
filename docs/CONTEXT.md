@@ -436,6 +436,20 @@ flag when a scheme's NAV feed has gone quiet (`navFreshness` in `momentum.js`).
   re-packages already-JSON-round-tripped Supabase reads, never fresh
   numpy computations) were all already safe on inspection — properly
   cast through `int()`/`float()`/`.tolist()` at each call site.
+  Structural gap found while chasing why this went unnoticed for 5 days:
+  `refresh.yml`'s "System health digest" step (`health_report.py` — the
+  one component specifically meant to catch model/training staleness)
+  has no `always()` in its `if:` condition, so GitHub Actions' default
+  `success()` gating skipped it right along with every other downstream
+  step once "Label MF targets" crashed — the monitoring step went dark
+  exactly when the thing it monitors broke. Added `always()` (still
+  gated on the right `target`/`tables_ok` conditions) so it now runs and
+  reports honestly regardless of what failed earlier in the same job.
+  Deliberately did **not** extend `always()` to other downstream steps
+  (`Track pick outcomes`, `Monitor rolling signal IC`, etc.) — those are
+  data-dependent, not monitoring, and while some look independent of the
+  MF-specific crash, re-architecting the job's step dependencies is a
+  larger, separate change than this incident calls for.
 
 ## Debugging playbook
 
