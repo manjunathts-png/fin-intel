@@ -389,6 +389,40 @@ flag when a scheme's NAV feed has gone quiet (`navFreshness` in `momentum.js`).
   in `refresh.yml` (`gdelt_sentiment.py` replaced it per its own
   in-file comment), so it costs nothing live; not worth touching dead
   code for this.
+- **2026-09-19 through 2026-09-24 — every `all` trigger crashed at "Label
+  MF targets" with `TypeError: Object of type bool_ is not JSON
+  serializable`**, cascading into every downstream step (MF/stock
+  training, backfills, GDELT sentiment) being skipped, day after day.
+  Root cause: `label_targets.py`'s `_assign_quartiles()` had a
+  single-fund-category branch (`len(items) < 2`) that stored
+  `top_map[code] = val > 0` directly — `val` is a numpy scalar (from
+  pandas/numpy arithmetic upstream), so the comparison yields
+  `numpy.bool_`, which `json.dumps` (via httpx) can't serialize. The
+  `pd.qcut`-based branches were already safe, coincidentally, because
+  they cast through `int()` first (`q == 1` on two Python ints yields a
+  native bool) — `ic_monitor.py` already wraps its own boolean flag in
+  `bool(...)` for exactly this reason, which is what made the gap here
+  stand out. `label_stock_targets.py` had the identical latent bug in its
+  own (module-private) `_assign_univ_quartiles`'s 2–3-item branch
+  (`top_map[sym] = (val >= median_val)`) — lower practical risk there
+  since stock quartiles are universe-wide (~500 stocks, never a 2–3-item
+  group in practice) rather than per-category, but fixed for the same
+  reason. Both wrapped in `bool(...)`, matching the existing convention.
+  Regression test reproduces the exact single-item-category shape,
+  confirmed it fails without the fix and passes with it.
+  Separately surfaced by chasing this: the `mf_radar fund count — 55
+  funds` failure in the alert that triggered this investigation was
+  **already stale by the time it was sent** — `data-health-check.js`'s
+  `--fix` path re-ran `refresh-cache.js mf` (which recovered to 71
+  funds, a transient mfapi.in timeout on the first pass), but `main()`
+  never re-ran the checks afterward, so `writeSystemHealth()`,
+  `sendAlerts()`, and the exit code all still reflected the pre-fix
+  55-fund snapshot. This is the same "reports pre-fix results" gap noted
+  but not fixed during the 2026-07 ETF/MF incident. Fixed by extracting
+  the check sequence into `runAllChecks()` and re-running it after
+  `runFix()`, resetting `healthResults`/`allPassed` first — so a
+  same-run self-heal is reported (and alerted, and persisted to
+  `system_health`) as fixed instead of as a still-open failure.
 
 ## Debugging playbook
 

@@ -32,6 +32,8 @@ backend/nifty500_cache.json
 backend/nifty_benchmark_cache.json
 backend/yahoo_fundamentals_cache.json
 backend/mf_benchmark_cache.json
+backend/etf_price_cache.json
+backend/etf_nav_cache.json
 .cache_nav/
 ml/.venv/
 ml/*.pkl

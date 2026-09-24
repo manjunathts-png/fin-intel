@@ -593,15 +593,19 @@ function runFix(mode) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-async function main() {
-  console.log(`=== Data Health Check — ${new Date().toISOString()} (mode: ${MODE}) ===`);
-
+async function runAllChecks() {
   const stored = await checkSupabaseFreshness();
   checkPriceCoverage(stored);
   await checkMfRadar();
   await checkEtfPicks();
   await checkNiftyBenchmark();
   await checkSources();
+}
+
+async function main() {
+  console.log(`=== Data Health Check — ${new Date().toISOString()} (mode: ${MODE}) ===`);
+
+  await runAllChecks();
 
   console.log(`\n${"─".repeat(50)}`);
   if (allPassed) {
@@ -610,6 +614,23 @@ async function main() {
     console.error("✗ One or more checks FAILED.");
     if (FIX) {
       runFix(MODE);
+
+      // Re-run every check against the post-fix data instead of reporting
+      // (and alerting on, and persisting to system_health) the pre-fix
+      // snapshot — runFix() can genuinely resolve a failure (e.g. a
+      // transient mfapi.in timeout that a same-run refresh-cache.js retry
+      // clears), and the 2026-09-24 mf_radar incident showed the alert
+      // firing on a count that had already self-healed within the same job.
+      console.log("\n[fix] Re-checking after fix attempt…");
+      healthResults.length = 0;
+      allPassed = true;
+      await runAllChecks();
+      console.log(`\n${"─".repeat(50)}`);
+      if (allPassed) {
+        console.log("✓ All checks passed after fix.");
+      } else {
+        console.error("✗ Still failing after fix attempt.");
+      }
     } else {
       console.error("  Run with --fix to attempt automatic recovery.");
     }
