@@ -61,6 +61,21 @@ def _col_names(fwd_days: int) -> tuple[str, str, str]:
     return "fwd_ret_3m", "fwd_quartile_3m", "fwd_top_q_3m"
 
 
+def _clean_val(v: Any) -> Any:
+    """Convert numpy scalars (bool_, int64, float64, …) to native Python
+    types before JSON encoding — httpx's encoder only knows the latter.
+    Same defense extract_features.py/extract_stock_features.py already
+    apply to their own upserts; this file's compute_labels() was the
+    sibling of the gap the 2026-09-19 bool_ incident found in
+    label_targets.py (see docs/CONTEXT.md), hardened here too.
+    """
+    if hasattr(v, "item"):
+        v = v.item()
+    if isinstance(v, float) and np.isnan(v):
+        return None
+    return v
+
+
 def _fwd_sharpe_stock(
     ohlcv_df: pd.DataFrame,
     as_of: date,
@@ -272,7 +287,7 @@ def compute_labels(
 
     batch_size = 500
     for i in range(0, len(updates), batch_size):
-        chunk = updates[i : i + batch_size]
+        chunk = [{k: _clean_val(v) for k, v in u.items()} for u in updates[i : i + batch_size]]
         supabase.table("stock_features").upsert(
             chunk, on_conflict="symbol,as_of_date", returning="minimal"
         ).execute()

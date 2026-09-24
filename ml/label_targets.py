@@ -290,7 +290,7 @@ def compute_labels(
     # Batch upsert
     batch_size = 500
     for i in range(0, len(updates), batch_size):
-        chunk = updates[i : i + batch_size]
+        chunk = [{k: _clean_val(v) for k, v in u.items()} for u in updates[i : i + batch_size]]
         supabase.table("mf_features").upsert(
             chunk, on_conflict="scheme_code,as_of_date", returning="minimal"
         ).execute()
@@ -298,6 +298,22 @@ def compute_labels(
         log.info("Upserted %d/%d label rows", min(i + batch_size, len(updates)), len(updates))
 
     return total_labeled
+
+
+def _clean_val(v: Any) -> Any:
+    """Convert numpy scalars (bool_, int64, float64, …) to native Python
+    types before JSON encoding — httpx's encoder only knows the latter.
+    Same defense extract_features.py/extract_stock_features.py already
+    apply to their own upserts; this file's compute_labels() and
+    backfill_sharpe_labels() were the gap the 2026-09-19 bool_ incident
+    found (see docs/CONTEXT.md), fixed at the source there, and hardened
+    here so any future numpy-typed field can't repeat it.
+    """
+    if hasattr(v, "item"):
+        v = v.item()
+    if isinstance(v, float) and np.isnan(v):
+        return None
+    return v
 
 
 def _assign_quartiles(cat_map: dict) -> tuple[dict, dict]:
@@ -430,7 +446,7 @@ def backfill_sharpe_labels(df: pd.DataFrame, supabase, fwd_days: int = 90, dry_r
 
     batch_size = 500
     for i in range(0, len(updates), batch_size):
-        chunk = updates[i : i + batch_size]
+        chunk = [{k: _clean_val(v) for k, v in u.items()} for u in updates[i : i + batch_size]]
         supabase.table("mf_features").upsert(
             chunk, on_conflict="scheme_code,as_of_date", returning="minimal"
         ).execute()

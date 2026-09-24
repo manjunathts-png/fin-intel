@@ -423,6 +423,19 @@ flag when a scheme's NAV feed has gone quiet (`navFreshness` in `momentum.js`).
   `runFix()`, resetting `healthResults`/`allPassed` first — so a
   same-run self-heal is reported (and alerted, and persisted to
   `system_health`) as fixed instead of as a still-open failure.
+  Follow-up review for the same bug class (any numpy scalar — `bool_`,
+  `int64`, `int32`, `float32` all fail `json.dumps`; only `float64`
+  happens to work, since it subclasses Python's `float`) across every
+  other write path: `extract_features.py`/`extract_stock_features.py`
+  already had a `_clean_val()`/`.item()` sanitizer at their upsert
+  boundary — the two label scripts were the only ones missing it, now
+  added there too (defense-in-depth beyond the specific `bool(...)` point
+  fix, so a future numpy-typed field added to either can't repeat this).
+  `train.py`/`train_stock.py`'s prediction and model-run writers,
+  `oos.py`'s metrics, and `health_report.py`'s digest (which only
+  re-packages already-JSON-round-tripped Supabase reads, never fresh
+  numpy computations) were all already safe on inspection — properly
+  cast through `int()`/`float()`/`.tolist()` at each call site.
 
 ## Debugging playbook
 
