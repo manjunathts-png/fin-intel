@@ -224,7 +224,7 @@ def compute_labels(
                 median_val = float(np.median(vals_arr))
                 for sym, val in valid_pairs:
                     q_map[sym]   = 1 if val >= median_val else 4
-                    top_map[sym] = (val >= median_val)
+                    top_map[sym] = bool(val >= median_val)
             return q_map, top_map
 
         # Universe-wide quartiles for return

@@ -311,7 +311,7 @@ def _assign_quartiles(cat_map: dict) -> tuple[dict, dict]:
         if len(items) < 2:
             for code, val in items:
                 q_map[code] = 1 if val > 0 else 4
-                top_map[code] = val > 0
+                top_map[code] = bool(val > 0)
             continue
         codes_arr = [x[0] for x in items]
         vals_arr  = np.array([x[1] for x in items])
