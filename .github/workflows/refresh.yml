@@ -302,8 +302,15 @@ jobs:
       # Nightly health digest: rolls probe status, feature freshness, IC drift,
       # OOS-vs-CV model gap, and realized hit rate into one markdown summary on
       # the run page + one row per component in system_health (migration 013).
+      #
+      # always() so this still runs (and reports honestly) even if an earlier
+      # step in the job crashed — e.g. the 2026-09-19..24 label_targets.py
+      # bool_ JSON crash meant every step after it, including this one, got
+      # silently skipped for 5 days straight. A monitoring step that goes
+      # dark exactly when the thing it monitors breaks defeats the point.
       - name: System health digest
         if: >-
+          always() &&
           (steps.target.outputs.target == 'all' || steps.target.outputs.target == 'stocks') &&
           steps.dbcheck.outputs.tables_ok == 'true'
         continue-on-error: true
