@@ -38,6 +38,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+from postgrest.exceptions import APIError
 from supabase import create_client
 
 from config import max_label_gap_days
@@ -52,6 +53,19 @@ log = logging.getLogger("label_stock_targets")
 
 CACHE_DIR = Path(__file__).parent / ".cache_stock"
 RISK_FREE_RATE = 0.07
+
+
+def _is_statement_timeout(e: APIError) -> bool:
+    """Postgres 57014 ('canceling statement due to statement timeout').
+
+    Hitting this mid-pagination means the unlabeled-rows query is scanning
+    more of a growing table than the statement_timeout allows (see
+    migrate_017_unlabeled_lookup_indexes.sql). Rather than crash the whole
+    job — which skips every downstream step for the day — callers treat it
+    as "stop here, process what we already have"; the remaining backlog is
+    picked up on the next run.
+    """
+    return getattr(e, "code", None) == "57014"
 
 
 def _col_names(fwd_days: int) -> tuple[str, str, str]:
@@ -135,7 +149,16 @@ def load_unlabeled(supabase, cutoff: date, top_q_col: str) -> pd.DataFrame:
                 f"as_of_date.gt.{last_date},"
                 f"and(as_of_date.eq.{last_date},symbol.gt.{last_symbol})"
             )
-        resp = query.order("as_of_date").order("symbol").limit(page_size).execute()
+        try:
+            resp = query.order("as_of_date").order("symbol").limit(page_size).execute()
+        except APIError as e:
+            if not _is_statement_timeout(e):
+                raise
+            log.warning(
+                "Statement timeout paging unlabeled rows after %d found — "
+                "processing what we have; remainder picked up next run", len(rows)
+            )
+            break
         batch = resp.data or []
         rows.extend(batch)
         if len(batch) < page_size:
