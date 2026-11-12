@@ -52,7 +52,12 @@ jobs:
   # ── Job 2: Frontend smoke tests (Playwright) ────────────────────────────────
   frontend-smoke:
     name: Frontend Smoke
-    runs-on: ubuntu-latest
+    # Pinned (not ubuntu-latest): GitHub moved "latest" to ubuntu26.04-x64
+    # before Playwright added support for it — "ERROR: Playwright does not
+    # support chromium on ubuntu26.04-x64" killed every run. ubuntu-24.04 is
+    # Playwright's actively-supported LTS target; pinning avoids silently
+    # riding the next "latest" bump into the same wall.
+    runs-on: ubuntu-24.04
     outputs:
       passed: ${{ steps.playwright.outcome == 'success' && 'true' || 'false' }}
     steps:
