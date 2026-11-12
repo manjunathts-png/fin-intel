@@ -34,6 +34,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+from postgrest.exceptions import APIError
 from supabase import create_client
 
 from config import max_label_gap_days
@@ -47,6 +48,19 @@ logging.basicConfig(
 log = logging.getLogger("label_targets")
 
 RISK_FREE_RATE = 0.07
+
+
+def _is_statement_timeout(e: APIError) -> bool:
+    """Postgres 57014 ('canceling statement due to statement timeout').
+
+    Hitting this mid-pagination means the unlabeled-rows query is scanning
+    more of a growing table than the statement_timeout allows (see
+    migrate_017_unlabeled_lookup_indexes.sql). Rather than crash the whole
+    job — which skips every downstream step for the day — callers treat it
+    as "stop here, process what we already have"; the remaining backlog is
+    picked up on the next run.
+    """
+    return getattr(e, "code", None) == "57014"
 
 
 def _col_names(fwd_days: int) -> tuple[str, str, str]:
@@ -74,26 +88,49 @@ def _fwd_sharpe(nav_df: pd.DataFrame, as_of: "date", target_date: "date") -> flo
 
 
 def load_unlabeled(supabase, cutoff: date, top_q_col: str = "fwd_top_q_3m") -> pd.DataFrame:
-    """Load mf_features rows that need labels (old enough, not yet labeled)."""
+    """Load mf_features rows that need labels (old enough, not yet labeled).
+
+    Keyset (cursor) pagination, not OFFSET: OFFSET N makes Postgres
+    scan-and-discard the first N matching rows on every page, so cost grows
+    with page depth — label_stock_targets.py's sibling query hit a
+    statement timeout this way on 2026-07-07 (fixed there with keyset
+    pagination), and this OFFSET version carried the same latent risk as
+    mf_features keeps growing one row per scheme per day. Keyset seeks
+    directly to just after the last (as_of_date, scheme_code) seen, so each
+    page costs the same regardless of how deep the scan is.
+    """
     log.info("Loading unlabeled rows (%s IS NULL, as_of_date <= %s)", top_q_col, cutoff)
     rows: list[dict] = []
     page_size = 1000
-    offset = 0
+    last_date: str | None = None
+    last_code: str | None = None
     while True:
-        resp = (
+        query = (
             supabase.table("mf_features")
             .select("scheme_code,as_of_date,category,ret1y")
             .is_(top_q_col, "null")
             .lte("as_of_date", str(cutoff))
-            .order("as_of_date")
-            .range(offset, offset + page_size - 1)
-            .execute()
         )
+        if last_date is not None:
+            query = query.or_(
+                f"as_of_date.gt.{last_date},"
+                f"and(as_of_date.eq.{last_date},scheme_code.gt.{last_code})"
+            )
+        try:
+            resp = query.order("as_of_date").order("scheme_code").limit(page_size).execute()
+        except APIError as e:
+            if not _is_statement_timeout(e):
+                raise
+            log.warning(
+                "Statement timeout paging unlabeled rows after %d found — "
+                "processing what we have; remainder picked up next run", len(rows)
+            )
+            break
         batch = resp.data or []
         rows.extend(batch)
         if len(batch) < page_size:
             break
-        offset += page_size
+        last_date, last_code = batch[-1]["as_of_date"], batch[-1]["scheme_code"]
 
     df = pd.DataFrame(rows)
     if not df.empty:
@@ -358,23 +395,36 @@ def load_sharpe_unlabeled(supabase, cutoff: date) -> pd.DataFrame:
     log.info("Loading rows with fwd_top_q_3m set but fwd_top_sharpe_q_3m IS NULL (as_of_date <= %s)", cutoff)
     rows: list[dict] = []
     page_size = 1000
-    offset = 0
+    last_date: str | None = None
+    last_code: str | None = None
     while True:
-        resp = (
+        query = (
             supabase.table("mf_features")
             .select("scheme_code,as_of_date,category,ret1y")
             .not_.is_("fwd_top_q_3m", "null")      # return label exists
             .is_("fwd_top_sharpe_q_3m", "null")     # but Sharpe label missing
             .lte("as_of_date", str(cutoff))
-            .order("as_of_date")
-            .range(offset, offset + page_size - 1)
-            .execute()
         )
+        if last_date is not None:
+            query = query.or_(
+                f"as_of_date.gt.{last_date},"
+                f"and(as_of_date.eq.{last_date},scheme_code.gt.{last_code})"
+            )
+        try:
+            resp = query.order("as_of_date").order("scheme_code").limit(page_size).execute()
+        except APIError as e:
+            if not _is_statement_timeout(e):
+                raise
+            log.warning(
+                "Statement timeout paging Sharpe-backfill rows after %d found — "
+                "processing what we have; remainder picked up next run", len(rows)
+            )
+            break
         batch = resp.data or []
         rows.extend(batch)
         if len(batch) < page_size:
             break
-        offset += page_size
+        last_date, last_code = batch[-1]["as_of_date"], batch[-1]["scheme_code"]
     df = pd.DataFrame(rows)
     if not df.empty:
         df["as_of_date"] = pd.to_datetime(df["as_of_date"])
