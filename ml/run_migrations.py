@@ -31,6 +31,7 @@ MIGRATIONS = [
     "migrate_012_oos_outcomes_ic.sql",
     "migrate_013_system_health.sql",
     "migrate_014_rls_read_policies.sql",
+    "migrate_017_unlabeled_lookup_indexes.sql",
 ]
 
 ML_DIR = Path(__file__).parent
