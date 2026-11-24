@@ -58,6 +58,9 @@ def test_diagnose_reports_each_check_without_crashing():
 
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
+        if path.endswith("exchanges-list/"):
+            return httpx.Response(200, json=[{"Code": "US", "Name": "USA Stocks", "Country": "USA"},
+                                             {"Code": "NSE", "Name": "NSE", "Country": "India"}])
         if path.endswith("exchange-symbol-list/NSE"):
             return httpx.Response(200, json=[{"Code": "HDFCBANK"}, {"Code": "TCS"}])
         if path.endswith("eod/HDFCBANK.NSE"):
@@ -69,6 +72,7 @@ def test_diagnose_reports_each_check_without_crashing():
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         out = "\n".join(_diagnose(client, "tok", ["HDFCBANK", "DIXON"]))
 
+    assert "Supported exchanges: 2; India: NSE (NSE)" in out
     assert "2 symbols; listed: HDFCBANK" in out
     assert "2 rows (latest 2026-11-24)" in out
     assert "AAPL.US fundamentals: HTTP 403" in out
