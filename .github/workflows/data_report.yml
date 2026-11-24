@@ -21,3 +21,18 @@ jobs:
         env:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+  yahoo-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install probe deps
+        run: pip install requests curl_cffi -q
+
+      - name: Yahoo quoteSummary probe
+        run: python ml/yahoo_probe.py
