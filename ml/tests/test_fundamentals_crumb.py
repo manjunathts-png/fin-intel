@@ -51,15 +51,22 @@ class FakeSession:
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch, tmp_path):
     monkeypatch.setattr(esf, "FUND_CACHE_DIR", tmp_path)
-    monkeypatch.setattr(esf, "_CRUMB", None)
     esf._FUND_FAILURES.clear()
     yield
     esf._FUND_FAILURES.clear()
+    for attr in ("session", "crumb"):
+        if hasattr(esf._FUND_LOCAL, attr):
+            delattr(esf._FUND_LOCAL, attr)
+
+
+def _use(fake):
+    esf._FUND_LOCAL.session = fake
+    esf._FUND_LOCAL.crumb = None
 
 
 def test_sends_crumb_and_parses_fundamentals(monkeypatch):
     fake = FakeSession(crumbs=["good"], valid_crumb="good")
-    monkeypatch.setattr(esf, "_SESSION", fake)
+    _use(fake)
 
     fd = esf.fetch_fundamentals("TCS")
 
@@ -71,7 +78,7 @@ def test_sends_crumb_and_parses_fundamentals(monkeypatch):
 
 def test_refreshes_stale_crumb_once_on_401(monkeypatch):
     fake = FakeSession(crumbs=["stale", "fresh"], valid_crumb="fresh")
-    monkeypatch.setattr(esf, "_SESSION", fake)
+    _use(fake)
 
     fd = esf.fetch_fundamentals("TCS")
 
@@ -81,7 +88,7 @@ def test_refreshes_stale_crumb_once_on_401(monkeypatch):
 
 def test_failures_are_counted_not_silent(monkeypatch):
     fake = FakeSession(crumbs=["good"], valid_crumb="good", summary_status=404)
-    monkeypatch.setattr(esf, "_SESSION", fake)
+    _use(fake)
 
     assert esf.fetch_fundamentals("NOPE") == {}
     assert esf._FUND_FAILURES["HTTP 404"] == 1
@@ -89,6 +96,17 @@ def test_failures_are_counted_not_silent(monkeypatch):
 
 def test_html_crumb_response_is_rejected(monkeypatch):
     fake = FakeSession(crumbs=["<html>blocked</html>"], valid_crumb="x")
-    monkeypatch.setattr(esf, "_SESSION", fake)
+    _use(fake)
 
     assert esf._get_crumb() is None
+
+
+def test_fund_session_uses_curl_cffi_chrome_impersonation(monkeypatch):
+    from curl_cffi import requests as cffi_requests
+
+    def no_network(self, *a, **kw):
+        raise ConnectionError("offline")
+
+    monkeypatch.setattr(cffi_requests.Session, "get", no_network)
+    session = esf._fund_session()
+    assert type(session).__module__.startswith("curl_cffi")
