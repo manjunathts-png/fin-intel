@@ -5,9 +5,11 @@ on:
     branches: [main]
     paths:
       - 'ml/**'
+      - '.github/workflows/ml_tests.yml'
   pull_request:
     paths:
       - 'ml/**'
+      - '.github/workflows/ml_tests.yml'
 
 jobs:
   test:
