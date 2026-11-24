@@ -50,3 +50,26 @@ def test_summarize_tolerates_empty_payload():
     s = summarize_fundamentals({})
     assert s["name"] is None
     assert s["statements"]["Balance_Sheet"]["quarterly"]["count"] == 0
+
+
+def test_diagnose_reports_each_check_without_crashing():
+    import httpx
+    from eodhd_probe import _diagnose
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("exchange-symbol-list/NSE"):
+            return httpx.Response(200, json=[{"Code": "HDFCBANK"}, {"Code": "TCS"}])
+        if path.endswith("eod/HDFCBANK.NSE"):
+            return httpx.Response(200, json=[{"date": "2026-11-21"}, {"date": "2026-11-24"}])
+        if path.endswith("fundamentals/AAPL.US"):
+            return httpx.Response(403, text="Only EOD data allowed for free users")
+        return httpx.Response(200, json={"apiRequests": 13})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        out = "\n".join(_diagnose(client, "tok", ["HDFCBANK", "DIXON"]))
+
+    assert "2 symbols; listed: HDFCBANK" in out
+    assert "2 rows (latest 2026-11-24)" in out
+    assert "AAPL.US fundamentals: HTTP 403" in out
+    assert "used today after probe: 13" in out

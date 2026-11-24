@@ -7,6 +7,11 @@ on:
         description: "Comma-separated NSE symbols (each costs ~10 API credits)"
         required: false
         default: "HDFCBANK,DIXON"
+      diagnose:
+        description: "Also check NSE symbol list, NSE EOD prices and a US fundamentals control"
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   probe:
@@ -22,7 +27,7 @@ jobs:
         run: pip install httpx -q
 
       - name: Probe EODHD coverage
-        run: python ml/eodhd_probe.py --tickers "$TICKERS"
+        run: python ml/eodhd_probe.py --tickers "$TICKERS" ${{ inputs.diagnose && '--diagnose' || '' }}
         env:
           EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
           TICKERS: ${{ inputs.tickers }}
