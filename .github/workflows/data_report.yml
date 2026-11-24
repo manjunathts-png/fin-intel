@@ -1,0 +1,23 @@
+name: Data Report
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fundamentals-coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install httpx
+        run: pip install httpx -q
+
+      - name: Fundamentals history coverage
+        run: python ml/fundamentals_coverage.py
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
