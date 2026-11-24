@@ -97,6 +97,15 @@ def _diagnose(client: httpx.Client, token: str, tickers: list[str]) -> list[str]
     """Tell 'wrong symbol/exchange code' apart from 'plan doesn't cover it'."""
     out = ["### Diagnostics", ""]
 
+    resp = _get(client, "exchanges-list/", token)
+    if resp.status_code == 200 and isinstance(resp.json(), list):
+        exchanges = [r for r in resp.json() if isinstance(r, dict)]
+        india = [f"{r.get('Code')} ({r.get('Name')})" for r in exchanges
+                 if "india" in str(r.get("Country", "")).lower()]
+        out.append(f"- Supported exchanges: {len(exchanges)}; India: {', '.join(india) or 'none'}")
+    else:
+        out.append(f"- Supported exchanges: {_describe_error(resp)}")
+
     resp = _get(client, "exchange-symbol-list/NSE", token)
     if resp.status_code == 200 and isinstance(resp.json(), list):
         codes = {str(r.get("Code", "")).upper() for r in resp.json() if isinstance(r, dict)}
