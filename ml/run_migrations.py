@@ -1,5 +1,12 @@
 """
-Migration runner — applies pending SQL migration files to Supabase.
+Migration runner — applies every ml/migrate_*.sql file to Supabase, in
+filename order.
+
+There is no record of which migrations have already run, so every file is
+re-applied on every run. Each migration MUST therefore be idempotent
+(CREATE ... IF NOT EXISTS, ADD COLUMN IF NOT EXISTS, guarded CREATE POLICY,
+no unguarded data changes). tests/test_run_migrations.py enforces the common
+cases.
 
 Uses the Supabase Management API (preferred) or direct psql (fallback).
 
@@ -21,20 +28,12 @@ from pathlib import Path
 
 import httpx
 
-MIGRATIONS = [
-    "migrate_006_category_groups.sql",
-    "migrate_007_stock_improvements.sql",
-    "migrate_008_cat_rel_risk.sql",
-    "migrate_009_stock_sentiment_gdelt.sql",
-    "migrate_010_stock_feature_enhancements.sql",
-    "migrate_011_earnings_momentum.sql",
-    "migrate_012_oos_outcomes_ic.sql",
-    "migrate_013_system_health.sql",
-    "migrate_014_rls_read_policies.sql",
-    "migrate_017_unlabeled_lookup_indexes.sql",
-]
-
 ML_DIR = Path(__file__).parent
+
+
+def discover_migrations(ml_dir: Path = ML_DIR) -> list[Path]:
+    """All migrate_NNN_*.sql files, ordered by filename (NNN is zero-padded)."""
+    return sorted(ml_dir.glob("migrate_*.sql"), key=lambda p: p.name)
 
 
 def _project_ref(supabase_url: str) -> str:
@@ -76,14 +75,15 @@ def main() -> None:
 
     project_ref = _project_ref(supabase_url) if supabase_url else ""
 
-    for migration_file in MIGRATIONS:
-        path = ML_DIR / migration_file
-        if not path.exists():
-            print(f"SKIP  {migration_file} (file not found)")
-            continue
+    migrations = discover_migrations()
+    if not migrations:
+        print(f"ERROR: no migrate_*.sql files found in {ML_DIR}")
+        sys.exit(1)
+    print(f"Found {len(migrations)} migrations: {migrations[0].name} … {migrations[-1].name}")
 
+    for path in migrations:
         sql = path.read_text()
-        print(f"Applying {migration_file} …", end=" ", flush=True)
+        print(f"Applying {path.name} …", end=" ", flush=True)
         try:
             if access_token and project_ref:
                 run_via_management_api(sql, project_ref, access_token)
