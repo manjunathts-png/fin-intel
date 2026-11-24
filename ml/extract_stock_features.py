@@ -93,8 +93,7 @@ _YF_HEADERS = {
 _YF_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
 _YF_SUMMARY_URL = "https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
 _YF_CRUMB_URL   = "https://query1.finance.yahoo.com/v1/test/getcrumb"
-_CRUMB: str | None = None
-_CRUMB_LOCK = threading.Lock()
+_FUND_LOCAL = threading.local()   # per-thread session + crumb: a crumb is only valid with its session's cookie
 _FUND_FAILURES: Counter = Counter()
 _FUND_FAILURES_LOCK = threading.Lock()
 
@@ -114,21 +113,44 @@ def _get_session() -> requests.Session:
     return _SESSION
 
 
+def _fund_session():
+    """Session for quoteSummary + getcrumb. From GitHub runners Yahoo answers
+    python-requests with 429 on both, but accepts curl_cffi's Chrome
+    fingerprint (verified 2026-11-24: requests 0/16, curl_cffi 16/16)."""
+    s = getattr(_FUND_LOCAL, "session", None)
+    if s is None:
+        try:
+            from curl_cffi import requests as cffi_requests
+            s = cffi_requests.Session(impersonate="chrome")
+        except ImportError:
+            log.warning("curl_cffi not installed — Yahoo fundamentals will likely get HTTP 429")
+            s = requests.Session()
+            s.headers.update(_YF_HEADERS)
+        try:
+            s.get("https://fc.yahoo.com", timeout=10, allow_redirects=True)
+        except Exception:
+            pass
+        _FUND_LOCAL.session = s
+        _FUND_LOCAL.crumb = None
+    return s
+
+
 def _get_crumb(refresh: bool = False) -> str | None:
     """quoteSummary rejects requests without a crumb (401 "Invalid Crumb")
-    even with the fc.yahoo.com cookie; fetch it once per process."""
-    global _CRUMB
-    with _CRUMB_LOCK:
-        if _CRUMB is None or refresh:
-            _CRUMB = None
-            try:
-                r = _get_session().get(_YF_CRUMB_URL, timeout=10)
-                crumb = r.text.strip()
-                if r.status_code == 200 and crumb and "<" not in crumb and " " not in crumb:
-                    _CRUMB = crumb
-            except Exception as e:
-                log.debug("Yahoo crumb fetch failed: %s", e)
-        return _CRUMB
+    even with the fc.yahoo.com cookie; fetch it once per thread."""
+    if refresh or getattr(_FUND_LOCAL, "crumb", None) is None:
+        _FUND_LOCAL.crumb = None
+        try:
+            r = _fund_session().get(_YF_CRUMB_URL, timeout=10)
+            crumb = r.text.strip()
+            if r.status_code == 200 and crumb and "<" not in crumb and " " not in crumb:
+                _FUND_LOCAL.crumb = crumb
+            else:
+                _note_fund_failure(f"crumb HTTP {r.status_code}")
+        except Exception as e:
+            log.debug("Yahoo crumb fetch failed: %s", e)
+            _note_fund_failure(f"crumb {type(e).__name__}")
+    return _FUND_LOCAL.crumb
 
 
 def _note_fund_failure(reason: str) -> dict:
@@ -543,7 +565,7 @@ def fetch_fundamentals(symbol: str) -> dict[str, Any]:
     params  = {
         "modules": "summaryDetail,financialData,defaultKeyStatistics,assetProfile,price,earningsHistory,earningsTrend"
     }
-    session = _get_session()
+    session = _fund_session()
 
     try:
         crumb = _get_crumb()
