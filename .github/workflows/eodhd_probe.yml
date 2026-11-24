@@ -1,0 +1,28 @@
+name: EODHD Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: "Comma-separated NSE symbols (each costs ~10 API credits)"
+        required: false
+        default: "HDFCBANK,DIXON"
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install httpx
+        run: pip install httpx -q
+
+      - name: Probe EODHD coverage
+        run: python ml/eodhd_probe.py --tickers "$TICKERS"
+        env:
+          EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
+          TICKERS: ${{ inputs.tickers }}
