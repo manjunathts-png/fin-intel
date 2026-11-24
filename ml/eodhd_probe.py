@@ -93,10 +93,47 @@ def _describe_error(resp: httpx.Response) -> str:
     return f"HTTP {resp.status_code} {hint} — {body}"
 
 
+def _diagnose(client: httpx.Client, token: str, tickers: list[str]) -> list[str]:
+    """Tell 'wrong symbol/exchange code' apart from 'plan doesn't cover it'."""
+    out = ["### Diagnostics", ""]
+
+    resp = _get(client, "exchange-symbol-list/NSE", token)
+    if resp.status_code == 200 and isinstance(resp.json(), list):
+        codes = {str(r.get("Code", "")).upper() for r in resp.json() if isinstance(r, dict)}
+        found = [t for t in tickers if t in codes]
+        out.append(f"- NSE symbol list: {len(codes)} symbols; listed: {', '.join(found) or 'none of ' + ', '.join(tickers)}")
+    else:
+        out.append(f"- NSE symbol list: {_describe_error(resp)}")
+
+    if tickers:
+        resp = _get(client, f"eod/{tickers[0]}.NSE", token)
+        if resp.status_code == 200 and isinstance(resp.json(), list):
+            rows = resp.json()
+            last = rows[-1].get("date") if rows else None
+            out.append(f"- EOD prices {tickers[0]}.NSE: {len(rows)} rows (latest {last})")
+        else:
+            out.append(f"- EOD prices {tickers[0]}.NSE: {_describe_error(resp)}")
+
+    resp = _get(client, "fundamentals/AAPL.US", token)
+    if resp.status_code == 200 and isinstance(resp.json(), dict) and resp.json():
+        q = summarize_fundamentals(resp.json())["statements"]["Income_Statement"]["quarterly"]["count"]
+        out.append(f"- Control AAPL.US fundamentals: OK ({q} quarters)")
+    else:
+        out.append(f"- Control AAPL.US fundamentals: {_describe_error(resp)}")
+
+    resp = _get(client, "user", token)
+    if resp.status_code == 200:
+        out.append(f"- API calls used today after probe: {resp.json().get('apiRequests')}")
+    out.append("")
+    return out
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--tickers", default="HDFCBANK,DIXON",
                    help="Comma-separated NSE symbols (each fundamentals call costs ~10 API credits)")
+    p.add_argument("--diagnose", action="store_true",
+                   help="Also check NSE symbol list, NSE EOD prices and a US fundamentals control")
     args = p.parse_args()
 
     token = os.environ.get("EODHD_API_KEY", "").strip()
@@ -149,6 +186,9 @@ def main() -> None:
                     lines.append(f"  - latest quarter missing: {', '.join(q['latest_fields_missing'])}")
             lines.append(f"- Earnings history: {s['earnings_history_quarters']} quarters")
             lines.append("")
+
+        if args.diagnose:
+            lines += _diagnose(client, token, [t.strip().upper() for t in args.tickers.split(",") if t.strip()])
 
     report = "\n".join(lines)
     print(report)
