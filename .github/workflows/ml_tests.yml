@@ -5,9 +5,11 @@ on:
     branches: [main]
     paths:
       - 'ml/**'
+      - '.github/workflows/ml_tests.yml'
   pull_request:
     paths:
       - 'ml/**'
+      - '.github/workflows/ml_tests.yml'
 
 jobs:
   test:
@@ -24,7 +26,7 @@ jobs:
       - name: Install dependencies
         # Subset of ml/requirements.txt needed by the test suite — keeps CI
         # fast (no shap/optuna/yfinance/supabase compile time).
-        run: pip install pandas numpy scipy scikit-learn lightgbm pytest python-dotenv requests urllib3 tqdm pyarrow supabase -q
+        run: pip install pandas numpy scipy scikit-learn lightgbm pytest python-dotenv requests urllib3 tqdm pyarrow supabase curl_cffi -q
 
       - name: Run ML test suite
         run: python -m pytest ml/tests -v
