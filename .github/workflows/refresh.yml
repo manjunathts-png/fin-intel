@@ -560,7 +560,9 @@ jobs:
 
       - name: Install deps (migrate)
         if: steps.target.outputs.target == 'migrate'
-        run: pip install httpx -q
+        run: |
+          pip install httpx -q
+          command -v psql >/dev/null || (sudo apt-get update -q && sudo apt-get install -y -q postgresql-client)
 
       - name: Apply pending SQL migrations
         if: steps.target.outputs.target == 'migrate'
