@@ -35,8 +35,10 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 import warnings
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -90,6 +92,11 @@ _YF_HEADERS = {
 }
 _YF_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
 _YF_SUMMARY_URL = "https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
+_YF_CRUMB_URL   = "https://query1.finance.yahoo.com/v1/test/getcrumb"
+_CRUMB: str | None = None
+_CRUMB_LOCK = threading.Lock()
+_FUND_FAILURES: Counter = Counter()
+_FUND_FAILURES_LOCK = threading.Lock()
 
 _SESSION: requests.Session | None = None
 
@@ -105,6 +112,29 @@ def _get_session() -> requests.Session:
         except Exception:
             pass
     return _SESSION
+
+
+def _get_crumb(refresh: bool = False) -> str | None:
+    """quoteSummary rejects requests without a crumb (401 "Invalid Crumb")
+    even with the fc.yahoo.com cookie; fetch it once per process."""
+    global _CRUMB
+    with _CRUMB_LOCK:
+        if _CRUMB is None or refresh:
+            _CRUMB = None
+            try:
+                r = _get_session().get(_YF_CRUMB_URL, timeout=10)
+                crumb = r.text.strip()
+                if r.status_code == 200 and crumb and "<" not in crumb and " " not in crumb:
+                    _CRUMB = crumb
+            except Exception as e:
+                log.debug("Yahoo crumb fetch failed: %s", e)
+        return _CRUMB
+
+
+def _note_fund_failure(reason: str) -> dict:
+    with _FUND_FAILURES_LOCK:
+        _FUND_FAILURES[reason] += 1
+    return {}
 
 
 # ─── Universe loading ─────────────────────────────────────────────────────────
@@ -516,17 +546,25 @@ def fetch_fundamentals(symbol: str) -> dict[str, Any]:
     session = _get_session()
 
     try:
+        crumb = _get_crumb()
+        if crumb:
+            params["crumb"] = crumb
         r = session.get(url, params=params, timeout=15)
+        if r.status_code == 401:
+            crumb = _get_crumb(refresh=True)
+            if crumb:
+                params["crumb"] = crumb
+                r = session.get(url, params=params, timeout=15)
         if r.status_code == 429:
             log.debug("%s fundamentals rate-limited — skipping (non-critical)", symbol)
-            return {}
+            return _note_fund_failure("HTTP 429")
         if r.status_code != 200:
-            return {}
+            return _note_fund_failure(f"HTTP {r.status_code}")
 
         data    = r.json()
         results = data.get("quoteSummary", {}).get("result")
         if not results:
-            return {}
+            return _note_fund_failure("empty result")
 
         qr  = results[0]
         sd  = qr.get("summaryDetail",        {})
@@ -613,7 +651,7 @@ def fetch_fundamentals(symbol: str) -> dict[str, Any]:
 
     except Exception as e:
         log.debug("Fundamentals failed for %s: %s", symbol, e)
-        return {}
+        return _note_fund_failure(type(e).__name__)
 
 
 # ─── Macro cache reader ───────────────────────────────────────────────────────
@@ -1267,6 +1305,12 @@ def main():
             ):
                 fund_map[sym] = fd
 
+        got = sum(1 for fd in fund_map.values() if any(v is not None for v in fd.values()))
+        log.info("Fundamentals: %d/%d symbols returned data", got, len(stocks))
+        if got < len(stocks) * 0.5:
+            log.warning("Fundamentals mostly missing (%d/%d) — failures by reason: %s",
+                        got, len(stocks), dict(_FUND_FAILURES) or "none recorded")
+
         _fund_snapshot_date = as_of_end.strftime("%Y-%m-%d")
 
     # ── Load macro cache once ─────────────────────────────────────────────────
@@ -1305,6 +1349,8 @@ def main():
                     log.info("Saved %d fundamentals snapshots to stock_fundamentals_history", len(snap_rows))
                 except Exception as e:
                     log.warning("Fundamentals history upsert failed (table may not exist yet): %s", e)
+            else:
+                log.warning("No fundamentals to snapshot — stock_fundamentals_history not updated today")
 
     # ── Iterate over dates ────────────────────────────────────────────────────
     total_written = 0
