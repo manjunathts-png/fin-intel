@@ -16,7 +16,7 @@ already caused one phantom incident (see Incident log).
 
 | key | writer | shape (top level) |
 |---|---|---|
-| `stock_picks` | `refresh-cache.js` | `{ asOf, intradayAsOf?, universe, scanned, picks: [50], all: [200], discovery, niftyReturns, regime, warnings }` |
+| `stock_picks` | `refresh-cache.js` | `{ asOf, intradayAsOf?, universe, scanned, picks: [50], all: [200], discovery, niftyReturns, regime, sectorValuation: { marketPE, sectors: [{ sector, stocks, medianPE, medianPB, medianROE, peVsMarket, label }] }, warnings }` |
 | `stock_radar` | `refresh-cache.js` | legacy stock momentum leaderboard |
 | `mf_radar` | `momentum.js` via `refresh-cache.js` | `{ asOf, benchmarks, categories: [{ category, funds: [...] }], warnings }` |
 | `etf_picks` | `etf_momentum.js` via `refresh-cache.js` | `{ asOf, types: [{ type, etfCount, median, etfs: [...] }], warnings }` — **ETFs are nested two levels down; there is no top-level `picks`/`etfs` array** |
@@ -32,7 +32,11 @@ Per-stock pick fields worth knowing: `symbol` (with `.NS`), `compositeScore`,
 (post-EMA anchor for intraday smoothing), `eodRet1w` / `eodRsVsNifty1M`
 (anchors so repeated intraday runs don't compound today's move), `close`,
 `intradayAsOf`, penalty fields (see sign conventions in CLAUDE.md),
-`daysInTop50` (Core badge at ≥7).
+`daysInTop50` (Core badge at ≥7), `fundamentals` (Yahoo, incl. `priceToBook`,
+`enterpriseToEbitda`, `returnOnAssets`), `valuation`
+(`{ method: lender|financial|standard, peerGroup, peers, valueScore,
+qualityScore, components }` — 0–100 percentiles vs sector peers, from
+`backend/valuation.js`), `valuationPenalty` (set only when docked).
 
 Per-ETF fields: `ticker`, `label`, `type`, `latestPrice` (null ⇒ price fetch
 failed), `latestNav`, `premiumPct`, `avgDailyVolume`, `liquidityFlag`

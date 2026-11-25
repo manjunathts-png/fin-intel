@@ -22,6 +22,7 @@ const { getNifty500 }               = require("./nifty500_universe");
 const { getNiftyReturns }           = require("./nifty_benchmark");
 const { computeTrackRecord }        = require("./track_record");
 const { getFundamentalsBatch }      = require("./yahoo_fundamentals");
+const { scoreValuations, valuationPenalty, sectorValuationSummary, VALUATION_PENALTY } = require("./valuation");
 const { generateRationales }        = require("./generate-rationales");
 const { generateStockRationales }   = require("./generate-stock-rationales");
 const WebSocket                     = require("ws");
@@ -192,21 +193,26 @@ async function main() {
       deliveryMap, discBonuses, niftyReturns, universe, concurrency: 6,
     });
 
-    console.log("Fetching fundamentals for top 200 picks…");
+    // Whole universe, not just the top 200: valuation ranks each stock against
+    // its sector peers, and a momentum-selected subset is a biased peer group.
+    console.log("Fetching fundamentals for the full universe…");
     let fundamentals = {};
     try {
-      const topSymbols = signals.all.slice(0, 200).map((p) => p.symbol);
-      fundamentals = await getFundamentalsBatch(topSymbols, { concurrency: 5 });
-      console.log(`  ✓ fundamentals for ${Object.values(fundamentals).filter(Boolean).length} of ${topSymbols.length}`);
+      const allSymbols = signals.all.map((p) => p.symbol);
+      fundamentals = await getFundamentalsBatch(allSymbols, { concurrency: 5 });
+      console.log(`  ✓ fundamentals for ${Object.values(fundamentals).filter(Boolean).length} of ${allSymbols.length}`);
     } catch (e) {
       console.warn(`  ⚠ fundamentals unavailable: ${e.message}`);
     }
 
-    // Attach fundamentals + small mcap penalty + quality bonus
-    for (const p of signals.all) {
+    // Attach fundamentals + small mcap penalty + quality bonus. The mcap/EPS/ROE
+    // adjustments stay limited to the top 200 by signal score, as before the
+    // fetch widened to the full universe, so ranks below 200 don't shift.
+    signals.all.forEach((p, i) => {
       const f = fundamentals[p.symbol];
-      if (!f) continue;
+      if (!f) return;
       p.fundamentals = f;
+      if (i >= 200) return;
       if (f.marketCapCr != null && f.marketCapCr < 500) {
         // Penalize tiny micro-caps to keep picks investable
         p.compositeScore = Math.max(0, p.compositeScore - 10);
@@ -222,7 +228,23 @@ async function main() {
       if (f.returnOnEquity != null && f.returnOnEquity >= 20) {
         p.compositeScore = Math.min(100, p.compositeScore + 3);
       }
+    });
+
+    // Sector-relative value + quality (valuation.js). Display-first: the only
+    // effect on the score is a small dock for names that are both expensive
+    // and weak vs their sector peers.
+    const valued = scoreValuations(signals.all);
+    let valuationDocked = 0;
+    for (const p of signals.all) {
+      const pen = valuationPenalty(p.valuation);
+      if (pen > 0) {
+        p.valuationPenalty = pen;
+        p.compositeScore = Math.max(0, p.compositeScore - pen);
+        valuationDocked++;
+      }
     }
+    const sectorValuation = sectorValuationSummary(signals.all);
+    console.log(`  ✓ valuation: ${valued} stocks scored vs sector peers · ${valuationDocked} docked −${VALUATION_PENALTY} (expensive + weak) · ${sectorValuation.sectors.length} sectors summarised (market P/E ${sectorValuation.marketPE ?? "n/a"})`);
 
     // ── Blend in the ML model (gated on out-of-sample edge) ───────────────────
     // The LightGBM forward-return model is a separate alpha source. It only moves
@@ -408,6 +430,7 @@ async function main() {
         discovery: discovery ?? null,
         niftyReturns,
         regime:    regimeInfo,
+        sectorValuation,
         warnings:  signals.warnings.slice(0, 20),
       });
       console.log(`  ✓ ${signals.picks.length} top picks ranked (${signals.scanned} of ${signals.universe} stocks scanned)`);

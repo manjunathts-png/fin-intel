@@ -81,6 +81,11 @@ export default function ScoreBreakdown({ pick }) {
             pullback +{pick.pullbackBonus}
           </span>
         )}
+        {(pick.valuationPenalty ?? 0) > 0 && (
+          <span className="rounded border border-red-800/40 bg-red-900/15 px-1.5 py-0.5 text-red-400" title="Expensive and weak versus sector peers (value and quality both in the bottom of the group) — dock inside the signal score">
+            valuation −{pick.valuationPenalty}
+          </span>
+        )}
         {(pick.liquidityPenalty ?? 0) < 0 && (
           <span className="rounded border border-yellow-800/40 bg-yellow-900/15 px-1.5 py-0.5 text-yellow-400" title="Thin average daily traded value — slippage risk">
             liquidity {pick.liquidityPenalty}
