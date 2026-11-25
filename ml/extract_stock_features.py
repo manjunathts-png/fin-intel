@@ -258,21 +258,31 @@ def _last_trading_day() -> date:
 # NSE price bands cap genuine daily moves at 20% for most stocks.
 CA_DROP_RATIO = 0.55
 CA_JUMP_RATIO = 1.8
+# A split/bonus is visible at the ex-date open (the exchange resets the price
+# before trading); a genuine crash happens intraday. Opens within this band
+# of the previous close mean the move was genuine.
+CA_GENUINE_OPEN_BAND = (0.8, 1.25)
+# Price factors of common Indian splits/bonuses (and combinations, e.g.
+# BAJFINANCE 2025: 1:2 split + 4:1 bonus = 0.1), plus consolidations.
+_CA_FACTORS = [1/2, 1/3, 1/4, 1/5, 1/6, 2/5, 1/8, 1/10, 1/15, 1/20, 1/25, 1/50, 1/100, 2, 5, 10]
+_CA_SNAP_TOL = 0.06
 
 
-def _bhavcopy_prev_close(symbol: str, dt: pd.Timestamp) -> float | None:
-    """NSE's PREV_CLOSE for symbol on dt. On an ex-date NSE publishes it already
-    adjusted for the split/bonus, unlike the previous day's raw CLOSE."""
-    raw = _fetch_bhavcopy_csv(pd.Timestamp(dt), _get_session())
-    if raw is None or "PREV_CLOSE" not in raw.columns:
-        return None
-    rows = raw[raw["SYMBOL"].astype(str).str.strip() == symbol]
-    if "SERIES" in raw.columns:
-        rows = rows[rows["SERIES"].astype(str).str.strip() == "EQ"]
-    if rows.empty:
-        return None
-    v = pd.to_numeric(rows.iloc[0]["PREV_CLOSE"], errors="coerce")
-    return float(v) if pd.notna(v) and v > 0 else None
+def _corporate_action_factor(prev_close: float, open_px: float | None, close_px: float) -> float | None:
+    """Price factor for a cliff day, or None if the move looks genuine.
+
+    Estimated from the ex-date open (overnight gap only, not the day's own
+    move), snapped to the nearest common split/bonus ratio when within 6%.
+    """
+    if open_px is not None and open_px > 0:
+        ratio = open_px / prev_close
+        lo, hi = CA_GENUINE_OPEN_BAND
+        if lo <= ratio <= hi:
+            return None
+    else:
+        ratio = close_px / prev_close
+    nearest = min(_CA_FACTORS, key=lambda f: abs(ratio / f - 1))
+    return nearest if abs(ratio / nearest - 1) <= _CA_SNAP_TOL else ratio
 
 
 def adjust_for_corporate_actions(symbol: str, df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
@@ -280,31 +290,27 @@ def adjust_for_corporate_actions(symbol: str, df: pd.DataFrame) -> tuple[pd.Data
 
     A split shows up as a one-day cliff: e.g. a 1:10 split reads as -90%,
     which inflates drawdown, downside deviation, volatility and beta (the
-    model's top features) and corrupts forward-return labels. For each cliff,
-    factor = NSE's adjusted PREV_CLOSE on the ex-date / the raw close the day
-    before; all earlier prices are multiplied by it (volumes divided). If NSE
-    did not adjust PREV_CLOSE, the move was genuine and is left alone. If the
-    bhavcopy for that day is unavailable, the cliff's own ratio is used.
-    Factors come from the original series, so several actions compound
-    correctly. Returns (df, number of adjustments).
+    model's top features) and corrupts forward-return labels. NSE's bhavcopy
+    PREV_CLOSE is not adjusted on ex-dates either, so the factor comes from
+    the ex-date open (see _corporate_action_factor). All earlier prices are
+    multiplied by it, volumes divided. Factors come from the original series,
+    so several actions compound correctly. Returns (df, number of adjustments).
     """
     if df is None or len(df) < 2 or "close" not in df.columns:
         return df, 0
     close = df["close"].astype(float)
+    opens = df["open"].astype(float) if "open" in df.columns else None
     ratio = close / close.shift(1)
     cliffs = ratio[(ratio < CA_DROP_RATIO) | (ratio > CA_JUMP_RATIO)]
     factors: list[tuple[pd.Timestamp, float]] = []
     for dt, r in cliffs.items():
-        prev_raw = float(close.iloc[close.index.get_loc(dt) - 1])
-        pc = _bhavcopy_prev_close(symbol, dt)
-        if pc is not None:
-            f = pc / prev_raw
-            if 0.9 <= f <= 1.1:
-                log.info("%s: %.0f%% move on %s is genuine (NSE prev close unadjusted)",
-                         symbol, (r - 1) * 100, dt.date())
-                continue
-        else:
-            f = float(r)
+        i = close.index.get_loc(dt)
+        open_px = float(opens.iloc[i]) if opens is not None and pd.notna(opens.iloc[i]) else None
+        f = _corporate_action_factor(float(close.iloc[i - 1]), open_px, float(close.iloc[i]))
+        if f is None:
+            log.info("%s: %.0f%% move on %s happened intraday — treated as genuine",
+                     symbol, (r - 1) * 100, dt.date())
+            continue
         factors.append((dt, f))
     if not factors:
         return df, 0
