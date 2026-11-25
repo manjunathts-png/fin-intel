@@ -251,6 +251,32 @@ def _last_trading_day() -> date:
     return d
 
 
+_STOOQ_MAX_FAILS = 3
+_stooq_fails = 0
+_STOOQ_LOCK = threading.Lock()
+
+
+def _stooq_disabled() -> bool:
+    return _stooq_fails >= _STOOQ_MAX_FAILS
+
+
+def _note_stooq_result(ok: bool) -> None:
+    """Circuit breaker: after _STOOQ_MAX_FAILS consecutive failures, skip Stooq
+    for the rest of the run. On 2026-11-25 Stooq started silently dropping
+    connections from GitHub runners (it used to answer 403 instantly), so every
+    stock waited out the timeout before falling back to bhavcopy and the
+    extract step ran for hours."""
+    global _stooq_fails
+    with _STOOQ_LOCK:
+        if ok:
+            _stooq_fails = 0
+            return
+        _stooq_fails += 1
+        if _stooq_fails == _STOOQ_MAX_FAILS:
+            log.warning("Stooq failed %d times in a row — skipping it for the rest of this run",
+                        _STOOQ_MAX_FAILS)
+
+
 def fetch_ohlcv(symbol: str, start: str = "2020-01-01") -> pd.DataFrame:
     """
     Fetch daily OHLCV for an NSE stock. Source priority:
@@ -279,25 +305,29 @@ def fetch_ohlcv(symbol: str, start: str = "2020-01-01") -> pd.DataFrame:
     session = _get_session()
 
     # ── 1. Stooq ─────────────────────────────────────────────────────────────
-    stooq_sym = symbol.lower()
-    d1 = start.replace("-", "")
-    d2 = (pd.Timestamp.now() + pd.Timedelta(days=1)).strftime("%Y%m%d")
-    stooq_url = f"https://stooq.com/q/d/l/?s={stooq_sym}.ns&d1={d1}&d2={d2}&i=d"
-    try:
-        r = session.get(stooq_url, timeout=30)
-        body = r.text if r.status_code == 200 else ""
-        if r.status_code == 200 and len(body) > 100 and "apikey" not in body.lower():
-            df = _parse_stooq_csv(body, symbol)
-            if not df.empty:
-                df.to_parquet(cache_file)
-                log.info("%s: stooq OK (%d rows)", symbol, len(df))
-                return df
-            log.warning("%s: stooq CSV parsed empty", symbol)
-        else:
-            log.warning("%s: stooq HTTP %d or API-key wall (len=%d)",
-                        symbol, r.status_code, len(body))
-    except Exception as e:
-        log.warning("%s: stooq error: %s", symbol, e)
+    if not _stooq_disabled():
+        stooq_sym = symbol.lower()
+        d1 = start.replace("-", "")
+        d2 = (pd.Timestamp.now() + pd.Timedelta(days=1)).strftime("%Y%m%d")
+        stooq_url = f"https://stooq.com/q/d/l/?s={stooq_sym}.ns&d1={d1}&d2={d2}&i=d"
+        try:
+            r = session.get(stooq_url, timeout=(5, 30))
+            body = r.text if r.status_code == 200 else ""
+            if r.status_code == 200 and len(body) > 100 and "apikey" not in body.lower():
+                _note_stooq_result(True)
+                df = _parse_stooq_csv(body, symbol)
+                if not df.empty:
+                    df.to_parquet(cache_file)
+                    log.info("%s: stooq OK (%d rows)", symbol, len(df))
+                    return df
+                log.warning("%s: stooq CSV parsed empty", symbol)
+            else:
+                _note_stooq_result(False)
+                log.warning("%s: stooq HTTP %d or API-key wall (len=%d)",
+                            symbol, r.status_code, len(body))
+        except Exception as e:
+            _note_stooq_result(False)
+            log.warning("%s: stooq error: %s", symbol, e)
 
     # ── 2. NSE bhavcopy archive ───────────────────────────────────────────────
     # When the stock cache is stale by only a few days, fetch just those missing
