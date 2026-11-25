@@ -254,6 +254,72 @@ def _last_trading_day() -> date:
     return d
 
 
+# One-day close ratios outside this band are treated as possible splits/bonuses.
+# NSE price bands cap genuine daily moves at 20% for most stocks.
+CA_DROP_RATIO = 0.55
+CA_JUMP_RATIO = 1.8
+
+
+def _bhavcopy_prev_close(symbol: str, dt: pd.Timestamp) -> float | None:
+    """NSE's PREV_CLOSE for symbol on dt. On an ex-date NSE publishes it already
+    adjusted for the split/bonus, unlike the previous day's raw CLOSE."""
+    raw = _fetch_bhavcopy_csv(pd.Timestamp(dt), _get_session())
+    if raw is None or "PREV_CLOSE" not in raw.columns:
+        return None
+    rows = raw[raw["SYMBOL"].astype(str).str.strip() == symbol]
+    if "SERIES" in raw.columns:
+        rows = rows[rows["SERIES"].astype(str).str.strip() == "EQ"]
+    if rows.empty:
+        return None
+    v = pd.to_numeric(rows.iloc[0]["PREV_CLOSE"], errors="coerce")
+    return float(v) if pd.notna(v) and v > 0 else None
+
+
+def adjust_for_corporate_actions(symbol: str, df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Back-adjust unadjusted closes (NSE bhavcopy) across splits and bonuses.
+
+    A split shows up as a one-day cliff: e.g. a 1:10 split reads as -90%,
+    which inflates drawdown, downside deviation, volatility and beta (the
+    model's top features) and corrupts forward-return labels. For each cliff,
+    factor = NSE's adjusted PREV_CLOSE on the ex-date / the raw close the day
+    before; all earlier prices are multiplied by it (volumes divided). If NSE
+    did not adjust PREV_CLOSE, the move was genuine and is left alone. If the
+    bhavcopy for that day is unavailable, the cliff's own ratio is used.
+    Factors come from the original series, so several actions compound
+    correctly. Returns (df, number of adjustments).
+    """
+    if df is None or len(df) < 2 or "close" not in df.columns:
+        return df, 0
+    close = df["close"].astype(float)
+    ratio = close / close.shift(1)
+    cliffs = ratio[(ratio < CA_DROP_RATIO) | (ratio > CA_JUMP_RATIO)]
+    factors: list[tuple[pd.Timestamp, float]] = []
+    for dt, r in cliffs.items():
+        prev_raw = float(close.iloc[close.index.get_loc(dt) - 1])
+        pc = _bhavcopy_prev_close(symbol, dt)
+        if pc is not None:
+            f = pc / prev_raw
+            if 0.9 <= f <= 1.1:
+                log.info("%s: %.0f%% move on %s is genuine (NSE prev close unadjusted)",
+                         symbol, (r - 1) * 100, dt.date())
+                continue
+        else:
+            f = float(r)
+        factors.append((dt, f))
+    if not factors:
+        return df, 0
+    df = df.copy()
+    price_cols = [c for c in ("open", "high", "low", "close") if c in df.columns]
+    for dt, f in factors:
+        before = df.index < dt
+        df.loc[before, price_cols] = df.loc[before, price_cols] * f
+        if "volume" in df.columns:
+            df.loc[before, "volume"] = df.loc[before, "volume"] / f
+        log.warning("%s: corporate action on %s — back-adjusted %d earlier rows by %.4f",
+                    symbol, dt.date(), int(before.sum()), f)
+    return df, len(factors)
+
+
 _STOOQ_MAX_FAILS = 3
 _stooq_fails = 0
 _STOOQ_LOCK = threading.Lock()
@@ -281,6 +347,21 @@ def _note_stooq_result(ok: bool) -> None:
 
 
 def fetch_ohlcv(symbol: str, start: str = "2020-01-01") -> pd.DataFrame:
+    """Daily OHLCV for an NSE stock, back-adjusted for splits and bonuses.
+    An adjusted series is written back to the parquet cache, so the repair
+    happens once and downstream readers of the cache (label_stock_targets,
+    track_pick_outcomes) see clean prices too."""
+    df = _fetch_ohlcv_raw(symbol, start)
+    adjusted, n = adjust_for_corporate_actions(symbol, df)
+    if n:
+        try:
+            adjusted.to_parquet(CACHE_DIR / f"{symbol}.parquet")
+        except Exception as e:
+            log.warning("%s: could not save adjusted OHLCV: %s", symbol, e)
+    return adjusted
+
+
+def _fetch_ohlcv_raw(symbol: str, start: str = "2020-01-01") -> pd.DataFrame:
     """
     Fetch daily OHLCV for an NSE stock. Source priority:
       1. Stooq  — free CSV, no auth (works on residential IPs)
