@@ -78,7 +78,10 @@ FUND_CACHE_DIR.mkdir(exist_ok=True)
 BHAVCOPY_CACHE.mkdir(exist_ok=True)
 
 STOCK_CACHE_HOURS = 24
-FUND_CACHE_HOURS  = 24
+# Shorter than the gap between scheduled runs (~11h): .cache_fundamentals is
+# restored across runs, and P/E and P/B move with price daily, so a 24h TTL
+# made each day's stock_fundamentals_history snapshot repeat the previous one.
+FUND_CACHE_HOURS  = 6
 TRADING_DAYS      = 252
 RISK_FREE_RATE    = 0.07
 
