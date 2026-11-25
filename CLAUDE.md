@@ -155,7 +155,7 @@ Two daily scripts write pre-computed verdicts so the UI never calls Claude inlin
 
 1. **Data fetch** — `buildSignalsLeaderboard()` calls `stock_bhavcopy.js` (NSE delivery %), `nse_discovery.js` (bulk deals, OI, 52W highs), `yahoo_fundamentals.js` (P/E, ROE, growth).
 2. **`eodSignalScore(sig)`** — 30+ signals scored per stock. Returns a raw 0–100 value. Also sets `overextensionPenalty`, `pullbackBonus`, `liquidityPenalty`, `signalCount` on the stock object.
-3. **Fundamentals adjustment** — market-cap tier bonus/penalty (+3 large, −10 micro) + earnings/ROE bonuses.
+3. **Fundamentals adjustment** — fundamentals are fetched for the full universe; market-cap tier bonus/penalty (+3 large, −10 micro) + earnings/ROE bonuses apply to the top 200 only. Then **`scoreValuations()`** (`valuation.js`) ranks every stock's value and quality 0–100 against its sector peers (lenders on P/B + ROE/ROA, other financials on P/E + P/B, everyone else on P/E + EV/EBITDA + P/B), docks `valuationPenalty` (−4) from names that are both expensive and weak vs peers, and `sectorValuationSummary()` writes `sectorValuation` (each sector's median P/E vs the market) into the blob. Not yet back-tested — fundamentals history only starts 2026-11-24.
 4. **`loadMlBlend(supabase)`** then **`applyMlBlend(stocks, blend)`** — blends LightGBM percentile into composite; weight = 0 if OOS AUC < 0.52 (gate in `ml_blend.js`).
 5. **`computeRegime({stocks, niftyReturns, macro})`** then **`applyRegime(stocks, info)`** — docks weak names (below 200DMA or rsVsNifty3M < −10%) by −4 (neutral) or −12 (risk\_off). In risk\_off also amplifies overextensionPenalty × 1.5.
 6. **`p.eodBaseScore = p.compositeScore`** — snapshot post-regime score; used by `refresh-intraday.js` as stable base. **Must happen after `applyRegime`.**
@@ -168,7 +168,7 @@ Two daily scripts write pre-computed verdicts so the UI never calls Claude inlin
 `refresh-intraday.js` skips steps 1–8 (uses `eodBaseScore` from the nightly run) and re-scores only with fresh intraday signals (volume shock, breakout, gap, relative strength) to avoid re-running the ML model.
 
 ### Penalty Sign Convention
-All penalty fields (`regimePenalty`, `liquidityPenalty`, `sectorCapPenalty`, `regimeOverextPenalty`) are **positive magnitudes** — the caller does `compositeScore - penalty`. `overextensionPenalty` is **negative** (already a deduction from `eodSignalScore`).
+All penalty fields (`regimePenalty`, `liquidityPenalty`, `sectorCapPenalty`, `regimeOverextPenalty`, `valuationPenalty`) are **positive magnitudes** — the caller does `compositeScore - penalty`. `overextensionPenalty` is **negative** (already a deduction from `eodSignalScore`).
 
 ### Supabase Tables
 | Table | Written by | Purpose |

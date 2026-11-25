@@ -8,7 +8,8 @@
  *
  * Returns:
  *   marketCap, marketCapCr, trailingPE, forwardPE, dividendYield,
- *   earningsGrowth, revenueGrowth, returnOnEquity, profitMargins,
+ *   earningsGrowth, revenueGrowth, returnOnEquity, returnOnAssets,
+ *   profitMargins, debtToEquity, priceToBook, enterpriseToEbitda,
  *   sector, industry, fullExchangeName
  */
 
@@ -69,8 +70,11 @@ async function getFundamentals(symbol) {
     earningsGrowth:   fd.earningsGrowth ? +(fd.earningsGrowth * 100).toFixed(1) : null,
     revenueGrowth:    fd.revenueGrowth  ? +(fd.revenueGrowth  * 100).toFixed(1) : null,
     returnOnEquity:   fd.returnOnEquity ? +(fd.returnOnEquity * 100).toFixed(1) : null,
+    returnOnAssets:   fd.returnOnAssets ? +(fd.returnOnAssets * 100).toFixed(2) : null,
     profitMargins:    fd.profitMargins  ? +(fd.profitMargins  * 100).toFixed(1) : null,
     debtToEquity:     fd.debtToEquity ?? null,
+    priceToBook:      ks.priceToBook ?? null,
+    enterpriseToEbitda: ks.enterpriseToEbitda ?? null,
     sector:           ap.sector ?? null,
     industry:         ap.industry ?? null,
     longName:         pr.longName ?? null,

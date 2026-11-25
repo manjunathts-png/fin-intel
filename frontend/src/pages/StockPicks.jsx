@@ -246,6 +246,41 @@ function Tech({ label, val, fmt, color }) {
   );
 }
 
+// ─── Value / quality vs sector peers (backend/valuation.js) ──────────────────
+
+const VALUATION_METHOD_NOTE = {
+  lender:    "lender — valued on P/B and P/E; quality from ROE, ROA, growth",
+  financial: "financial — valued on P/E and P/B; quality from ROE, margins, growth",
+  standard:  "valued on P/E, EV/EBITDA and P/B; quality from ROE, margins, leverage, growth",
+};
+
+function scoreTone(score) {
+  if (score == null) return "text-gray-500";
+  if (score >= 70) return "text-green-400";
+  if (score <= 30) return "text-red-400";
+  return "text-gray-300";
+}
+
+function ValuationChip({ valuation }) {
+  if (!valuation || (valuation.valueScore == null && valuation.qualityScore == null)) return null;
+  const { valueScore, qualityScore, peers, peerGroup, method } = valuation;
+  const title =
+    `Ranked against ${peers} ${peerGroup} stock${peers === 1 ? "" : "s"} (0–100, 100 = best). ` +
+    `Value: 100 = cheapest. Quality: 100 = strongest business. ${VALUATION_METHOD_NOTE[method] ?? ""}. ` +
+    `Not yet back-tested as a return predictor.`;
+  return (
+    <span className="rounded border border-gray-700 px-1.5 py-0.5 text-[10px] tabular-nums" title={title}>
+      <span className="text-gray-500">Value </span>
+      <span className={scoreTone(valueScore)}>{valueScore ?? "—"}</span>
+      <span className="text-gray-600"> · </span>
+      <span className="text-gray-500">Quality </span>
+      <span className={scoreTone(qualityScore)}>{qualityScore ?? "—"}</span>
+    </span>
+  );
+}
+
+const fmtMultiple = (v) => (v != null && v > 0 ? `${v.toFixed(1)}×` : "—");
+
 // ─── Stock Pick Card — Phase 2 three-tier disclosure ──────────────────────────
 //
 // Tier 1 (default): rank · name · sector · verdict · score · price · "N signals" brief
@@ -381,6 +416,7 @@ function StockPickCard({ pick, rank, ruleBased, aiRationale, mlProb3m, mlProb1m,
             )}
             <StabilityChip pick={pick} />
             <RankDeltaChip delta={pick.rankDelta} />
+            <ValuationChip valuation={pick.valuation} />
           </div>
           {/* Price + brief summary */}
           <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -437,6 +473,23 @@ function StockPickCard({ pick, rank, ruleBased, aiRationale, mlProb3m, mlProb1m,
               <Tech label="EPS Growth"  val={pick.fundamentals.earningsGrowth}   fmt={(v) => v != null ? `${v >= 0 ? "+" : ""}${v}%` : "—"} color={(pick.fundamentals.earningsGrowth ?? 0) >= 20 ? "text-green-400" : (pick.fundamentals.earningsGrowth ?? 0) < 0 ? "text-red-400" : "text-gray-200"} />
               <Tech label="ROE"         val={pick.fundamentals.returnOnEquity}   fmt={(v) => v != null ? `${v}%` : "—"}             color={(pick.fundamentals.returnOnEquity ?? 0) >= 20 ? "text-green-400" : "text-gray-200"} />
               <Tech label="Div Yield"   val={pick.fundamentals.dividendYield}    fmt={(v) => v != null ? `${v}%` : "—"}             color="text-gray-200" />
+            </div>
+          )}
+
+          {/* Valuation vs sector peers */}
+          {pick.valuation && (
+            <div>
+              <div className="mb-1 text-[9px] uppercase tracking-wider text-gray-600">
+                vs {pick.valuation.peers} {pick.valuation.peerGroup} peers
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[10px] sm:grid-cols-4">
+                <Tech label="Value (100 = cheapest)" val={pick.valuation.valueScore}   fmt={(v) => v ?? "—"} color={scoreTone(pick.valuation.valueScore)} />
+                <Tech label="Quality"                val={pick.valuation.qualityScore} fmt={(v) => v ?? "—"} color={scoreTone(pick.valuation.qualityScore)} />
+                <Tech label="P/B"                    val={pick.fundamentals?.priceToBook}        fmt={fmtMultiple} color="text-gray-200" />
+                {pick.valuation.method === "lender"
+                  ? <Tech label="ROA"       val={pick.fundamentals?.returnOnAssets}     fmt={(v) => v != null ? `${v}%` : "—"} color="text-gray-200" />
+                  : <Tech label="EV/EBITDA" val={pick.fundamentals?.enterpriseToEbitda} fmt={fmtMultiple} color="text-gray-200" />}
+              </div>
             </div>
           )}
 
@@ -711,6 +764,77 @@ function DiscoveryAccordion({ discovery, niftyReturns, scannedPicks, onOpenDrawe
   );
 }
 
+// ─── Sector valuations (stock_picks.sectorValuation) ─────────────────────────
+
+const SECTOR_LABEL_STYLE = {
+  cheaper:   "bg-green-900/20 text-green-400 border-green-800/40",
+  "in line": "bg-gray-800/40 text-gray-400 border-gray-700",
+  pricier:   "bg-red-900/20 text-red-400 border-red-800/40",
+};
+
+function SectorValuationAccordion({ summary }) {
+  const [open, setOpen] = useState(false);
+  const sectors = summary?.sectors ?? [];
+  if (!sectors.length) return null;
+  const cheaper = sectors.filter((s) => s.label === "cheaper").length;
+  const pricier = sectors.filter((s) => s.label === "pricier").length;
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-gray-800 bg-gray-950">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left"
+      >
+        <span>⚖️</span>
+        <span className="text-sm font-semibold text-gray-200">Sector valuations</span>
+        <span className="rounded-full border border-gray-700 px-2 py-0.5 text-[10px] text-gray-400">
+          {cheaper} cheaper · {pricier} pricier than market
+        </span>
+        <span className="ml-auto text-sm text-gray-500">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="border-t border-gray-800/60 px-4 py-3">
+          <p className="mb-2 text-[10px] text-gray-500">
+            Each sector's median P/E against the whole Nifty 500 median (P/E {summary.marketPE}).
+            This compares sectors with each other today. Fundamentals history only started on
+            24 Nov 2026, so it can't yet say whether a sector is cheap versus its own past.
+          </p>
+          <table className="w-full text-[11px] tabular-nums">
+            <thead>
+              <tr className="text-left text-[9px] uppercase tracking-wider text-gray-600">
+                <th className="py-1 font-medium">Sector</th>
+                <th className="py-1 text-right font-medium">P/E</th>
+                <th className="py-1 text-right font-medium">vs mkt</th>
+                <th className="hidden py-1 text-right font-medium sm:table-cell">P/B</th>
+                <th className="hidden py-1 text-right font-medium sm:table-cell">ROE</th>
+                <th className="hidden py-1 text-right font-medium sm:table-cell">Stocks</th>
+                <th className="py-1 pl-2 text-right font-medium"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sectors.map((s) => (
+                <tr key={s.sector} className="border-t border-gray-800/50">
+                  <td className="py-1.5 pr-2 text-gray-300">{s.sector}</td>
+                  <td className="py-1.5 text-right text-gray-300">{s.medianPE ?? "—"}</td>
+                  <td className="py-1.5 text-right text-gray-400">{s.peVsMarket != null ? `${s.peVsMarket.toFixed(2)}×` : "—"}</td>
+                  <td className="hidden py-1.5 text-right text-gray-400 sm:table-cell">{s.medianPB ?? "—"}</td>
+                  <td className="hidden py-1.5 text-right text-gray-400 sm:table-cell">{s.medianROE != null ? `${s.medianROE}%` : "—"}</td>
+                  <td className="hidden py-1.5 text-right text-gray-500 sm:table-cell">{s.stocks}</td>
+                  <td className="py-1.5 pl-2 text-right">
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] ${SECTOR_LABEL_STYLE[s.label] ?? SECTOR_LABEL_STYLE["in line"]}`}>
+                      {s.label}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Phase 5: Track Record panel ─────────────────────────────────────────────
 //
 // Fetches the last 120 days of resolved pick_history rows (rank ≤ 50, ret_21d
@@ -941,6 +1065,8 @@ export default function StockPicks() {
         onOpenDrawer={setDrawer}
       />
 
+      <SectorValuationAccordion summary={stockPicksData?.sectorValuation} />
+
       {/* Phase 5: Track Record */}
       <TrackRecord outcomes={pickOutcomes} />
 
@@ -1075,6 +1201,7 @@ export default function StockPicks() {
             "15+ signals scored daily: breakouts, volume, momentum, trend, patterns",
             "Relative Strength vs Nifty 50 (1M &amp; 3M excess return)",
             "Fundamentals: large-cap +3, earnings growth ≥20% +5, RoE ≥20% +3",
+            "Valuation: value & quality ranked vs sector peers (0–100); −4 if both expensive and weak",
             '<span class="text-yellow-300">Two-layer scoring</span> — EOD signals (3:45 PM) + intraday signals refreshed live (5× daily, 9:30 AM–3:30 PM IST)',
             "Low volatility · a stock needs sustained signals across days to rank",
           ],
