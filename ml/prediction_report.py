@@ -19,6 +19,7 @@ import httpx
 
 PROB_COLS = ["p_top_quartile_3m", "p_top_sharpe_q_3m", "p_top_quartile_1m"]
 LOW = 0.01
+FEATURE_COLS = ["ret1w", "ret1m", "ret3m", "vol_30d", "max_dd_1y", "high52w_pct"]
 
 
 def summarize(rows: list[dict]) -> tuple[list[str], list[dict]]:
@@ -60,12 +61,27 @@ def main() -> None:
                 break
             offset += 1000
 
-    lines, low = summarize(rows)
+        lines, low = summarize(rows)
+        feature_dumps = {}
+        for sym in sorted({r["symbol"] for r in low})[:5]:
+            feature_dumps[sym] = c.get(
+                f"{url.rstrip('/')}/rest/v1/stock_features",
+                params={"select": "as_of_date," + ",".join(FEATURE_COLS), "symbol": f"eq.{sym}",
+                        "order": "as_of_date.desc", "limit": 12},
+            ).json()
+
     out = [f"## Stock predictions for {date}", "", f"{len(rows)} rows", ""] + lines + [""]
     out.append(f"**Rows with any probability < {LOW}: {len(low)}**")
     for r in low[:50]:
         vals = ", ".join(f"{c}={r[c]}" for c in PROB_COLS if r.get(c) is not None)
         out.append(f"- {r['symbol']} ({r.get('model_version')}): {vals}, pred_rank={r.get('pred_rank')}")
+    for sym, frows in feature_dumps.items():
+        out += ["", f"**{sym} — recent stock_features**", "",
+                "| date | " + " | ".join(FEATURE_COLS) + " |",
+                "|---|" + "---|" * len(FEATURE_COLS)]
+        for fr in frows:
+            out.append(f"| {fr['as_of_date']} | " + " | ".join(
+                "—" if fr.get(col) is None else f"{fr[col]:.3g}" for col in FEATURE_COLS) + " |")
     report = "\n".join(out)
     print(report)
     path = os.environ.get("GITHUB_STEP_SUMMARY")
