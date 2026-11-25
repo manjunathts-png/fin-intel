@@ -75,6 +75,57 @@ DEFAULT_PARAMS = {
 
 # ─── Data loading ─────────────────────────────────────────────────────────────
 
+def _is_statement_timeout(e: Exception) -> bool:
+    """Postgres 57014 ('canceling statement due to statement timeout')."""
+    return getattr(e, "code", None) == "57014"
+
+
+def fetch_all_features(supabase, page_size: int = 1000, min_page_size: int = 125,
+                       max_timeouts: int = 6) -> pd.DataFrame:
+    """Read every stock_features row with keyset pagination on
+    (as_of_date, symbol), not OFFSET.
+
+    OFFSET N makes Postgres scan and discard N rows per page, so late pages
+    get slower as the table grows; on 2026-11-25 the 3M training step died
+    with a 57014 statement timeout here, leaving the previous day's 3M
+    predictions in place (and the ML Quality check red). Keyset pages cost
+    the same at any depth. A timeout halves the page size and retries the
+    same page; training never proceeds on a silently truncated table, so
+    after max_timeouts the error is raised.
+    """
+    from postgrest.exceptions import APIError
+
+    rows: list[dict] = []
+    last_date: str | None = None
+    last_symbol: str | None = None
+    timeouts = 0
+    while True:
+        query = supabase.table("stock_features").select("*")
+        if last_date is not None:
+            query = query.or_(
+                f"as_of_date.gt.{last_date},"
+                f"and(as_of_date.eq.{last_date},symbol.gt.{last_symbol})"
+            )
+        try:
+            resp = query.order("as_of_date").order("symbol").limit(page_size).execute()
+        except APIError as e:
+            if not _is_statement_timeout(e) or timeouts >= max_timeouts:
+                raise
+            timeouts += 1
+            page_size = max(min_page_size, page_size // 2)
+            log.warning("Statement timeout reading stock_features after %d rows; "
+                        "retrying with page size %d (%d/%d)",
+                        len(rows), page_size, timeouts, max_timeouts)
+            continue
+        batch = resp.data or []
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        last_date, last_symbol = batch[-1]["as_of_date"], batch[-1]["symbol"]
+    log.info("Read %d stock_features rows", len(rows))
+    return pd.DataFrame(rows)
+
+
 def load_labeled(supabase, target_col: str) -> pd.DataFrame:
     """Pull rows with a non-null target_col label for training.
 
@@ -87,22 +138,7 @@ def load_labeled(supabase, target_col: str) -> pd.DataFrame:
     """
     def _fetch_all() -> pd.DataFrame:
         log.info("Loading stock_features (full table, cached across this run's target variants)…")
-        rows, page_size, offset = [], 1000, 0
-        while True:
-            resp = (
-                supabase.table("stock_features")
-                .select("*")
-                .order("as_of_date")
-                .range(offset, offset + page_size - 1)
-                .execute()
-            )
-            batch = resp.data or []
-            rows.extend(batch)
-            if len(batch) < page_size:
-                break
-            offset += page_size
-
-        df = pd.DataFrame(rows)
+        df = fetch_all_features(supabase)
         if not df.empty:
             df["as_of_date"] = pd.to_datetime(df["as_of_date"])
         return df
