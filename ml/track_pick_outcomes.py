@@ -90,7 +90,7 @@ def load_pending(supabase, max_age_days: int = 365) -> pd.DataFrame:
     while True:
         resp = (
             supabase.table("pick_history")
-            .select("pick_date,symbol,ret_5d,ret_10d,ret_21d")
+            .select("pick_date,symbol,rank,ret_5d,ret_10d,ret_21d")
             .is_("ret_21d", "null")
             .gte("pick_date", str(oldest))
             .lte("pick_date", str(newest))
@@ -108,6 +108,15 @@ def load_pending(supabase, max_age_days: int = 365) -> pd.DataFrame:
     return df
 
 
+def cache_symbol(symbol: str) -> str:
+    """pick_history stores Yahoo-style symbols (ABB.NS); the OHLCV parquet
+    cache is keyed by the bare NSE symbol (ABB.parquet)."""
+    for suffix in (".NS", ".BO"):
+        if symbol.endswith(suffix):
+            return symbol[: -len(suffix)]
+    return symbol
+
+
 def backfill(supabase, pending: pd.DataFrame, dry_run: bool = False) -> int:
     updates: list[dict[str, Any]] = []
     closes_cache: dict[str, pd.Series | None] = {}
@@ -116,7 +125,7 @@ def backfill(supabase, pending: pd.DataFrame, dry_run: bool = False) -> int:
     for _, row in pending.iterrows():
         sym = row["symbol"]
         if sym not in closes_cache:
-            cache_file = CACHE_DIR / f"{sym}.parquet"
+            cache_file = CACHE_DIR / f"{cache_symbol(sym)}.parquet"
             ser = None
             if cache_file.exists():
                 try:
@@ -149,6 +158,9 @@ def backfill(supabase, pending: pd.DataFrame, dry_run: bool = False) -> int:
         updates.append({
             "pick_date": str(pick_d),
             "symbol":    sym,
+            # rank is NOT NULL, and Postgres checks that on the upsert's
+            # insert row before resolving the conflict, so it must be sent.
+            "rank":      int(row["rank"]),
             **{k: v for k, v in out.items() if v is not None},
             "outcomes_updated_at": pd.Timestamp.utcnow().isoformat(),
         })
