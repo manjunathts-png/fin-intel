@@ -111,6 +111,7 @@ def load_pending(supabase, max_age_days: int = 365) -> pd.DataFrame:
 def backfill(supabase, pending: pd.DataFrame, dry_run: bool = False) -> int:
     updates: list[dict[str, Any]] = []
     closes_cache: dict[str, pd.Series | None] = {}
+    skipped = {"no_ohlcv": 0, "no_future_bar": 0, "nothing_new": 0}
 
     for _, row in pending.iterrows():
         sym = row["symbol"]
@@ -128,17 +129,22 @@ def backfill(supabase, pending: pd.DataFrame, dry_run: bool = False) -> int:
 
         ser = closes_cache[sym]
         if ser is None:
+            skipped["no_ohlcv"] += 1
             continue
         pick_d = date.fromisoformat(str(row["pick_date"])[:10])
         out = compute_outcomes(ser, pick_d)
         if out is None:
+            skipped["no_future_bar"] += 1
             continue
-        # Only write when something NEW resolved vs what's already stored
+        # Only write when something NEW resolved vs what's already stored.
+        # pd.isna, not `is None`: once some rows have a value, pandas stores
+        # the column as float and the missing ones come back as NaN.
         has_new = any(
-            out.get(col) is not None and row.get(col) is None
+            out.get(col) is not None and pd.isna(row.get(col))
             for col in HORIZONS
         )
         if not has_new:
+            skipped["nothing_new"] += 1
             continue
         updates.append({
             "pick_date": str(pick_d),
@@ -147,6 +153,9 @@ def backfill(supabase, pending: pd.DataFrame, dry_run: bool = False) -> int:
             "outcomes_updated_at": pd.Timestamp.utcnow().isoformat(),
         })
 
+    log.info("Outcome backfill: %d rows to write; skipped %s (symbols without OHLCV: %s)",
+             len(updates), skipped,
+             sorted(s for s, v in closes_cache.items() if v is None)[:20])
     if not updates:
         log.info("No new outcomes to write")
         return 0
